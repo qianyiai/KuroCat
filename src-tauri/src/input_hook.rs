@@ -63,6 +63,8 @@ pub fn start_global_hooks(app: AppHandle) {
                     } else {
                         false
                     };
+                    #[cfg(debug_assertions)]
+                    eprintln!("[kurocat] emit keyDown vk={vk:#x} repeat={repeat}");
                     let _ = app.emit("kuro-input", InputEvent::KeyDown { vk, scan, repeat });
                 }
                 RawHookMsg::KeyUp { vk, scan } => {
@@ -263,9 +265,7 @@ pub mod macos_hook {
     type CFRunLoopSourceRef = *mut c_void;
     type CFRunLoopRef = *mut c_void;
     type CFStringRef = *const c_void;
-    type CFDictionaryRef = *const c_void;
     type CFAllocatorRef = *const c_void;
-    type CFBooleanRef = *const c_void;
     type CGEventType = u32;
     type CGEventMask = u64;
     type CGDirectDisplayID = u32;
@@ -350,7 +350,6 @@ pub mod macos_hook {
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
         static kCFRunLoopCommonModes: CFStringRef;
-        static kCFBooleanTrue: CFBooleanRef;
         fn CFMachPortCreateRunLoopSource(
             allocator: CFAllocatorRef,
             port: CFMachPortRef,
@@ -359,22 +358,7 @@ pub mod macos_hook {
         fn CFRunLoopGetCurrent() -> CFRunLoopRef;
         fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
         fn CFRunLoopRun();
-        fn CFDictionaryCreate(
-            allocator: CFAllocatorRef,
-            keys: *const *const c_void,
-            values: *const *const c_void,
-            num_values: isize,
-            key_callbacks: *const c_void,
-            value_callbacks: *const c_void,
-        ) -> CFDictionaryRef;
         fn CFRelease(cf: *const c_void);
-    }
-
-    #[link(name = "ApplicationServices", kind = "framework")]
-    extern "C" {
-        static kAXTrustedCheckOptionPrompt: CFStringRef;
-        fn AXIsProcessTrusted() -> bool;
-        fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> bool;
     }
 
     static TAP_PORT: AtomicPtr<c_void> = AtomicPtr::new(std::ptr::null_mut());
@@ -395,29 +379,6 @@ pub mod macos_hook {
             let pt = CGEventGetLocation(ev);
             CFRelease(ev as *const c_void);
             Some((pt.x, pt.y))
-        }
-    }
-
-    fn request_accessibility_permission_once() -> bool {
-        unsafe {
-            if AXIsProcessTrusted() {
-                return true;
-            }
-            let keys = [kAXTrustedCheckOptionPrompt as *const c_void];
-            let vals = [kCFBooleanTrue as *const c_void];
-            let opts = CFDictionaryCreate(
-                std::ptr::null(),
-                keys.as_ptr(),
-                vals.as_ptr(),
-                1,
-                std::ptr::null(),
-                std::ptr::null(),
-            );
-            let trusted = AXIsProcessTrustedWithOptions(opts);
-            if !opts.is_null() {
-                CFRelease(opts as *const c_void);
-            }
-            trusted
         }
     }
 
@@ -627,12 +588,10 @@ pub mod macos_hook {
     }
 
     pub fn run_macos_hook_loop() {
-        // Trigger native macOS Accessibility prompt once if needed, then poll cleanly until granted (no restart needed!)
-        if !request_accessibility_permission_once() {
-            while !unsafe { AXIsProcessTrusted() } {
-                std::thread::sleep(Duration::from_secs(2));
-            }
-        }
+        // Do NOT gate on AXIsProcessTrusted. For adhoc/unsigned builds the
+        // Accessibility grant is flaky and re-prompts every launch, while a
+        // listen-only CGEventTap only requires Input Monitoring. Just create
+        // the tap; if it fails we retry in the loop below.
 
         let mask: CGEventMask = (1u64 << K_CG_EVENT_LEFT_MOUSE_DOWN)
             | (1u64 << K_CG_EVENT_LEFT_MOUSE_UP)
@@ -659,12 +618,18 @@ pub mod macos_hook {
                     std::ptr::null_mut(),
                 );
                 if tap.is_null() {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[kurocat] CGEventTapCreate returned null (needs Input Monitoring?) - retrying");
                     std::thread::sleep(Duration::from_secs(2));
                     continue;
                 }
+                #[cfg(debug_assertions)]
+                eprintln!("[kurocat] event tap created OK");
                 TAP_PORT.store(tap, Ordering::Relaxed);
                 let src = CFMachPortCreateRunLoopSource(std::ptr::null(), tap, 0);
                 if src.is_null() {
+                    #[cfg(debug_assertions)]
+                    eprintln!("[kurocat] CFMachPortCreateRunLoopSource failed");
                     CFRelease(tap as *const c_void);
                     std::thread::sleep(Duration::from_secs(2));
                     continue;
