@@ -84,6 +84,9 @@ const BODY_SLICES: Array<{ t: number; hw: number }> = [
 
 const IDLE_RENDER_AFTER_MS = 3000;
 const IDLE_RENDER_PAUSE_MS = 40;
+const FAST_TYPING_WINDOW_MS = 10_000;
+const FAST_TYPING_MIN_KEYS = 41; // More than 240 KPM in a ten-second window.
+const FAST_TYPING_IDLE_MS = 1000;
 
 export class KuroCatEngine {
   private canvas: HTMLCanvasElement;
@@ -103,6 +106,7 @@ export class KuroCatEngine {
   public keyboardOrientation: KeyboardOrientation = 'cat';
   private renderScale = 1.0;
   private embedded = false;
+  private readonly fastTypingReaction: boolean;
   private dafeiyu = new DaFeiYuRenderer();
   private catTail = {
     heldVks: new Set<number>(),
@@ -127,6 +131,8 @@ export class KuroCatEngine {
     this.privacyMode = active;
     this.dafeiyu.onPrivacyModeChanged(active);
     if (active) {
+      this.fastTypingKeyTimes.length = 0;
+      this.typingAngerOpacity = 0;
       this.heldKeys.clear();
       this.catTail.heldVks.clear();
       this.catTailHeldAt.clear();
@@ -346,6 +352,8 @@ export class KuroCatEngine {
   private recentKeyTimes: number[] = [];
   private typingEnergy = 0;
   private lastAnyKeyAt = -10000;
+  private fastTypingKeyTimes: number[] = [];
+  private typingAngerOpacity = 0;
 
   // Paws & continuous held-key tracking (Fixes #3)
   private leftPaw: PawState;
@@ -362,9 +370,10 @@ export class KuroCatEngine {
   private bubbles: KeyBubble[] = [];
   private nextBubbleId = 1;
 
-  constructor(canvas: HTMLCanvasElement, options?: { embedded?: boolean }) {
+  constructor(canvas: HTMLCanvasElement, options?: { embedded?: boolean; fastTypingReaction?: boolean }) {
     this.canvas = canvas;
     this.embedded = Boolean(options?.embedded);
+    this.fastTypingReaction = Boolean(options?.fastTypingReaction);
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Could not initialize 2D canvas context');
     this.ctx = ctx;
@@ -536,6 +545,10 @@ export class KuroCatEngine {
     this.lastAnyKeyAt = now;
     this.recentKeyTimes.push(now);
     if (this.recentKeyTimes.length > 26) this.recentKeyTimes.shift();
+    if (this.fastTypingReaction && this.catBreed !== 'dafeiyu') {
+      this.fastTypingKeyTimes.push(now);
+      if (this.fastTypingKeyTimes.length > FAST_TYPING_MIN_KEYS) this.fastTypingKeyTimes.shift();
+    }
 
     this.bodyBob = Math.min(1.15, this.bodyBob + 0.65);
     this.kbBounce = Math.min(1, this.kbBounce + 0.45);
@@ -1106,6 +1119,14 @@ export class KuroCatEngine {
     const targetTypingEnergy = Math.min(1, this.recentKeyTimes.length / 7);
     this.typingEnergy += (targetTypingEnergy - this.typingEnergy) * (1 - Math.exp(-9 * dt));
 
+    const fastKeys = this.fastTypingKeyTimes;
+    const typingFast = fastKeys.length === FAST_TYPING_MIN_KEYS &&
+      now - fastKeys[0] <= FAST_TYPING_WINDOW_MS &&
+      now - fastKeys[fastKeys.length - 1] < FAST_TYPING_IDLE_MS;
+    this.typingAngerOpacity = typingFast
+      ? Math.min(1, this.typingAngerOpacity + dt * 7)
+      : Math.max(0, this.typingAngerOpacity - dt * 3);
+
     const isTypingRecently =
       now - this.lastAnyKeyAt < 650 ||
       this.heldKeys.size > 0 ||
@@ -1440,7 +1461,36 @@ export class KuroCatEngine {
       this.drawKeyBubbles(ctx);
       this.drawMouseBadges(ctx);
     }
+    this.drawTypingAnger(ctx, breath, purrShift);
 
+    ctx.restore();
+  }
+
+  private drawTypingAnger(ctx: CanvasRenderingContext2D, breath: number, purrShift: number): void {
+    if (this.typingAngerOpacity <= 0) return;
+
+    const head = this.spinePoint(0.24, breath);
+    const pulse = 0.95 + 0.05 * Math.sin(this.elapsed * 9);
+    ctx.save();
+    ctx.translate(head.x + purrShift + 48, head.y - 65);
+    ctx.scale(pulse, pulse);
+    ctx.rotate(-0.14);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    for (const x of [-1, 1]) {
+      for (const y of [-1, 1]) {
+        ctx.moveTo(x * 3, y * 9);
+        ctx.quadraticCurveTo(x * 2.3, y * 2.3, x * 9, y * 3);
+      }
+    }
+
+    ctx.globalAlpha *= this.typingAngerOpacity;
+    ctx.strokeStyle = 'rgba(64, 30, 36, 0.72)';
+    ctx.lineWidth = 4.5;
+    ctx.stroke();
+    ctx.strokeStyle = '#f07776';
+    ctx.lineWidth = 2.7;
+    ctx.stroke();
     ctx.restore();
   }
 
