@@ -223,6 +223,7 @@ function activateRenderEngine(): void {
       engine.resize();
       engine.start();
       active3d = false;
+      void invoke('set_desktop_3d_active', { active: false });
     }
     return;
   }
@@ -236,6 +237,7 @@ function activateRenderEngine(): void {
       engine3d.resize();
       engine3d.start();
       active3d = true;
+      void invoke('set_desktop_3d_active', { active: true });
     }
     return;
   }
@@ -903,9 +905,8 @@ async function bootstrap(): Promise<void> {
         break;
       case 'keyUp':
         if (active3d || tailPickerOpen) engine3d?.onKeyUp(p.vk);
-        if (!active3d) {
-          engine.onKeyUp(p.vk);
-        }
+        // A key held in 2D can be released after switching to 3D.
+        engine.onKeyUp(p.vk);
         break;
       case 'mouseMove':
         if (active3d && engine3d) engine3d.onGlobalMouseMove(p.nx, p.ny);

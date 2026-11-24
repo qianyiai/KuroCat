@@ -256,6 +256,7 @@ pub struct AppState {
     pub settings: Arc<Mutex<AppSettings>>,
     pub menu_open: Arc<AtomicBool>,
     tail_picker_bounds: Arc<Mutex<Option<TailPickerBounds>>>,
+    desktop_3d_active: Arc<AtomicBool>,
     pub menu_creating: Arc<AtomicBool>,
     pub menu_opened_at: Arc<Mutex<Instant>>,
     pub dragging: Arc<AtomicBool>,
@@ -679,6 +680,11 @@ fn set_menu_open(state: State<'_, AppState>, open: bool) {
 #[tauri::command]
 fn set_tail_picker_bounds(state: State<'_, AppState>, bounds: Option<TailPickerBounds>) {
     *state.tail_picker_bounds.lock().unwrap() = bounds;
+}
+
+#[tauri::command]
+fn set_desktop_3d_active(state: State<'_, AppState>, active: bool) {
+    state.desktop_3d_active.store(active, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -1557,15 +1563,27 @@ fn win_wait_for_previous_pid_if_requested() {
     }
 }
 
-fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool) -> (bool, bool) {
+fn is_over_interactive_silhouette(
+    rx: f64,
+    ry: f64,
+    is_108: bool,
+    has_relocated_mouse: bool,
+) -> (bool, bool) {
+    // The relocated mouse is interactive and has no petting response.
+    if has_relocated_mouse && rx >= 0.26 && rx <= 0.39 && ry >= 0.515 && ry <= 0.672 {
+        return (true, false);
+    }
+
     // Cat body/head oval centered around (0.48, 0.49) for 65% or (0.51, 0.48) for 108-key
     let (cat_cx, cat_rx) = if is_108 { (0.51, 0.21) } else { (0.48, 0.25) };
     let dx_cat = (rx - cat_cx) / cat_rx;
     let dy_cat = (ry - 0.49) / 0.27;
     let over_cat = (dx_cat * dx_cat + dy_cat * dy_cat) <= 1.0;
 
-    // Keyboard & mouse lower area
-    let over_desk = if is_108 {
+    // The other layouts keep the mouse beside the keyboard.
+    let over_desk = if has_relocated_mouse {
+        rx >= 0.125 && rx <= 0.92 && ry >= 0.65 && ry <= 0.94
+    } else if is_108 {
         rx >= 0.04 && rx <= 0.94 && ry >= 0.65 && ry <= 0.94
     } else {
         rx >= 0.06 && rx <= 0.92 && ry >= 0.65 && ry <= 0.91
@@ -1602,8 +1620,33 @@ fn tail_picker_captures_cursor(
 }
 
 #[cfg(test)]
-mod tail_picker_hit_tests {
-    use super::{tail_picker_captures_cursor, TailPickerBounds};
+mod hit_test_geometry_tests {
+    use super::{is_over_interactive_silhouette, tail_picker_captures_cursor, TailPickerBounds};
+
+    #[test]
+    fn relocated_mouse_changes_only_the_opted_in_108_key_geometry() {
+        let new_x = 176.0 / 540.0;
+        let new_y = 270.0 / 456.0;
+        assert_eq!(
+            is_over_interactive_silhouette(new_x, new_y, true, true),
+            (true, false),
+        );
+        assert_eq!(
+            is_over_interactive_silhouette(new_x, new_y, true, false),
+            (true, true),
+        );
+
+        let old_x = 46.0 / 540.0;
+        let old_y = 342.0 / 456.0;
+        assert_eq!(
+            is_over_interactive_silhouette(old_x, old_y, true, true),
+            (false, false),
+        );
+        assert_eq!(
+            is_over_interactive_silhouette(old_x, old_y, true, false),
+            (true, false),
+        );
+    }
 
     #[test]
     fn captures_picker_controls_and_keyboard_only_while_open() {
@@ -1637,12 +1680,15 @@ fn start_hit_test_loop(
     update_banner_open: Arc<AtomicBool>,
     paused_guard: Arc<AtomicBool>,
 ) {
-    let tail_picker_bounds = app.state::<AppState>().tail_picker_bounds.clone();
+    let state = app.state::<AppState>();
+    let tail_picker_bounds = state.tail_picker_bounds.clone();
+    let desktop_3d_active = state.desktop_3d_active.clone();
     std::thread::spawn(move || {
         let mut last_ignore: Option<bool> = None;
         let mut last_cursor: (i32, i32) = (i32::MIN, i32::MIN);
         let mut last_alt_override = false;
         let mut last_effective_locked = false;
+        let mut last_over_cat = false;
         #[cfg(windows)]
         let mut drift_ticks: u8 = 0;
         #[cfg(windows)]
@@ -1703,12 +1749,13 @@ fn start_hit_test_loop(
             let rx = (cx - win_x) as f64 / w;
             let ry = (cy - win_y) as f64 / h;
             let inside = rx >= 0.0 && rx <= 1.0 && ry >= 0.0 && ry <= 1.0;
-            let (locked, always_on_top, is_108, cur_scale, layout_str) = {
+            let (locked, always_on_top, is_108, is_big_fish, cur_scale, layout_str) = {
                 let s = settings.lock().unwrap();
                 (
                     s.click_through_locked,
                     s.always_on_top,
                     s.keyboard_layout == "108",
+                    s.cat_breed == "dafeiyu",
                     s.scale.clamp(0.20, 1.50),
                     s.keyboard_layout.clone(),
                 )
@@ -1815,7 +1862,9 @@ fn start_hit_test_loop(
             let inside_pet = pet_rx >= 0.0 && pet_rx <= 1.0 && pet_ry >= 0.0 && pet_ry <= 1.0;
 
             let (over_interactive, raw_over_cat) = if inside_pet {
-                is_over_interactive_silhouette(pet_rx, pet_ry, is_108)
+                let is_2d = is_win7_ulw || !desktop_3d_active.load(Ordering::Relaxed);
+                let has_relocated_mouse = is_108 && !is_big_fish && is_2d;
+                is_over_interactive_silhouette(pet_rx, pet_ry, is_108, has_relocated_mouse)
             } else {
                 (false, false)
             };
@@ -1890,10 +1939,12 @@ fn start_hit_test_loop(
             if (cx, cy) != last_cursor
                 || alt_override != last_alt_override
                 || effective_locked != last_effective_locked
+                || over_cat != last_over_cat
             {
                 last_cursor = (cx, cy);
                 last_alt_override = alt_override;
                 last_effective_locked = effective_locked;
+                last_over_cat = over_cat;
                 let _ = app.emit(
                     "kuro-cursor",
                     WindowCursorInfo {
@@ -2205,6 +2256,7 @@ pub fn run() {
             settings: settings_arc,
             menu_open,
             tail_picker_bounds: Arc::new(Mutex::new(None)),
+            desktop_3d_active: Arc::new(AtomicBool::new(false)),
             menu_creating,
             menu_opened_at,
             dragging,
@@ -2401,6 +2453,7 @@ pub fn run() {
             preview_scale,
             set_menu_open,
             set_tail_picker_bounds,
+            set_desktop_3d_active,
             save_tail_picker_selection,
             set_dragging,
             start_pet_drag,
