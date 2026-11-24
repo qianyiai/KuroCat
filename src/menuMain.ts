@@ -439,30 +439,51 @@ async function bootstrap(): Promise<void> {
     if (e.key === 'Escape') closeMenu();
   });
 
+  let wheelScaleCommitTimer: number | undefined;
+  const cancelWheelScaleCommit = () => {
+    window.clearTimeout(wheelScaleCommitTimer);
+    wheelScaleCommitTimer = undefined;
+  };
+
   if (scaleSliderEl) {
     scaleSliderEl.addEventListener('pointerdown', () => {
       sliderDragging = true;
     });
-    scaleSliderEl.addEventListener('input', () => {
+    const previewSliderScale = () => {
+      cancelWheelScaleCommit();
       sliderDragging = true;
       const nextScale = Math.max(0.2, Math.min(1.5, Number(scaleSliderEl.value) / 100));
       updateScaleSliderVisual(nextScale);
       void invoke('preview_scale', { scale: nextScale });
-    });
+    };
+    scaleSliderEl.addEventListener('input', previewSliderScale);
     const commitSliderScale = () => {
+      cancelWheelScaleCommit();
       sliderDragging = false;
       const nextScale = Math.max(0.2, Math.min(1.5, Number(scaleSliderEl.value) / 100));
       void applySettingsPatch({ scale: nextScale });
     };
     scaleSliderEl.addEventListener('change', commitSliderScale);
     scaleSliderEl.addEventListener('pointerup', () => {
-      sliderDragging = false;
+      if (wheelScaleCommitTimer === undefined) sliderDragging = false;
     });
+    scaleSliderEl.closest<HTMLElement>('.menu-scale-row')?.addEventListener('wheel', (e) => {
+      if (e.deltaY === 0) return;
+      e.preventDefault();
+      const previousValue = scaleSliderEl.value;
+      if (e.deltaY < 0) scaleSliderEl.stepUp();
+      else scaleSliderEl.stepDown();
+      if (scaleSliderEl.value === previousValue) return;
+      previewSliderScale();
+      // Commit after scrolling stops because saving the scale can move the menu.
+      wheelScaleCommitTimer = window.setTimeout(commitSliderScale, 150);
+    }, { passive: false });
   }
 
   if (scaleValueEl) {
     scaleValueEl.addEventListener('click', (e) => {
       e.stopPropagation();
+      cancelWheelScaleCommit();
       sliderDragging = false;
       updateScaleSliderVisual(1.0);
       void applySettingsPatch({ scale: 1.0 });
