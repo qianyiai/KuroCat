@@ -1,4 +1,11 @@
 import {
+  BIRD_STAGE_PET,
+  BIRD_STAGE_WIDTH,
+  drawBirdVisit,
+  type BirdVisitKind,
+} from './birdVisit';
+import { BirdVisitPlayer } from './birdVisitPlayer';
+import {
   KEYBOARD_KEYS_65,
   KEYBOARD_KEYS_108,
   getKeyboardLayout,
@@ -212,6 +219,21 @@ const BODY_SLICES: Array<{ t: number; hw: number }> = [
   { t: 1.00, hw: 46 }, // cozy bottom rest
 ];
 
+const EMBEDDED_CAT_FIT = 0.86;
+// Matches BIRD_STAGE_GUTTER in the desktop window dimensions.
+const BIRD_STAGE_GUTTER = 149;
+const BIRD_PREVIEW_KEYBOARD_108 = { x: 278, y: 356, width: 398, height: 96 };
+
+export const FATIGUE_KEY_WINDOW_MS = 950;
+export const FATIGUE_KEY_COUNT = 8;
+export const FATIGUE_AFTER_BURST_MS = 5300;
+export const FATIGUE_PAUSE_MS = 520;
+export const FATIGUE_RECOVERY_DELAY_MS = 780;
+export const FATIGUE_RECOVERY_MS = 1650;
+export const FATIGUE_EXHALE_DELAY_MS = 100;
+export const FATIGUE_EXHALE_MS = 720;
+export const FATIGUE_CROSS_FADE_AT = 0.42;
+
 const IDLE_RENDER_AFTER_MS = 3000;
 const IDLE_RENDER_PAUSE_MS = 40;
 const KEYBOARD_HIT_HALF_WIDTH_RATIO = 0.54;
@@ -271,6 +293,7 @@ export class KuroCatEngine {
     this.privacyMode = active;
     this.dafeiyu.onPrivacyModeChanged(active);
     if (active) {
+      this.clearTypingFatigue();
       this.heldKeys.clear();
       this.catTail.heldVks.clear();
       this.catTailHeldAt.clear();
@@ -296,6 +319,29 @@ export class KuroCatEngine {
     this.wakeRendering();
   }
 
+  public setBirdStageEnabled(enabled: boolean): void {
+    if (this.embedded || this.birdStageEnabled === enabled) return;
+    this.birdStageEnabled = enabled;
+    if (!enabled) this.birdPlayer.clearVisit();
+    this.wakeRendering();
+  }
+
+  public previewBirdVisit(kind: BirdVisitKind = 'typing'): boolean {
+    if (!this.canShowBirdVisit()) return false;
+    const now = performance.now();
+    if (kind === 'sleep') {
+      this.triggerSleepDemo();
+      this.birdPlayer.scheduleSleepPreview(now);
+      return true;
+    }
+    this.clearTypingFatigue();
+    this.wakeCat(now);
+    this.typingFatigued = true;
+    this.typingFatigue = 0.9;
+    this.fatigueLastKeyAt = now - FATIGUE_PAUSE_MS - FATIGUE_EXHALE_DELAY_MS + 140;
+    return true;
+  }
+
   public getLogicalSize(): { w: number; h: number } {
     return { w: this.logicalW, h: this.logicalH };
   }
@@ -316,6 +362,7 @@ export class KuroCatEngine {
   }
 
   public setTailPickerActive(active: boolean, selection?: ReadonlySet<string>): void {
+    if (active && !this.tailPickerActive) this.clearTypingFatigue();
     this.tailPickerActive = Boolean(active);
     this.tailPickerSelection = this.tailPickerActive ? selection ?? null : null;
     if (!this.tailPickerActive) {
@@ -378,7 +425,7 @@ export class KuroCatEngine {
     const cw = this.canvas.width;
     const ch = this.canvas.height;
     if (this.embedded) {
-      const baseFit = Math.min((cw * 0.86) / this.logicalW, (ch * 0.86) / this.logicalH);
+      const baseFit = Math.min((cw * EMBEDDED_CAT_FIT) / this.logicalW, (ch * EMBEDDED_CAT_FIT) / this.logicalH);
       const effectiveMul =
         this.renderScale <= 1.0 ? this.renderScale : 1.0 + (this.renderScale - 1.0) * 0.30;
       const uniformScale = baseFit * effectiveMul;
@@ -392,9 +439,10 @@ export class KuroCatEngine {
     }
     const cssW = Math.max(1, window.innerWidth);
     const dpr = cw / cssW;
-    const fitScale = Math.min(cw / this.logicalW, ch / this.logicalH);
+    const gutter = this.birdStageEnabled ? BIRD_STAGE_GUTTER : 0;
+    const fitScale = Math.min(cw / (this.logicalW + 2 * gutter), ch / this.logicalH);
     const uniformScale = Math.min(fitScale, this.renderScale * dpr);
-    const drawW = this.logicalW * uniformScale;
+    const drawW = (this.logicalW + gutter) * uniformScale;
     const drawH = this.logicalH * uniformScale;
     return {
       offsetX: cw - drawW,
@@ -579,6 +627,7 @@ export class KuroCatEngine {
   }
 
   public setCatAppearance(breedId: string, skin?: CatSkinConfig | null): void {
+    if ((this.catBreed === 'dafeiyu') !== (breedId === 'dafeiyu')) this.clearTypingFatigue();
     if (breedId === 'dafeiyu') {
       this.catBreed = 'dafeiyu';
       this.customSkin = null;
@@ -612,6 +661,7 @@ export class KuroCatEngine {
     const nextLayout: KeyboardLayoutId = layout === '108' ? '108' : '65';
     const nextOrientation: KeyboardOrientation = orientation === 'viewer' ? 'viewer' : 'cat';
     const layoutChanged = this.keyboardLayout !== nextLayout;
+    if (layoutChanged) this.birdPlayer.clearVisit();
     this.keyboardLayout = nextLayout;
     this.keyboardOrientation = nextOrientation;
 
@@ -793,6 +843,19 @@ export class KuroCatEngine {
   private typingEnergy = 0;
   private lastAnyKeyAt = -10000;
 
+  // Only real, non-repeating cat keystrokes count toward fatigue.
+  private readonly fatigueKeyTimes: number[] = [];
+  private fatigueLastKeyAt = Number.NEGATIVE_INFINITY;
+  private fastTypingStartedAt: number | null = null;
+  private typingFatigued = false;
+  private typingFatigue = 0;
+  private typingSigh = 0;
+  private typingExhaleProgress = 0;
+  private fatiguedCrossSince: number | null = null;
+  private readonly reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
+  private birdStageEnabled = false;
+  private readonly birdPlayer = new BirdVisitPlayer();
+
   // Paws & continuous held-key tracking (Fixes #3)
   private leftPaw: PawState;
   private rightPaw: PawState;
@@ -878,6 +941,7 @@ export class KuroCatEngine {
   }
 
   public stop(): void {
+    this.birdPlayer.clearVisit();
     if (this.rafId !== null) cancelAnimationFrame(this.rafId);
     if (this.idleFrameTimer !== null) window.clearTimeout(this.idleFrameTimer);
     this.rafId = null;
@@ -908,7 +972,7 @@ export class KuroCatEngine {
     this.onAfterRender?.();
 
     if (this.rafId !== frameId) return;
-    const active = now - this.lastActivityAt < IDLE_RENDER_AFTER_MS;
+    const active = this.birdPlayer.active || now - this.lastActivityAt < IDLE_RENDER_AFTER_MS;
 
     // Smart adaptive frame pacing:
     // - 60Hz normal mode: native direct rAF
@@ -1008,6 +1072,8 @@ export class KuroCatEngine {
 
   /** Interactive demo trigger: immediately shows airplane ears + 3-beat grumpy tail desk-thump! */
   public triggerCrossDemo(): void {
+    this.clearTypingFatigue();
+    this.fatiguedCrossSince = null;
     const now = performance.now();
     this.wakeCat(now);
     this.curiousUntil = -10000;
@@ -1021,6 +1087,7 @@ export class KuroCatEngine {
 
   /** Interactive demo trigger: immediately curls into sleepy loaf with floating Zzz! */
   public triggerSleepDemo(): void {
+    this.clearTypingFatigue();
     const now = performance.now();
     this.wakeRendering(now);
     this.isCross = false;
@@ -1040,11 +1107,15 @@ export class KuroCatEngine {
     const shearCurve = u * u * (3 - 2 * u); // smoothstep from hips up to head!
     // Measured mouse-lean shift (-46px at head) + lively typing left-right body/head sway (+-25px)!
     const leanAmp = this.keyboardLayout === '108' ? 76 : 46;
-    const leanX = (this.spineLean * leanAmp + this.typingSway * 25 + this.strikeRock * 10) * shearCurve;
+    const fatigue = this.typingFatigue > 0 && !this.reducedMotion.matches ? this.typingFatigue : 0;
+    const sway = this.typingSway * (1 - fatigue * 0.58);
+    const leanX = (this.spineLean * leanAmp + sway * 25 + this.strikeRock * 10) * shearCurve;
     const swayDipY = Math.abs(this.typingSway) * 4.0 * shearCurve;
     const sleepSinkY = this.sleepAmount * 16.5 * shearCurve;
     const squashDipY = this.squashSpring.x * 6.5 * shearCurve;
-    const hunchY = (this.typingHunch * 13 + this.bodyBob * 3.2 + breath) * shearCurve + swayDipY + sleepSinkY + squashDipY;
+    const tiredDrop = fatigue * 25 + this.typingSigh * 18;
+    const hunchY = (this.typingHunch * 13 + this.bodyBob * 3.2 + breath + tiredDrop) * shearCurve +
+      swayDipY + sleepSinkY + squashDipY;
     // Slight forward drop when leaning deeply to the mouse
     const leanDropY = Math.abs(this.spineLean) * 6 * shearCurve;
     return {
@@ -1074,7 +1145,7 @@ export class KuroCatEngine {
 
   // ---- Input event handlers ----
 
-  public onKeyDown(vk: number, repeat: boolean): void {
+  public onKeyDown(vk: number, repeat: boolean, { demo = false }: { demo?: boolean } = {}): void {
     if (this.privacyMode) {
       if (!repeat) this.onPrivacyTyping();
       return;
@@ -1143,6 +1214,13 @@ export class KuroCatEngine {
         }
       }
       return;
+    }
+
+    if (demo) {
+      this.typingFatigued = false;
+    } else {
+      this.trackTypingFatigue(now);
+      this.birdPlayer.onKeyDown(now);
     }
 
     if (Math.random() < 0.16) {
@@ -1278,6 +1356,86 @@ export class KuroCatEngine {
       if (label) {
         this.spawnBubble(label, spec.id === 'space', targetPoint.x, now);
       }
+    }
+  }
+
+  private canShowBirdVisit(): boolean {
+    return this.birdStageEnabled && !this.privacyMode && !this.tailPickerActive && !this.reducedMotion.matches;
+  }
+
+  private getBirdStageOrigin(): Vec2 {
+    const fit = EMBEDDED_CAT_FIT;
+    const preview = BIRD_STAGE_PET;
+    const side = this.birdPlayer.variation?.route === 'bounce' ? -1 : 1;
+    const keyboard = BIRD_PREVIEW_KEYBOARD_108;
+    // The approved animation drew the bird beside an 86%-fit cat canvas.
+    // Invert the cat's preview transform, then align the same sprite to this keyboard's edge.
+    return {
+      x: this.kbCenterX - keyboard.x + side * (this.kbWidth - keyboard.width) / 2 -
+        (preview.x + preview.width * (1 - fit) * 0.5) / fit,
+      y: this.kbCenterY - keyboard.y - (this.kbHeight - keyboard.height) / 2 -
+        (preview.y + preview.height * (1 - fit) * 0.52) / fit,
+    };
+  }
+
+  private clearTypingFatigue(): void {
+    this.birdPlayer.clearVisit();
+    this.fatigueKeyTimes.length = 0;
+    this.fastTypingStartedAt = null;
+    this.fatigueLastKeyAt = Number.NEGATIVE_INFINITY;
+    this.typingFatigued = false;
+    this.typingFatigue = 0;
+    this.typingSigh = 0;
+    this.typingExhaleProgress = 0;
+  }
+
+  private getVisibleCrossAmount(): number {
+    if (this.fatiguedCrossSince === this.crossSince) return 0;
+    const fatigueFade = Math.max(0, 1 - this.typingFatigue / FATIGUE_CROSS_FADE_AT);
+    return this.crossAmount * fatigueFade;
+  }
+
+  private trackTypingFatigue(now: number): void {
+    if (now - this.fatigueLastKeyAt >= FATIGUE_PAUSE_MS) {
+      this.fatigueKeyTimes.length = 0;
+      this.fastTypingStartedAt = null;
+      this.typingFatigued = false;
+    }
+    this.fatigueLastKeyAt = now;
+    if (this.typingFatigued) return;
+
+    this.fatigueKeyTimes.push(now);
+    if (this.fatigueKeyTimes.length > FATIGUE_KEY_COUNT) this.fatigueKeyTimes.shift();
+    const fastTyping = this.fatigueKeyTimes.length === FATIGUE_KEY_COUNT &&
+      now - this.fatigueKeyTimes[0] <= FATIGUE_KEY_WINDOW_MS;
+    this.fastTypingStartedAt = fastTyping ? (this.fastTypingStartedAt ?? now) : null;
+    this.typingFatigued = this.fastTypingStartedAt !== null &&
+      now - this.fastTypingStartedAt >= FATIGUE_AFTER_BURST_MS;
+  }
+
+  private updateTypingFatigue(now: number, dt: number): void {
+    if (!this.typingFatigued && this.typingFatigue === 0) return;
+
+    // A key held by either a paw or the tail has to be released before the cat can rest.
+    if (this.typingFatigued && (this.heldKeys.size > 0 || this.catTail.heldVks.size > 0)) {
+      this.fatigueLastKeyAt = now;
+    }
+    const restAge = now - this.fatigueLastKeyAt - FATIGUE_PAUSE_MS;
+    const recovery = Math.max(0, Math.min(1, (restAge - FATIGUE_RECOVERY_DELAY_MS) / FATIGUE_RECOVERY_MS));
+    if (recovery === 1) this.typingFatigued = false;
+
+    const target = this.typingFatigued ? 1 - recovery : 0;
+    const response = this.typingFatigued ? 4 : 14;
+    this.typingFatigue += (target - this.typingFatigue) * (1 - Math.exp(-response * dt));
+    if (target === 0 && this.typingFatigue < 0.001) this.typingFatigue = 0;
+
+    const exhale = (restAge - FATIGUE_EXHALE_DELAY_MS) / FATIGUE_EXHALE_MS;
+    const previousExhale = this.typingExhaleProgress;
+    this.typingExhaleProgress =
+      this.typingFatigued && !this.reducedMotion.matches && exhale > 0 && exhale < 1 ? exhale : 0;
+    this.typingSigh = Math.sin(this.typingExhaleProgress * Math.PI);
+    if (this.canShowBirdVisit() && !this.birdPlayer.active && previousExhale === 0 && this.typingExhaleProgress > 0) {
+      this.birdPlayer.start(now, 'typing');
     }
   }
 
@@ -1700,6 +1858,8 @@ export class KuroCatEngine {
       }
     }
 
+    this.updateTypingFatigue(now, dt);
+
     if (this.petStrokeCount > 0 && now - this.lastPetMoveAt > 2200) {
       this.resetPetStrokes();
     }
@@ -1743,6 +1903,7 @@ export class KuroCatEngine {
     const wantSleep = isCatMode && this.asleep && !this.privacyMode ? 1 : 0;
     this.sleepAmount += (wantSleep - this.sleepAmount) * (1 - Math.exp(-(wantSleep ? 1.5 : 6.5) * dt));
     if (this.sleepAmount < 0.002 && !wantSleep) this.sleepAmount = 0;
+    this.birdPlayer.update(now, this.asleep, this.sleepAmount, this.canShowBirdVisit());
 
     // Fast pointer speed over last 220ms triggers Curious (laser-pointer big round eyes!)
     // Never false-trigger Curious while grumpy (isCross) or actively typing, so moving the mouse never snaps back typing/grumpy mood!
@@ -1793,6 +1954,11 @@ export class KuroCatEngine {
     // Moving the mouse never cancels grumpy mode; only cooling down naturally (or demo button) clears it
     const crossTarget = this.isCross ? 1 : 0;
     this.crossAmount = Math.max(0, Math.min(1, this.crossSpring.step(crossTarget, dt)));
+    // Once fatigue has replaced this expression, do not replay the same bout of anger on recovery.
+    if (this.isCross && this.typingFatigue >= FATIGUE_CROSS_FADE_AT) {
+      this.fatiguedCrossSince = this.crossSince;
+    }
+    const visibleCross = this.getVisibleCrossAmount();
 
     // Idle fidgets when calmly awake and idle > 2.6s (tilt, single-ear flick, affectionate slowBlink, look around, tail flick)
     if (this.idleAct && now > this.idleAct.t0 + this.idleAct.dur) {
@@ -1880,8 +2046,16 @@ export class KuroCatEngine {
     // Stable neutral eye reference (no feedback wobble when spine leans toward the mouse!)
     const eyeRefRelX = this.catCenterX / this.logicalW;
     const eyeRefRelY = (this.catTopY + 0.24 * this.catHeight) / this.logicalH;
-    const rawDx = this.cursorRelX - eyeRefRelX;
-    const rawDy = this.cursorRelY - eyeRefRelY;
+    let focusX = this.cursorRelX;
+    let focusY = this.cursorRelY;
+    const bird = this.birdPlayer.frame?.pose;
+    if (bird && !this.asleep && now - this.lastAnyKeyAt > FATIGUE_PAUSE_MS && now - this.lastCursorEyeAt >= 2400) {
+      const origin = this.getBirdStageOrigin();
+      focusX = (origin.x + bird.x / EMBEDDED_CAT_FIT) / this.logicalW;
+      focusY = (origin.y + (bird.y - 22) / EMBEDDED_CAT_FIT) / this.logicalH;
+    }
+    const rawDx = focusX - eyeRefRelX;
+    const rawDy = focusY - eyeRefRelY;
     // Smooth asymptotic curve (-1..+1): responsive near the face, buttery easing across the whole screen (zero hard kink!)
     const gx = Math.tanh(rawDx * 2.15);
     const gy = Math.tanh(rawDy * 2.05);
@@ -1916,10 +2090,10 @@ export class KuroCatEngine {
 
     // Dynamic ear spring (5.2Hz, damping 0.36): perks up when curious/excited, flattens into airplane ears when cross!
     const earTarget = isCatMode
-      ? 0.12 * this.typingEnergy * (1 - this.crossAmount) +
+      ? 0.12 * this.typingEnergy * (1 - visibleCross) +
         0.16 * curiousClamped -
         0.18 * this.squintAmount -
-        0.58 * this.crossAmount -
+        0.58 * visibleCross -
         0.12 * this.sleepAmount
       : 0;
     this.earPerkSpring.step(earTarget, dt);
@@ -1968,7 +2142,7 @@ export class KuroCatEngine {
       // Rhythmic 3-beat grumpy tail desk-thump when cross (lift slowly -> slam hard -> bounce keyboard & dust puffs!)
       let targetThumpLift = 0;
       let targetThumpLash = 0;
-      if (this.crossAmount > 0.08 && this.catTail.reach < 0.25) {
+      if (visibleCross > 0.08 && this.catTail.reach < 0.25) {
         const prevPhase = this.thumpPhase;
         this.thumpPhase += dt * 2.55;
         const beat = Math.floor(this.thumpPhase);
@@ -2030,7 +2204,8 @@ export class KuroCatEngine {
     if (
       isCatMode &&
       (curiousNow ||
-        this.crossAmount > 0.03 ||
+        this.typingFatigue > 0.001 ||
+        visibleCross > 0.03 ||
         this.idleAct !== null ||
         this.fxParticles.some((fx) => fx.kind !== 'z') ||
         (this.sleepAmount > 0.02 && this.sleepAmount < 0.98) ||
@@ -2077,18 +2252,18 @@ export class KuroCatEngine {
       targetGazeX = targetGazeX * (1 - actEnv) + act.side * 0.85 * actEnv;
       targetGazeY = targetGazeY * (1 - actEnv) - 0.22 * actEnv;
     }
-    if (this.crossAmount > 0.05) {
+    if (visibleCross > 0.05) {
       // Stable huffy side-glance (locked direction -> zero sudden left/right snap when cursor crosses center!)
-      const huffX = this.crossHuffDir * 0.72 * this.crossAmount;
-      targetGazeX = targetGazeX * (1 - this.crossAmount * 0.62) + huffX * 0.62;
+      const huffX = this.crossHuffDir * 0.72 * visibleCross;
+      targetGazeX = targetGazeX * (1 - visibleCross * 0.62) + huffX * 0.62;
     }
     this.eyeLookX = Math.max(-1.05, Math.min(1.05, this.eyeXSpring.step(targetGazeX, dt)));
     this.eyeLookY = Math.max(-1.05, Math.min(1.05, this.eyeYSpring.step(targetGazeY, dt)));
 
-    const huffFace = this.crossAmount * this.crossHuffDir * 7.5;
+    const huffFace = visibleCross * this.crossHuffDir * 7.5;
     const lookFace = act && act.kind === 'look' ? act.side * 5.5 * actEnv : 0;
     const targetFaceTurn =
-      gx * (5.2 + curiousClamped * 3.8) * (1 - this.crossAmount * 0.75) +
+      gx * (5.2 + curiousClamped * 3.8) * (1 - visibleCross * 0.75) +
       huffFace +
       lookFace +
       this.spineLean * 8.0 +
@@ -2277,6 +2452,49 @@ export class KuroCatEngine {
       this.drawMouseBadges(ctx);
     }
 
+    this.drawTypingExhale(ctx, breath, purrShift);
+    const birdFrame = this.birdPlayer.frame;
+    if (birdFrame?.pose) {
+      const origin = this.getBirdStageOrigin();
+      ctx.save();
+      ctx.translate(origin.x, origin.y);
+      ctx.scale(1 / EMBEDDED_CAT_FIT, 1 / EMBEDDED_CAT_FIT);
+      ctx.beginPath();
+      ctx.rect(0, 80, BIRD_STAGE_WIDTH, 370);
+      ctx.clip();
+      drawBirdVisit(ctx, birdFrame);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  private drawTypingExhale(ctx: CanvasRenderingContext2D, breath: number, purrShift: number): void {
+    const progress = this.typingExhaleProgress;
+    if (progress === 0) return;
+
+    const head = this.spinePoint(0.24, breath);
+    const size = 0.76 + progress * 0.51;
+    ctx.save();
+    ctx.globalAlpha = Math.min(progress * 8, (1 - progress) * 2.4, 1);
+    ctx.translate(head.x + purrShift, head.y);
+    ctx.rotate(this.headTilt);
+    ctx.translate(50 + progress * 38, 28 - progress * 13);
+    ctx.scale(size, size);
+    ctx.beginPath();
+    ctx.moveTo(-20, 8);
+    ctx.quadraticCurveTo(-11, 3, -7, 0);
+    ctx.bezierCurveTo(-9, -8, -1, -12, 5, -7);
+    ctx.bezierCurveTo(11, -13, 21, -7, 17, -1);
+    ctx.bezierCurveTo(24, 3, 17, 11, 10, 8);
+    ctx.quadraticCurveTo(2, 13, -4, 6);
+    ctx.quadraticCurveTo(-11, 4, -20, 8);
+    ctx.closePath();
+    ctx.fillStyle = '#faffe9';
+    ctx.fill();
+    ctx.strokeStyle = '#728c7e';
+    ctx.lineWidth = 1.5;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -2315,15 +2533,16 @@ export class KuroCatEngine {
 
   private drawCatAliveFx(ctx: CanvasRenderingContext2D, now: number, breath: number): void {
     // 1) Pulsing comic anger vein (💢) beside upper head when grumpy/cross
-    if (this.crossAmount > 0.12 && !this.privacyMode) {
+    const visibleCross = this.getVisibleCrossAmount();
+    if (visibleCross > 0.12 && !this.privacyMode) {
       const headPt = this.spinePoint(0.18, breath);
       const slamPulse = 1 + 0.24 * Math.max(0, 1 - (now - this.lastSlamAt) / 250);
-      const sc = this.crossAmount * slamPulse;
+      const sc = visibleCross * slamPulse;
       ctx.save();
       ctx.translate(headPt.x - 57 + this.faceTurnX * 0.4, headPt.y - 34);
       ctx.rotate(-0.14);
       ctx.scale(sc, sc);
-      ctx.globalAlpha = Math.min(1, this.crossAmount * 1.1);
+      ctx.globalAlpha = Math.min(1, visibleCross * 1.1);
       ctx.lineCap = 'round';
       const drawVein = (color: string, width: number) => {
         ctx.strokeStyle = color;
@@ -2449,7 +2668,7 @@ export class KuroCatEngine {
     // Grumpy 3-beat desk-thump pose when cross (lifts up smoothly, slams down onto desk!)
     const r = Math.max(0, Math.min(1, this.catTail.reach));
     const smoothR = r * r * (3 - 2 * r);
-    const thumpBlend = this.crossAmount * (1 - smoothR);
+    const thumpBlend = this.getVisibleCrossAmount() * (1 - smoothR);
     if (thumpBlend > 0.01) {
       const lift = this.thumpLift;
       const lash = this.thumpLash;
@@ -3072,6 +3291,19 @@ export class KuroCatEngine {
     ctx.restore();
   }
 
+  private clipTiredEyelid(ctx: CanvasRenderingContext2D, rx: number, openRy: number): void {
+    if (this.typingFatigue === 0) return;
+
+    const lid = -openRy + this.typingFatigue * openRy * 0.63;
+    ctx.beginPath();
+    ctx.moveTo(-rx - 1, lid - 0.9);
+    ctx.quadraticCurveTo(0, lid + 1.5, rx + 1, lid + 0.9);
+    ctx.lineTo(rx + 1, openRy + 1);
+    ctx.lineTo(-rx - 1, openRy + 1);
+    ctx.closePath();
+    ctx.clip();
+  }
+
   private getHeadphoneLedColors(): { ring: string; glow: string; mic: string } {
     const rgbMix = 0.5 + 0.5 * Math.sin(this.elapsed * 2.3 + this.typingEnergy * 2.0);
     const pulse = 0.88 + 0.12 * Math.sin(this.elapsed * 5.2) + this.typingEnergy * 0.14;
@@ -3269,9 +3501,10 @@ export class KuroCatEngine {
         ? 0.92 * Math.sin(Math.max(0, Math.min(1, (nowEye - this.idleAct.t0) / this.idleAct.dur)) * Math.PI)
         : 0;
     const blinkVal = Math.max(this.isBlinking ? 1 - Math.abs(this.blinkProgress - 1) : 0, slowBlinkVal);
-    const closedness = Math.max(blinkVal, this.squintAmount * 0.85, this.privacyClose, this.sleepAmount);
+    const tiredLids = this.typingFatigue * 0.43 + this.typingSigh * 0.29;
+    const closedness = Math.max(blinkVal, this.squintAmount * 0.85, this.privacyClose, this.sleepAmount, tiredLids);
     const curious = Math.min(1, this.curiousAmount);
-    const cross = this.crossAmount;
+    const cross = this.getVisibleCrossAmount();
 
     // Exact measured eye spacing & size from original 0.3s & 10.6s!
     const eyeXs = [cx - 23.0, cx + 23.0];
@@ -3329,6 +3562,7 @@ export class KuroCatEngine {
       const openRy = Math.max(1.2, ry * (1 - closedness));
       const curiousTilt = (idx === 0 ? -0.1 : 0.1) * (0.25 + this.typingHunch * 0.75);
       ctx.rotate(curiousTilt);
+      this.clipTiredEyelid(ctx, rx, openRy);
 
       const hasGrumpyLid = cross > 0.04;
       const innerDrop = -openRy + openRy * 0.90 * cross;
@@ -3369,7 +3603,7 @@ export class KuroCatEngine {
       if (openRy > 3.2) {
         // Dilated huge round pupils when Curious (laser-pointer mode), sharp narrow slits when Cross!
         const pupilRx = Math.min(rx - 2.4, (6.2 + curious * 4.2 + this.typingEnergy * 0.8) * (1 - cross * 0.34));
-        const pupilRy = Math.min(openRy - 1.4, (8.8 + curious * 1.9) * (1 - cross * 0.08));
+        const pupilRy = Math.min(openRy - 1.4, (8.8 + curious * 1.9 - this.typingFatigue * 2.1) * (1 - cross * 0.08));
         // Scale normalized gaze (-1..+1) smoothly into available travel room (never sticks on a clamp wall!)
         const maxTravelX = Math.max(2.6, rx - pupilRx - 1.0);
         const maxTravelY = Math.max(2.2, openRy - pupilRy - 0.6);
@@ -4817,9 +5051,10 @@ export class KuroCatEngine {
         ? 0.92 * Math.sin(Math.max(0, Math.min(1, (nowEye - this.idleAct.t0) / this.idleAct.dur)) * Math.PI)
         : 0;
     const blinkVal = Math.max(this.isBlinking ? 1 - Math.abs(this.blinkProgress - 1) : 0, slowBlinkVal);
-    const closedness = Math.max(blinkVal, this.squintAmount * 0.85, this.privacyClose, this.sleepAmount);
+    const tiredLids = this.typingFatigue * 0.43 + this.typingSigh * 0.29;
+    const closedness = Math.max(blinkVal, this.squintAmount * 0.85, this.privacyClose, this.sleepAmount, tiredLids);
     const curious = Math.min(1, this.curiousAmount);
-    const cross = this.crossAmount;
+    const cross = this.getVisibleCrossAmount();
     const eyeXs = [cx - 23.0, cx + 23.0];
     const rx = (14.8 + this.typingHunch * 1.0) * (1 + curious * 0.06);
     const ry = (13.4 - this.typingHunch * 0.5) * (1 + curious * 0.09);
@@ -4864,6 +5099,7 @@ export class KuroCatEngine {
       const openRy = Math.max(1.2, ry * (1 - closedness));
       const curiousTilt = (idx === 0 ? -0.1 : 0.1) * (0.25 + this.typingHunch * 0.75);
       ctx.rotate(curiousTilt);
+      this.clipTiredEyelid(ctx, rx, openRy);
 
       const hasGrumpyLid = cross > 0.04;
       const innerDrop = -openRy + openRy * 0.90 * cross;
@@ -4895,7 +5131,7 @@ export class KuroCatEngine {
       ctx.clip();
       if (openRy > 3.2) {
         const pupilRx = Math.min(rx - 2.4, (6.2 + curious * 4.2 + this.typingEnergy * 0.8) * (1 - cross * 0.34));
-        const pupilRy = Math.min(openRy - 1.4, (8.8 + curious * 1.9) * (1 - cross * 0.08));
+        const pupilRy = Math.min(openRy - 1.4, (8.8 + curious * 1.9 - this.typingFatigue * 2.1) * (1 - cross * 0.08));
         const maxTravelX = Math.max(2.6, rx - pupilRx - 1.0);
         const maxTravelY = Math.max(2.2, openRy - pupilRy - 0.6);
         const px = Math.max(-maxTravelX, Math.min(maxTravelX, this.eyeLookX * maxTravelX));

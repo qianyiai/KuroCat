@@ -1,6 +1,6 @@
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
-import { listen } from '@tauri-apps/api/event';
+import { emitTo, listen } from '@tauri-apps/api/event';
 import { DEFAULT_TAIL_KEY_IDS, type KeyboardOrientation, type TailKeyMode } from './catEngine';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import type { KeyboardLayoutId } from './keyboardLayout';
@@ -225,6 +225,10 @@ function syncUI(): void {
   renderBreedPills();
 
   const renderMode = settings.renderMode === '2d' ? '2d' : '3d';
+  document.getElementById('btn-preview-bird')?.classList.toggle(
+    'hidden',
+    settings.catBreed === 'dafeiyu' || window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
   const collarColor =
     settings.collarColor === 'red' ||
     settings.collarColor === 'blue' ||
@@ -538,6 +542,9 @@ async function bootstrap(): Promise<void> {
     }
 
     switch (target.dataset.action) {
+      case 'preview-bird':
+        void emitTo('main', 'kuro-preview-bird');
+        break;
       case 'toggle-privacy':
         void applySettingsPatch({ privacyPasswordGuard: !(settings.privacyPasswordGuard !== false) });
         break;

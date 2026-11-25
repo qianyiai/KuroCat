@@ -825,7 +825,7 @@ function initPlayground(): void {
     const item = DEMO_SCRIPT[demoStep % DEMO_SCRIPT.length];
     demoStep += 1;
     if (item.type === 'key') {
-      engine.onKeyDown(item.vk, false);
+      engine.onKeyDown(item.vk, false, { demo: true });
       engine3d?.onKeyDown(item.vk, false);
       window.setTimeout(() => {
         engine.onKeyUp(item.vk);

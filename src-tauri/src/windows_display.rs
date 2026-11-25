@@ -7,7 +7,7 @@ use windows_sys::Win32::Graphics::Gdi::{EnumDisplayDevicesW, DISPLAY_DEVICEW};
 use windows_sys::Win32::UI::WindowsAndMessaging::EDD_GET_DEVICE_INTERFACE_NAME;
 
 use crate::config::{save_settings, AppSettings};
-use crate::{win7_layered, win_needs_win7_ulw, window_dimensions, AppState};
+use crate::{bird_stage_right_padding, win7_layered, win_needs_win7_ulw, window_dimensions, AppState};
 
 const DISPLAY_ITEM_PREFIX: &str = "win_display:";
 const FREE_PLACEMENT_ITEM: &str = "win_display_free";
@@ -97,7 +97,7 @@ fn target_display<'a>(displays: &'a [Display], preferred: Option<&str>) -> Optio
         .or_else(|| displays.first())
 }
 
-fn bottom_right(display: &Display, width: f64, height: f64) -> Placement {
+fn bottom_right(display: &Display, width: f64, height: f64, bird_right_padding: f64) -> Placement {
     let scale = display.scale_factor;
     let size = PhysicalSize::new(
         (width * scale).round() as u32,
@@ -105,11 +105,14 @@ fn bottom_right(display: &Display, width: f64, height: f64) -> Placement {
     );
     let right_padding = (28.0 * scale).round() as u32;
     let bottom_padding = (16.0 * scale).round() as u32;
+    let desired_x = display.work_size.width as i32 - size.width as i32 - right_padding as i32;
     let x = display.origin.x
-        + display
-            .work_size
-            .width
-            .saturating_sub(size.width + right_padding) as i32;
+        + if desired_x < 0 && bird_right_padding > 0.0 {
+            // Let an oversized stage run off the edge before letting it clip the pet.
+            (desired_x + (bird_right_padding * scale).round() as i32).min(0)
+        } else {
+            desired_x.max(0)
+        };
     let y = display.origin.y
         + display
             .work_size
@@ -126,11 +129,12 @@ fn placement(
     preferred: Option<&str>,
     settings: &AppSettings,
 ) -> Option<Placement> {
-    let (width, height) = window_dimensions(&settings.keyboard_layout, settings.scale);
+    let (width, height) = window_dimensions(settings);
     Some(bottom_right(
         target_display(displays, preferred)?,
         width,
         height,
+        bird_stage_right_padding(settings),
     ))
 }
 
@@ -161,9 +165,15 @@ pub fn resize_pinned(
     preferred: &str,
     width: f64,
     height: f64,
+    bird_right_padding: f64,
 ) -> Option<(i32, i32)> {
     let displays = connected_displays(window);
-    let target = bottom_right(target_display(&displays, Some(preferred))?, width, height);
+    let target = bottom_right(
+        target_display(&displays, Some(preferred))?,
+        width,
+        height,
+        bird_right_padding,
+    );
     apply(window, target).ok()?;
     Some((target.position.x, target.position.y))
 }
@@ -381,7 +391,7 @@ mod tests {
 
     #[test]
     fn uses_target_dpi_and_work_area_on_a_display_left_of_primary() {
-        let placement = bottom_right(&display("external", -1920, false, 1.5), 420.0, 440.0);
+        let placement = bottom_right(&display("external", -1920, false, 1.5), 420.0, 440.0, 0.0);
         assert_eq!(placement.size, PhysicalSize::new(630, 660));
         assert_eq!(placement.position, PhysicalPosition::new(-672, 256));
     }

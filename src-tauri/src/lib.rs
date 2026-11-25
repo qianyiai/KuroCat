@@ -35,6 +35,7 @@ pub const BASE_WIDTH: f64 = 420.0;
 pub const BASE_HEIGHT: f64 = 440.0;
 pub const BASE_WIDTH_108: f64 = 540.0;
 pub const BASE_HEIGHT_108: f64 = 456.0;
+const BIRD_STAGE_GUTTER: f64 = 149.0;
 pub const MIN_WINDOW_WIDTH: f64 = 100.0;
 pub const MIN_WINDOW_HEIGHT: f64 = 100.0;
 #[cfg(windows)]
@@ -50,9 +51,26 @@ pub fn base_dimensions(layout: &str) -> (f64, f64) {
     }
 }
 
-pub fn window_dimensions(layout: &str, scale: f64) -> (f64, f64) {
-    let (bw, bh) = base_dimensions(layout);
-    let s = scale.clamp(0.20, 1.50);
+fn bird_stage_enabled(settings: &AppSettings) -> bool {
+    #[cfg(windows)]
+    let force_2d = win_needs_win7_ulw();
+    #[cfg(not(windows))]
+    let force_2d = false;
+
+    settings.cat_breed != "dafeiyu" && (settings.render_mode == "2d" || force_2d)
+}
+
+fn bird_stage_right_padding(settings: &AppSettings) -> f64 {
+    if bird_stage_enabled(settings) {
+        BIRD_STAGE_GUTTER * settings.scale.clamp(0.20, 1.50)
+    } else {
+        0.0
+    }
+}
+
+pub fn window_dimensions(settings: &AppSettings) -> (f64, f64) {
+    let (bw, bh) = base_dimensions(&settings.keyboard_layout);
+    let s = settings.scale.clamp(0.20, 1.50);
     #[cfg(windows)]
     let (min_w, min_h) = if win_needs_win7_ulw() {
         (WIN7_MIN_WINDOW_WIDTH, WIN7_MIN_WINDOW_HEIGHT)
@@ -62,7 +80,7 @@ pub fn window_dimensions(layout: &str, scale: f64) -> (f64, f64) {
     #[cfg(not(windows))]
     let (min_w, min_h) = (MIN_WINDOW_WIDTH, MIN_WINDOW_HEIGHT);
     (
-        (bw * s).round().max(min_w),
+        (bw * s + 2.0 * bird_stage_right_padding(settings)).round().max(min_w),
         (bh * s).round().max(min_h),
     )
 }
@@ -98,12 +116,63 @@ fn clamp_pet_drag_position(
     (x.clamp(min_x, max_x), y.clamp(min_y, max_y))
 }
 
+fn clamp_bird_stage_origin(
+    desired_x: i32,
+    monitor_left: i32,
+    monitor_width: i32,
+    frame_width: i32,
+    right_padding: i32,
+) -> i32 {
+    if right_padding == 0 {
+        return desired_x;
+    }
+    // On very small displays the side gutters may leave the screen so the pet stays visible.
+    let overflow = if frame_width > monitor_width { right_padding } else { 0 };
+    let min_x = monitor_left - overflow;
+    let max_x = monitor_left + monitor_width - frame_width + overflow;
+    desired_x.clamp(min_x, max_x.max(min_x))
+}
+
+fn fit_bird_stage_to_monitor(
+    win: &tauri::WebviewWindow,
+    desired_x: i32,
+    reference: (i32, i32),
+    frame_width: f64,
+    right_padding: f64,
+) -> i32 {
+    if right_padding == 0.0 {
+        return desired_x;
+    }
+    let Ok(monitors) = win.available_monitors() else {
+        return desired_x;
+    };
+    // Stored positions and the monitor rectangles are both in physical pixels.
+    let Some(monitor) = monitors.into_iter().find(|monitor| {
+        let origin = monitor.position();
+        let size = monitor.size();
+        (origin.x..origin.x + size.width as i32).contains(&reference.0)
+            && (origin.y..origin.y + size.height as i32).contains(&reference.1)
+    }) else {
+        return desired_x;
+    };
+    let area = monitor.work_area();
+    let sf = monitor.scale_factor();
+    clamp_bird_stage_origin(
+        desired_x,
+        area.position.x,
+        area.size.width as i32,
+        (frame_width * sf).round() as i32,
+        (right_padding * sf).round() as i32,
+    )
+}
+
 fn resize_window_anchored_bottom_right(
     win: &tauri::WebviewWindow,
-    layout: &str,
-    scale: f64,
+    settings: &AppSettings,
+    previous_right_padding: f64,
 ) -> Option<(i32, i32)> {
-    let (new_w, new_h) = window_dimensions(layout, scale);
+    let (new_w, new_h) = window_dimensions(settings);
+    let new_right_padding = bird_stage_right_padding(settings);
     #[cfg(target_os = "macos")]
     if win
         .state::<AppState>()
@@ -126,19 +195,29 @@ fn resize_window_anchored_bottom_right(
             .windows_display_id
             .clone();
         if let Some(id) = preferred.as_deref() {
-            return windows_display::resize_pinned(win, id, new_w, new_h);
+            return windows_display::resize_pinned(win, id, new_w, new_h, new_right_padding);
         }
     }
     let sf = win.scale_factor().unwrap_or(1.0);
+    let new_pw = (new_w * sf).round() as i32;
+    let new_ph = (new_h * sf).round() as i32;
+    let anchor_delta = ((new_right_padding - previous_right_padding) * sf).round() as i32;
+    let keep_stage_visible = |(x, y, w, h): (i32, i32, i32, i32)| {
+        fit_bird_stage_to_monitor(
+            win,
+            x + w - new_pw + anchor_delta,
+            (x + w / 2, y + h / 2),
+            new_w,
+            new_right_padding,
+        )
+    };
 
     #[cfg(windows)]
     if win_needs_win7_ulw() {
         let old_rect = win7_layered::get_rect();
         let _ = win.set_size(Size::Logical(LogicalSize::new(new_w, new_h)));
-        let new_pw = (new_w * sf).round() as i32;
-        let new_ph = (new_h * sf).round() as i32;
         if let Some((ox, oy, ow, oh)) = old_rect {
-            let new_x = ox + ow - new_pw;
+            let new_x = keep_stage_visible((ox, oy, ow, oh));
             let new_y = oy + oh - new_ph;
             if new_x != ox || new_y != oy {
                 win7_layered::set_position(new_x, new_y);
@@ -161,12 +240,8 @@ fn resize_window_anchored_bottom_right(
     let _ = win.set_size(Size::Logical(LogicalSize::new(new_w, new_h)));
 
     if let (Some(pos), Some(sz)) = (old_pos, old_size) {
-        let new_pw = (new_w * sf).round() as i32;
-        let new_ph = (new_h * sf).round() as i32;
-        let (new_x, new_y) = (
-            pos.x + sz.width as i32 - new_pw,
-            pos.y + sz.height as i32 - new_ph,
-        );
+        let new_x = keep_stage_visible((pos.x, pos.y, sz.width as i32, sz.height as i32));
+        let new_y = pos.y + sz.height as i32 - new_ph;
         #[cfg(all(not(windows), not(target_os = "macos")))]
         let (new_x, new_y) = (new_x.max(0), new_y.max(0));
         if new_x != pos.x || new_y != pos.y {
@@ -341,13 +416,15 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     patch.collar_color = config::normalize_collar_color(&patch.collar_color);
     patch.headphone_mode = config::normalize_headphone_mode(&patch.headphone_mode);
 
-    let (prev_autostart, prev_scale, prev_layout, prev_obs_hide) = {
+    let (prev_autostart, prev_scale, prev_layout, prev_obs_hide, prev_bird_stage, prev_right_padding) = {
         let s = state.settings.lock().unwrap();
         (
             s.autostart,
             s.scale,
             s.keyboard_layout.clone(),
             s.obs_enabled && s.obs_hide_pet,
+            bird_stage_enabled(&s),
+            bird_stage_right_padding(&s),
         )
     };
     if patch.autostart != prev_autostart {
@@ -362,12 +439,14 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
         set_pet_visible(&app, !next_obs_hide);
     }
 
-    let size_changed = (patch.scale - prev_scale).abs() > 0.005 || patch.keyboard_layout != prev_layout;
+    let size_changed = (patch.scale - prev_scale).abs() > 0.005
+        || patch.keyboard_layout != prev_layout
+        || bird_stage_enabled(&patch) != prev_bird_stage;
     set_pet_always_on_top(&app, patch.always_on_top);
     if let Some(win) = app.get_webview_window("main") {
         if size_changed {
             if let Some((nx, ny)) =
-                resize_window_anchored_bottom_right(&win, &patch.keyboard_layout, patch.scale)
+                resize_window_anchored_bottom_right(&win, &patch, prev_right_padding)
             {
                 patch.x = Some(nx);
                 patch.y = Some(ny);
@@ -472,7 +551,23 @@ fn current_pet_rect_and_monitor(app: &AppHandle) -> Option<((i32, i32, i32, i32)
         _ => None,
     };
 
-    let pet_rect = pet_rect?;
+    let mut pet_rect = pet_rect?;
+    {
+        let state = app.state::<AppState>();
+        let settings = state.settings.lock().unwrap();
+        if bird_stage_enabled(&settings) {
+            let (bw, bh) = base_dimensions(&settings.keyboard_layout);
+            let (x, _, width, _) = bird_stage_viewport(
+                (f64::from(pet_rect.2) / sf).max(1.0),
+                (f64::from(pet_rect.3) / sf).max(1.0),
+                bw,
+                bh,
+                settings.scale,
+            );
+            pet_rect.0 += (x * f64::from(pet_rect.2)).round() as i32;
+            pet_rect.2 = (width * f64::from(pet_rect.2)).round() as i32;
+        }
+    }
     let monitor = main_win
         .current_monitor()
         .ok()
@@ -753,6 +848,26 @@ async fn start_pet_drag(app: AppHandle) -> bool {
         let offset_y = start_pt.y - start_wy;
 
         let state = app.state::<AppState>();
+        let sf = win.scale_factor().unwrap_or(1.0);
+        let (pet_left, pet_width) = {
+            let settings = state.settings.lock().unwrap();
+            if bird_stage_enabled(&settings) {
+                let (bw, bh) = base_dimensions(&settings.keyboard_layout);
+                let (x, _, width, _) = bird_stage_viewport(
+                    (f64::from(win_w) / sf).max(1.0),
+                    (f64::from(win_h) / sf).max(1.0),
+                    bw,
+                    bh,
+                    settings.scale,
+                );
+                (
+                    (x * f64::from(win_w)).round() as i32,
+                    (width * f64::from(win_w)).round() as i32,
+                )
+            } else {
+                (0, win_w)
+            }
+        };
         state.dragging.store(true, Ordering::Relaxed);
         let dragging_flag = state.dragging.clone();
 
@@ -777,15 +892,21 @@ async fn start_pet_drag(app: AppHandle) -> bool {
                         )
                     };
                     let (nx, ny) = clamp_pet_drag_position(
-                        pt.x - offset_x,
+                        pt.x - offset_x + pet_left,
                         pt.y - offset_y,
-                        win_w,
+                        pet_width,
                         win_h,
                         v_left,
                         v_top,
                         v_w,
                         v_h,
                     );
+                    let nx = nx - pet_left;
+                    let nx = if pet_left > 0 && win_w <= v_w {
+                        clamp_bird_stage_origin(nx, v_left, v_w, win_w, pet_left)
+                    } else {
+                        nx
+                    };
                     if nx != last_x || ny != last_y {
                         last_x = nx;
                         last_y = ny;
@@ -838,6 +959,22 @@ async fn start_pet_drag(app: AppHandle) -> bool {
 #[tauri::command]
 fn set_update_banner_open(state: State<'_, AppState>, open: bool) {
     state.update_banner_open.store(open, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn bird_preview_on_startup() -> Option<&'static str> {
+    if input_hook::password_privacy_active() {
+        return None;
+    }
+    std::env::args_os().find_map(|arg| {
+        if arg == "--preview-sleep-bird" {
+            Some("sleep")
+        } else if arg == "--preview-bird" {
+            Some("typing")
+        } else {
+            None
+        }
+    })
 }
 
 #[tauri::command]
@@ -954,12 +1091,30 @@ pub fn apply_breed_and_save(app: &AppHandle, breed: &str) {
         "black".to_string()
     };
     let state = app.state::<AppState>();
+    let mut next = state.settings.lock().unwrap().clone();
+    let was_bird_stage = bird_stage_enabled(&next);
+    let prev_right_padding = bird_stage_right_padding(&next);
+    next.cat_breed = normalized.clone();
+    let size_changed = bird_stage_enabled(&next) != was_bird_stage;
+    let new_pos = if size_changed {
+        app.get_webview_window("main")
+            .and_then(|win| resize_window_anchored_bottom_right(&win, &next, prev_right_padding))
+    } else {
+        None
+    };
     let updated = {
         let mut s = state.settings.lock().unwrap();
         s.cat_breed = normalized;
+        if let Some((nx, ny)) = new_pos {
+            s.x = Some(nx);
+            s.y = Some(ny);
+        }
         save_settings(&s);
         s.clone()
     };
+    if size_changed {
+        reposition_context_menu_if_open(app);
+    }
     let _ = app.emit("kuro-settings", updated);
 }
 
@@ -967,12 +1122,14 @@ pub fn reload_and_emit_all(app: &AppHandle) {
     let cats = all_cats();
     let state = app.state::<AppState>();
 
-    let (disk_settings, size_changed, top_changed, display_changed) = {
+    let (disk_settings, size_changed, top_changed, display_changed, prev_right_padding) = {
         let mut s = state.settings.lock().unwrap();
         let disk_settings = load_settings();
         let sc = (s.scale - disk_settings.scale).abs() > 0.01
-            || s.keyboard_layout != disk_settings.keyboard_layout;
+            || s.keyboard_layout != disk_settings.keyboard_layout
+            || bird_stage_enabled(&s) != bird_stage_enabled(&disk_settings);
         let tc = s.always_on_top != disk_settings.always_on_top;
+        let prev_right_padding = bird_stage_right_padding(&s);
         #[cfg(target_os = "macos")]
         let display_changed = s.display_id != disk_settings.display_id;
         #[cfg(windows)]
@@ -980,7 +1137,7 @@ pub fn reload_and_emit_all(app: &AppHandle) {
         #[cfg(all(not(windows), not(target_os = "macos")))]
         let display_changed = false;
         *s = disk_settings.clone();
-        (disk_settings, sc, tc, display_changed)
+        (disk_settings, sc, tc, display_changed, prev_right_padding)
     };
     state
         .mcp_enabled
@@ -1005,11 +1162,8 @@ pub fn reload_and_emit_all(app: &AppHandle) {
     let _ = display_changed;
     if let Some(win) = app.get_webview_window("main") {
         if size_changed {
-            let _ = resize_window_anchored_bottom_right(
-                &win,
-                &disk_settings.keyboard_layout,
-                disk_settings.scale,
-            );
+            let _ = resize_window_anchored_bottom_right(&win, &disk_settings, prev_right_padding);
+            reposition_context_menu_if_open(app);
         }
     }
 
@@ -1044,10 +1198,12 @@ fn start_storage_watcher(app: AppHandle) {
 pub fn apply_scale_and_save(app: &AppHandle, scale: f64) {
     let clamped = scale.clamp(0.20, 1.50);
     let state = app.state::<AppState>();
-    let layout = { state.settings.lock().unwrap().keyboard_layout.clone() };
+    let mut next = state.settings.lock().unwrap().clone();
+    let prev_right_padding = bird_stage_right_padding(&next);
+    next.scale = clamped;
     let new_pos = app
         .get_webview_window("main")
-        .and_then(|win| resize_window_anchored_bottom_right(&win, &layout, clamped));
+        .and_then(|win| resize_window_anchored_bottom_right(&win, &next, prev_right_padding));
     let updated = {
         let mut s = state.settings.lock().unwrap();
         s.scale = clamped;
@@ -1064,10 +1220,12 @@ pub fn apply_scale_and_save(app: &AppHandle, scale: f64) {
 pub fn apply_keyboard_layout_and_save(app: &AppHandle, layout: &str) {
     let normalized = normalize_keyboard_layout(layout);
     let state = app.state::<AppState>();
-    let cur_scale = { state.settings.lock().unwrap().scale };
+    let mut next = state.settings.lock().unwrap().clone();
+    let prev_right_padding = bird_stage_right_padding(&next);
+    next.keyboard_layout = normalized.clone();
     let new_pos = app
         .get_webview_window("main")
-        .and_then(|win| resize_window_anchored_bottom_right(&win, &normalized, cur_scale));
+        .and_then(|win| resize_window_anchored_bottom_right(&win, &next, prev_right_padding));
     let updated = {
         let mut s = state.settings.lock().unwrap();
         s.keyboard_layout = normalized;
@@ -1562,6 +1720,23 @@ fn win_wait_for_previous_pid_if_requested() {
     }
 }
 
+// Normalized origin and size of the pet, excluding the two horizontal bird gutters.
+fn bird_stage_viewport(
+    window_w: f64,
+    window_h: f64,
+    pet_w: f64,
+    pet_h: f64,
+    scale: f64,
+) -> (f64, f64, f64, f64) {
+    let fit = scale
+        .min(window_w / (pet_w + 2.0 * BIRD_STAGE_GUTTER))
+        .min(window_h / pet_h);
+    let pet_width = pet_w * fit / window_w;
+    let pet_height = pet_h * fit / window_h;
+    let x = 1.0 - (pet_w + BIRD_STAGE_GUTTER) * fit / window_w;
+    (x, 1.0 - pet_height, pet_width, pet_height)
+}
+
 fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool) -> (bool, bool) {
     // Cat body/head oval centered around (0.48, 0.49) for 65% or (0.51, 0.48) for 108-key
     let (cat_cx, cat_rx) = if is_108 { (0.51, 0.21) } else { (0.48, 0.25) };
@@ -1607,8 +1782,43 @@ fn tail_picker_captures_cursor(
 }
 
 #[cfg(test)]
-mod tail_picker_hit_tests {
-    use super::{tail_picker_captures_cursor, TailPickerBounds};
+mod hit_test_geometry_tests {
+    use super::{
+        bird_stage_viewport, clamp_bird_stage_origin, tail_picker_captures_cursor,
+        TailPickerBounds,
+    };
+
+    #[test]
+    fn bird_stage_preserves_65_and_108_pet_scale_and_ignores_side_gutters() {
+        for (pet_width, pet_height) in [(420.0, 440.0), (540.0, 456.0)] {
+            let frame_width = pet_width + 298.0;
+            let (x, y, width, height) =
+                bird_stage_viewport(frame_width, pet_height, pet_width, pet_height, 1.0);
+            assert!((x * frame_width - 149.0).abs() < 1e-9);
+            assert!(((1.0 - x - width) * frame_width - 149.0).abs() < 1e-9);
+            assert!((width * frame_width - pet_width).abs() < 1e-9);
+            assert!((height - 1.0).abs() < 1e-9);
+            assert!(y.abs() < 1e-9);
+        }
+    }
+
+    #[test]
+    fn saved_window_origin_is_clamped_only_if_its_stage_would_clip() {
+        assert_eq!(clamp_bird_stage_origin(1472, 0, 1920, 718, 149), 1202);
+        assert_eq!(clamp_bird_stage_origin(300, 0, 1920, 718, 149), 300);
+        assert_eq!(clamp_bird_stage_origin(-360, -1920, 1920, 718, 149), -718);
+        assert_eq!(clamp_bird_stage_origin(0, 0, 910, 1257, 224), -123);
+        assert_eq!(clamp_bird_stage_origin(1472, 0, 1920, 718, 0), 1472);
+    }
+
+    #[test]
+    fn bird_stage_matches_the_bottom_right_pet_at_win7_minimum_size() {
+        let (x, y, width, height) = bird_stage_viewport(260.0, 410.0, 420.0, 440.0, 0.2);
+        assert!((x * 260.0 - (260.0 - (420.0 + 149.0) * 0.2)).abs() < 1e-9);
+        assert!((y * 410.0 - (410.0 - 440.0 * 0.2)).abs() < 1e-9);
+        assert!((width * 260.0 - 420.0 * 0.2).abs() < 1e-9);
+        assert!((height * 410.0 - 440.0 * 0.2).abs() < 1e-9);
+    }
 
     #[test]
     fn captures_picker_controls_and_keyboard_only_while_open() {
@@ -1728,13 +1938,14 @@ fn start_hit_test_loop(
             let rx = (cx - win_x) as f64 / w;
             let ry = (cy - win_y) as f64 / h;
             let inside = rx >= 0.0 && rx <= 1.0 && ry >= 0.0 && ry <= 1.0;
-            let (locked, always_on_top, is_108, cur_scale) = {
+            let (locked, always_on_top, is_108, cur_scale, bird_stage) = {
                 let s = settings.lock().unwrap();
                 (
                     s.click_through_locked,
                     s.always_on_top,
                     s.keyboard_layout == "108",
                     s.scale.clamp(0.20, 1.50),
+                    bird_stage_enabled(&s),
                 )
             };
             let layout_str = if is_108 { "108" } else { "65" };
@@ -1844,10 +2055,13 @@ fn start_hit_test_loop(
             let (bw, bh) = base_dimensions(layout_str);
             let win_log_w = (w / sf).max(1.0);
             let win_log_h = (h / sf).max(1.0);
-            let pet_w_frac = ((bw * cur_scale) / win_log_w).clamp(0.05, 1.0);
-            let pet_h_frac = ((bh * cur_scale) / win_log_h).clamp(0.05, 1.0);
-            let pet_x0 = 1.0 - pet_w_frac;
-            let pet_y0 = 1.0 - pet_h_frac;
+            let (pet_x0, pet_y0, pet_w_frac, pet_h_frac) = if bird_stage {
+                bird_stage_viewport(win_log_w, win_log_h, bw, bh, cur_scale)
+            } else {
+                let pet_w_frac = ((bw * cur_scale) / win_log_w).clamp(0.05, 1.0);
+                let pet_h_frac = ((bh * cur_scale) / win_log_h).clamp(0.05, 1.0);
+                (1.0 - pet_w_frac, 1.0 - pet_h_frac, pet_w_frac, pet_h_frac)
+            };
             let pet_rx = (rx - pet_x0) / pet_w_frac;
             let pet_ry = (ry - pet_y0) / pet_h_frac;
             let inside_pet = pet_rx >= 0.0 && pet_rx <= 1.0 && pet_ry >= 0.0 && pet_ry <= 1.0;
@@ -1876,7 +2090,7 @@ fn start_hit_test_loop(
             } else if effective_locked {
                 true
             } else if is_win7_ulw {
-                false
+                bird_stage && !(0.0..=1.0).contains(&pet_rx)
             } else {
                 !over_interactive
             };
@@ -2288,13 +2502,27 @@ pub fn run() {
             }
 
             if let Some(win) = app.get_webview_window("main") {
-                let (win_w, win_h) = window_dimensions(&s.keyboard_layout, s.scale);
+                let (win_w, win_h) = window_dimensions(&s);
                 let _ = win.set_size(Size::Logical(LogicalSize::new(win_w, win_h)));
+                let saved_position = s.x.zip(s.y).map(|(x, y)| {
+                    let padding = bird_stage_right_padding(&s);
+                    if padding == 0.0 {
+                        return (x, y);
+                    }
+                    // The saved origin may come from the old, unexpanded window.
+                    let sf = win.scale_factor().unwrap_or(1.0);
+                    let (bw, _) = base_dimensions(&s.keyboard_layout);
+                    let reference = (
+                        x + (bw * s.scale * sf * 0.5).round() as i32,
+                        y + (win_h * sf * 0.5).round() as i32,
+                    );
+                    (fit_bird_stage_to_monitor(&win, x, reference, win_w, padding), y)
+                });
                 #[cfg(not(target_os = "macos"))]
                 let (target_x, target_y, sz) = {
                     let sz = win.outer_size().unwrap_or(tauri::PhysicalSize::new(420, 440));
                     let sf = win.scale_factor().unwrap_or(1.0);
-                    let (x, y) = if let (Some(x), Some(y)) = (s.x, s.y) {
+                    let (x, y) = if let Some((x, y)) = saved_position {
                         (x, y)
                     } else {
                         default_bottom_right_position(sz.width as i32, sz.height as i32, sf)
@@ -2357,11 +2585,11 @@ pub fn run() {
                 #[cfg(target_os = "macos")]
                 {
                     macos_window::configure_fullscreen(&win, s.always_on_top);
-                    match (s.display_id.as_deref(), s.x, s.y) {
-                        (None, Some(x), Some(y)) => {
+                    match (s.display_id.as_deref(), saved_position) {
+                        (None, Some((x, y))) => {
                             let _ = win.set_position(PhysicalPosition::new(x, y));
                         }
-                        (preferred, _, _) => {
+                        (preferred, _) => {
                             macos_window::place(&win, preferred);
                         }
                     }
@@ -2461,6 +2689,7 @@ pub fn run() {
             get_mcp_config,
             get_obs_url,
             get_app_version,
+            bird_preview_on_startup,
             update_settings,
             open_context_menu,
             close_context_menu,

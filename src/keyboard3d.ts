@@ -544,6 +544,7 @@ export class KeyboardAndMouse3D {
   private boardH = 0.115;
   private capH = 0.056;
   private boardWidth = 2.4;
+  private boardDepth = 0.89;
 
   // Scratch objects (zero per-frame GC allocations)
   private readonly tmpPos = new THREE.Vector3();
@@ -814,6 +815,7 @@ export class KeyboardAndMouse3D {
     const W = layout.totalUnits * U + 0.14;
     const D = layout.totalRows * U + 0.14;
     this.boardWidth = W;
+    this.boardDepth = D;
     this.boardH = 0.112;
     this.capH = is108 ? 0.048 : 0.056;
 
@@ -956,6 +958,14 @@ export class KeyboardAndMouse3D {
 
   public getBoardWidth(): number {
     return this.boardWidth;
+  }
+
+  public getBoardDepth(): number {
+    return this.boardDepth;
+  }
+
+  public getBoardTopY(): number {
+    return this.boardH + 0.008 + this.capH;
   }
 
   public resolveKey(vk: number): KeyEntry3D | null {

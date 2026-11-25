@@ -9,6 +9,7 @@ import {
   type TailKeyMode,
 } from './catEngine';
 import { catAudio } from './audio';
+import type { BirdVisitKind } from './birdVisit';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import {
   getKeyboardLayout,
@@ -239,6 +240,29 @@ function syncEngine3DState(): void {
   engine3d.resize();
 }
 
+function syncBirdStage(): void {
+  const enabled = (isWin7Ulw || settings.renderMode === '2d') && settings.catBreed !== 'dafeiyu';
+  engine.setBirdStageEnabled(enabled);
+  document.getElementById('btn-preview-bird')?.classList.toggle(
+    'hidden',
+    !(enabled || active3d) || window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+  );
+}
+
+async function previewBirdVisit(kind: BirdVisitKind = 'typing'): Promise<void> {
+  if (loading3dPromise) await loading3dPromise;
+  const activeEngine = active3d && engine3d ? engine3d : engine;
+  if (activeEngine.previewBirdVisit(kind)) {
+    closeContextMenu();
+  } else if (webgl3dUnavailable && settings.renderMode !== '2d') {
+    closeContextMenu();
+    showUpdateToast('3D 渲染不可用，切换到经典 2D 后可预览小鸟', {
+      autoHideMs: 4200,
+      kind: 'transient',
+    });
+  }
+}
+
 function activateRenderEngine(): void {
   const want3d = wants3DNow();
   if (!want3d) {
@@ -249,6 +273,7 @@ function activateRenderEngine(): void {
       engine.resize();
       engine.start();
       active3d = false;
+      syncBirdStage();
     }
     return;
   }
@@ -262,6 +287,7 @@ function activateRenderEngine(): void {
       engine3d.resize();
       engine3d.start();
       active3d = true;
+      syncBirdStage();
     }
     return;
   }
@@ -269,7 +295,7 @@ function activateRenderEngine(): void {
   if (!loading3dPromise) {
     loading3dPromise = import('./catEngine3d')
       .then(({ KuroCatEngine3D }) => {
-        engine3d = new KuroCatEngine3D(canvas3d, { embedded: false });
+        engine3d = new KuroCatEngine3D(canvas3d, { embedded: false, birdVisits: true });
         window.addEventListener('resize', () => engine3d?.resize());
         activateRenderEngine();
       })
@@ -407,6 +433,7 @@ function syncMenuUI(): void {
     engine.setRenderScale(settings.scale);
   }
   catAudio.setEnabled(settings.soundEnabled);
+  syncBirdStage();
   activateRenderEngine();
   if (tailPickerOpen) syncTailPickerSelection();
 }
@@ -954,6 +981,9 @@ async function bootstrap(): Promise<void> {
   await listen('kuro-open-tail-picker', () => {
     void openTailPicker();
   });
+  await listen('kuro-preview-bird', () => {
+    void previewBirdVisit();
+  });
 
   await listen<number>('kuro-scale-preview', (ev) => {
     if (typeof ev.payload === 'number' && Number.isFinite(ev.payload)) {
@@ -1006,9 +1036,8 @@ async function bootstrap(): Promise<void> {
         break;
       case 'keyUp':
         if (active3d || tailPickerOpen) engine3d?.onKeyUp(p.vk);
-        if (!active3d) {
-          engine.onKeyUp(p.vk);
-        }
+        // A key held in 2D can be released after switching to 3D.
+        engine.onKeyUp(p.vk);
         break;
       case 'mouseMove':
         if (active3d && engine3d) engine3d.onGlobalMouseMove(p.nx, p.ny);
@@ -1249,6 +1278,9 @@ async function bootstrap(): Promise<void> {
       case 'open-tail-picker':
         void openTailPicker();
         break;
+      case 'preview-bird':
+        void previewBirdVisit();
+        break;
       case 'reset-pos':
         void invoke('reset_position');
         closeContextMenu();
@@ -1267,6 +1299,7 @@ async function bootstrap(): Promise<void> {
     const useWin7Ulw = await invoke<boolean>('is_win7_ulw_mode');
     if (useWin7Ulw) {
       isWin7Ulw = true;
+      syncBirdStage();
       activateRenderEngine();
       document.documentElement.classList.add('win7-ulw-mode');
       const petCtx = canvas.getContext('2d');
@@ -1416,6 +1449,16 @@ async function bootstrap(): Promise<void> {
     }
   } catch {
     // Ignore if command unavailable
+  }
+
+  try {
+    const kind = await invoke<BirdVisitKind | null>('bird_preview_on_startup');
+    if (kind) {
+      if (loading3dPromise) await loading3dPromise;
+      window.setTimeout(() => void previewBirdVisit(kind), 1200);
+    }
+  } catch (error) {
+    console.error('读取小鸟预览启动选项失败', error);
   }
 }
 

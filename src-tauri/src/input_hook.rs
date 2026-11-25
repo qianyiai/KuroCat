@@ -71,6 +71,10 @@ static ALT_HELD: AtomicBool = AtomicBool::new(false);
 static HOOKS_PAUSED: AtomicBool = AtomicBool::new(false);
 static PASSWORD_PRIVACY_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+pub fn password_privacy_active() -> bool {
+    PASSWORD_PRIVACY_ACTIVE.load(Ordering::Relaxed)
+}
+
 pub fn set_password_privacy_active(active: bool) {
     PASSWORD_PRIVACY_ACTIVE.store(active, Ordering::SeqCst);
 }
