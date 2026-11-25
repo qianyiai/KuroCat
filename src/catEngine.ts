@@ -1,3 +1,4 @@
+import { eyeForSide, restingPose, type SingingPose } from './musicExpression';
 import {
   KEYBOARD_KEYS_65,
   KEYBOARD_KEYS_108,
@@ -265,6 +266,59 @@ export class KuroCatEngine {
   private privacyTypingAt = -10000;
   private lastMouseNX = 0.5;
   private lastDt = 1 / 60;
+
+  private singing = false;
+  private mouthOpening = 0;
+  private delivery = restingPose;
+  private get musicPose(): SingingPose {
+    return this.singing && !this.privacyMode ? this.delivery : restingPose;
+  }
+
+  public setSinging(active: boolean, opening: number, pose: SingingPose): void {
+    this.delivery = pose;
+    this.mouthOpening = opening;
+    if (active === this.singing) return;
+    this.singing = active;
+    this.wakeCat();
+
+  }
+
+  private drawSingingMouth(ctx: CanvasRenderingContext2D, x: number): void {
+    const pose = this.musicPose;
+    if (!pose.vocal) return;
+    const o = this.mouthOpening;
+    const w = (5.6 - o * 1.4) * pose.mouthWidth, h = 1.2 + o * 6.4 * pose.mouthHeight;
+    ctx.save();
+    ctx.fillStyle = `rgba(244,143,159,${pose.blush * .8})`;
+    for (const side of [-1, 1]) {
+      ctx.beginPath();
+      ctx.ellipse(x + side * 29, 12, 7.0, 3.6, side * -0.13, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    if (pose.tear > 0) {
+      const tx = x - 29, ty = 6 + 4 * pose.tear;
+      ctx.beginPath();
+      ctx.moveTo(tx, ty - 4);
+      ctx.bezierCurveTo(tx - 6, ty + 4, tx - 2, ty + 8, tx + 1, ty + 6);
+      ctx.bezierCurveTo(tx + 5, ty + 5, tx + 2, ty, tx, ty - 4);
+      ctx.fillStyle = `rgba(151,205,238,${pose.tear})`;
+      ctx.fill();
+    }
+    ctx.fillStyle = '#6d3543';
+    ctx.strokeStyle = '#d598a0';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(x, 19, w, h, 0, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+    if (o > 0.3) {
+      ctx.fillStyle = '#ec98a4';
+      ctx.beginPath();
+      ctx.ellipse(x, 19 + h * 0.5, w * 0.62, h * 0.24, 0, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
 
   public setPrivacyMode(active: boolean): void {
     this.wakeRendering();
@@ -1094,11 +1148,11 @@ export class KuroCatEngine {
     const shearCurve = u * u * (3 - 2 * u); // smoothstep from hips up to head!
     // Measured mouse-lean shift (-46px at head) + lively typing left-right body/head sway (+-25px)!
     const leanAmp = this.keyboardLayout === '108' ? 76 : 46;
-    const leanX = (this.spineLean * leanAmp + this.typingSway * 25 + this.strikeRock * 10) * shearCurve;
+    const leanX = (this.spineLean * leanAmp + this.typingSway * 25 + this.strikeRock * 10 + this.musicPose.sway * 14) * shearCurve;
     const swayDipY = Math.abs(this.typingSway) * 4.0 * shearCurve;
     const sleepSinkY = this.sleepAmount * 16.5 * shearCurve;
     const squashDipY = this.squashSpring.x * 6.5 * shearCurve;
-    const hunchY = (this.typingHunch * 13 + this.bodyBob * 3.2 + breath) * shearCurve + swayDipY + sleepSinkY + squashDipY;
+    const hunchY = (this.typingHunch * 13 + this.bodyBob * 3.2 + breath + this.musicPose.nod * 12) * shearCurve + swayDipY + sleepSinkY + squashDipY;
     // Slight forward drop when leaning deeply to the mouse
     const leanDropY = Math.abs(this.spineLean) * 6 * shearCurve;
     return {
@@ -1792,7 +1846,7 @@ export class KuroCatEngine {
     // 1) Alive cat emotional states: sleep (loaf + Zzz), curious (laser-pointer eyes), annoy -> cross (airplane ears + tail desk-thump), idle fidgets!
     const sleepAfterMs = this.embedded ? 18_000 : 28_000;
     const idleMs = now - this.lastInputAt;
-    if (isCatMode && !this.privacyMode && !this.asleep && this.petEnergy < 0.15 && idleMs > sleepAfterMs) {
+    if (isCatMode && !this.singing && !this.privacyMode && !this.asleep && this.petEnergy < 0.15 && idleMs > sleepAfterMs) {
       this.asleep = true;
       this.isCross = false;
       this.idleAct = null;
@@ -1823,7 +1877,7 @@ export class KuroCatEngine {
     const curiousClamped = Math.min(1, this.curiousAmount);
 
     // Annoyance accumulates from sustained furious typing (>8.5 CPS) or key mashing (in onKeyDown), cools down after 2.2s quiet
-    if (isCatMode && !this.privacyMode && !this.asleep) {
+    if (isCatMode && !this.singing && !this.privacyMode && !this.asleep) {
       const cps = this.recentKeyTimes.length / 0.95;
       if (cps > 8.5) {
         this.pokeAnnoy((cps - 8.5) * 0.055 * dt, now);
@@ -1953,7 +2007,8 @@ export class KuroCatEngine {
     // Continuous smooth head cock when curious (never snaps left/right across dx=0!)
     const curiousCock = curiousClamped * 0.16 * gx;
     const sleepTilt = this.sleepAmount * 0.08;
-    const desiredHeadTilt =
+    const singingTilt = this.musicPose.roll;
+    const desiredHeadTilt = singingTilt +
       this.typingSway * 0.18 +
       this.typingHunch * (this.strikeRock * 0.065 - 0.02) +
       this.spineLean * 0.085 +
@@ -1974,7 +2029,7 @@ export class KuroCatEngine {
 
     // Dynamic ear spring (5.2Hz, damping 0.36): perks up when curious/excited, flattens into airplane ears when cross!
     const earTarget = isCatMode
-      ? 0.12 * this.typingEnergy * (1 - this.crossAmount) +
+      ? this.musicPose.ear + 0.12 * this.typingEnergy * (1 - this.crossAmount) +
         0.16 * curiousClamped -
         0.18 * this.squintAmount -
         0.58 * this.crossAmount -
@@ -3000,7 +3055,7 @@ export class KuroCatEngine {
     const drawOneEar = (sideSign: -1 | 1, twitch: number) => {
       ctx.save();
       ctx.translate(sideSign * (33 + airplaneSpread) + this.faceTurnX * 0.18, -28 + airplaneDrop);
-      ctx.rotate(sideSign * (0.08 - earPerk + twitch));
+      ctx.rotate(sideSign * (0.08 - earPerk + twitch + (sideSign === this.musicPose.side ? this.musicPose.flick : 0)));
 
       const earPath = () => {
         ctx.beginPath();
@@ -3123,6 +3178,7 @@ export class KuroCatEngine {
 
     // 6) Expressive eyes (lemon-chartreuse for Black Cat / luminous sapphire-blue for Ragdoll!)
     this.drawEyes(ctx, wShift, -1);
+    this.drawSingingMouth(ctx, wShift);
     this.drawHeadphonesFront(ctx);
 
     ctx.restore(); // end head
@@ -3319,6 +3375,27 @@ export class KuroCatEngine {
     ctx.restore();
   }
 
+  private drawSingingEye(ctx: CanvasRenderingContext2D, color: string, side: number): boolean {
+    const eye = eyeForSide(this.musicPose, side);
+    if (eye === 'open' || eye === 'soft' || eye === 'focused') {
+      if (eye === 'soft') ctx.scale(1, .55);
+      if (eye === 'focused') {
+        ctx.rotate(-side * .25);
+        ctx.scale(1, .63);
+      }
+      return false; // Paint the cat's own iris, pupil and blink within this transform.
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 3.1;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    if (eye === 'downcast') ctx.rotate(side * .33);
+    ctx.moveTo(-12, 2);
+    ctx.quadraticCurveTo(0, eye === 'smile' ? -10 - this.mouthOpening : 7, 12, 2);
+    ctx.stroke();
+    return true;
+  }
+
   private drawEyes(ctx: CanvasRenderingContext2D, cx: number, eyeY: number): void {
     const isRagdoll = this.catBreed === 'ragdoll';
     const nowEye = performance.now();
@@ -3349,6 +3426,11 @@ export class KuroCatEngine {
         ctx.moveTo(-13.5, -0.5);
         ctx.quadraticCurveTo(0, 5.2, 13.5, -0.5);
         ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+
+      if (this.singing && !this.privacyMode && this.drawSingingEye(ctx, isRagdoll ? '#344354' : '#d4f044', idx === 0 ? -1 : 1)) {
         ctx.restore();
         continue;
       }
@@ -4741,7 +4823,7 @@ export class KuroCatEngine {
     const drawCustomEar = (sideSign: -1 | 1, twitch: number) => {
       ctx.save();
       ctx.translate(sideSign * (33 + airplaneSpread) + this.faceTurnX * 0.18, -28 + airplaneDrop);
-      ctx.rotate(sideSign * (0.08 - earPerk + twitch));
+      ctx.rotate(sideSign * (0.08 - earPerk + twitch + (sideSign === this.musicPose.side ? this.musicPose.flick : 0)));
 
       const earPath = () => {
         ctx.beginPath();
@@ -4862,6 +4944,7 @@ export class KuroCatEngine {
     }
 
     this.drawCustomEyes(ctx, s, wShift, -1);
+    this.drawSingingMouth(ctx, wShift);
     this.drawHeadphonesFront(ctx);
 
     ctx.restore();
@@ -4894,6 +4977,11 @@ export class KuroCatEngine {
         ctx.moveTo(-13.5, -0.5);
         ctx.quadraticCurveTo(0, 5.2, 13.5, -0.5);
         ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+
+      if (this.singing && !this.privacyMode && this.drawSingingEye(ctx, s.squintColor, idx === 0 ? -1 : 1)) {
         ctx.restore();
         continue;
       }
