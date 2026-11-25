@@ -1,4 +1,6 @@
+import type { SongCharacter } from './musicExpression';
 import './style.css';
+import { MusicPerformance, type Playback, type LyricsResponse } from './musicMode';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -190,6 +192,85 @@ let isWin7Ulw = false;
 let active3d = false;
 let privacyActive = false;
 let gameActive = false;
+const performanceState = new MusicPerformance();
+let displayedLyric: string | undefined;
+const singingNotes = document.getElementById('singing-notes')!;
+let lastMusicKey = '';
+let pollGeneration = 0;
+let musicTimer: number | undefined;
+let musicEnabled = false;
+let poseTimer: number | undefined;
+let lyricRetryAfter = 0;
+const lyricCache = new Map<string, LyricsResponse>();
+
+function displayPerformance(): void {
+  if (performanceState.active && poseTimer === undefined) {
+    poseTimer = window.setInterval(displayPerformance, 50);
+  } else if (!performanceState.active && poseTimer !== undefined) {
+    window.clearInterval(poseTimer);
+    poseTimer = undefined;
+  }
+  const frame = performanceState.frame(performance.now());
+  if (isMacPlatform() && displayedLyric !== frame.caption) {
+    displayedLyric = frame.caption;
+    void invoke('set_lyric_bubble', { text: frame.caption }).catch(() => {
+      if (displayedLyric === frame.caption) displayedLyric = undefined;
+    });
+  }
+  singingNotes.hidden = !frame.pose.vocal || privacyActive;
+  engine.setSinging(performanceState.active, frame.mouth, frame.pose);
+  engine3d?.setSinging(performanceState.active, frame.mouth, frame.pose);
+}
+
+async function loadSongLyrics(track: Playback, key: string): Promise<void> {
+  lyricRetryAfter = Infinity;
+  try {
+    const lyrics = await invoke<LyricsResponse>('netease_lyrics', { title: track.title, artist: track.artist, duration: track.duration });
+    if (lyricCache.size >= 20) lyricCache.delete(lyricCache.keys().next().value!);
+    lyricCache.set(key, lyrics);
+    performanceState.load(key, lyrics);
+    if (lyrics.songId) {
+      // Start displaying lyrics immediately; the optional encyclopedia can arrive later.
+      void invoke<SongCharacter>('netease_song_character', { songId: lyrics.songId }).then(character => {
+        lyrics.character = character;
+        performanceState.setCharacter(key, character);
+      }).catch(() => {});
+    }
+  } catch {
+    if (lastMusicKey === key) lyricRetryAfter = performance.now() + 15000;
+  }
+}
+
+async function pollMusic(generation: number): Promise<void> {
+  let p: Playback | null = null;
+  try { p = await invoke<Playback>('netease_playback'); } catch { /* Player may be quitting. */ }
+  if (generation !== pollGeneration) return;
+  const key = performanceState.update(p, performance.now());
+  if (key !== lastMusicKey) {
+    lastMusicKey = key;
+    lyricRetryAfter = 0;
+    const cached = lyricCache.get(key);
+    if (cached) { performanceState.load(key, cached); lyricRetryAfter = Infinity; }
+  }
+  displayPerformance();
+  if (p && key && performance.now() >= lyricRetryAfter) void loadSongLyrics(p, key);
+  musicTimer = window.setTimeout(() => void pollMusic(generation), p?.playing ? 520 : 900);
+}
+
+function syncMusicMode(): void {
+  const enabled = isMacPlatform() && settings.catBreed !== 'dafeiyu';
+  if (enabled === musicEnabled) return;
+  musicEnabled = enabled;
+  pollGeneration++;
+  window.clearTimeout(musicTimer);
+  if (enabled) void pollMusic(pollGeneration);
+  else {
+    performanceState.update(null, performance.now());
+    lastMusicKey = '';
+    displayPerformance();
+  }
+}
+
 
 window.addEventListener('resize', () => engine3d?.resize());
 
@@ -266,6 +347,8 @@ function syncEngine3DState(): void {
   engine3d.setTailKeyConfig(tailMode, tailIds);
   engine3d.setPrivacyMode(privacyActive);
   engine3d.setFpsCap(settings.fpsCap === 30 ? 30 : 0);
+  const frame = performanceState.frame(performance.now());
+  engine3d.setSinging(performanceState.active, frame.mouth, frame.pose);
   engine3d.resize();
 }
 
@@ -372,6 +455,7 @@ function syncMenuUI(): void {
   setActiveLocale(settings.language, resolvedBackendLocale);
   applyDomTranslations();
 
+  syncMusicMode();
   const setCheck = (id: string, on: boolean) => {
     const el = document.getElementById(id);
     if (el) el.textContent = on ? '✓' : '';

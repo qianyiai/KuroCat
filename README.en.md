@@ -86,6 +86,8 @@ Visit [Releases](https://github.com/qianyiai/kurocat/releases) or grab the lates
   </tr>
 </table>
 
+- **NetEase Cloud Music sing-along on macOS.** The cat mouths the current lyric and changes its expression with the lyrics and song tags while its paws keep typing. A speech bubble beside its head shows the current line and disappears during rests or when playback pauses. [See the animation](docs/netease-sing-along.gif)
+
 - **✨ 3D Volumetric Figurine & 🎨 2D Classic Dual Engine + Optional Accessories**:
   - Defaults to **3D Volumetric Figurine Mode** powered by Three.js with soft rim lighting, plush arm proportions, and smooth fur blending; switch to **2D Classic Hand-Drawn** anytime in one click via the right-click menu or system tray.
   - **Optional 3D Collar Bells & Gaming Headset (both off by default)**: Pick from 4 collar colors (red, blue, pink, green) with a jingling bell, or enable the gaming headset with automatic PC game detection that puts it on and takes it off silently.
