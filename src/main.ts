@@ -1,3 +1,6 @@
+import { installCharacterMenu } from './characterMenu';
+import { CharacterLoader, type ActiveCharacter } from './characterLoader';
+import { BUILTIN_CHARACTER, CharacterStatePublisher } from './characterSync';
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -23,6 +26,8 @@ type DesktopRenderMode = '2d' | '3d';
 type HeadphoneMode = 'auto' | 'on' | 'off';
 
 interface AppSettings {
+  activeCharacterId?: string | null;
+  characterOutfits?: Record<string,string>;
   x: number | null;
   y: number | null;
   scale: number;
@@ -176,6 +181,20 @@ const tailKeysCountEl = document.getElementById('tail-keys-count') as HTMLSpanEl
 const engine = new KuroCatEngine(canvas);
 
 // Lazy-loaded Three.js 3D engine (NEVER imported when user stays in 2D mode -> +0 MB overhead!)
+const characterStatus = document.createElement('div');
+characterStatus.className = 'character-load-status'; document.body.append(characterStatus);
+const characterLoader = new CharacterLoader({
+  active: () => invoke<ActiveCharacter | null>('get_active_character'),
+  asset: (id,revision,asset) => invoke<ArrayBuffer>('get_character_asset',{id,revision,asset}),
+}, actor => {
+  engine.setProceduralCharacter(actor);
+  if (!actor) { const cat=catList.find(c=>c.id===settings.catBreed) ?? catList[0]; engine.setCatAppearance(cat?.id ?? 'black',cat); }
+  engine.setKeyboardConfig(settings.keyboardLayout,settings.keyboardOrientation);
+  characterStatus.textContent='';
+}, error => {
+  characterStatus.textContent=`角色加载失败，暂时显示备用猫咪；可重新选择人物或猫咪：${String(error)}`;
+});
+
 let engine3d: KuroCatEngine3D | null = null;
 let loading3dPromise: Promise<void> | null = null;
 let webgl3dUnavailable = false;
@@ -197,6 +216,7 @@ function shouldWearHeadphonesNow(): boolean {
 
 function wants3DNow(): boolean {
   return (
+    !settings.activeCharacterId &&
     settings.renderMode !== '2d' &&
     settings.catBreed !== 'dafeiyu' &&
     !tailPickerOpen &&
@@ -298,7 +318,7 @@ function renderBreedPills(): void {
     btn.textContent = `${emoji}${cat.name}`;
     const accent = cat.accentColor || (cat.id === 'ragdoll' ? '#7ac7ff' : '#c8f538');
     btn.style.setProperty('--pill-accent', accent);
-    btn.classList.toggle('active', cat.id === settings.catBreed);
+    btn.classList.toggle('active', !settings.activeCharacterId && cat.id === settings.catBreed);
     breedPillsEl.appendChild(btn);
   }
 }
@@ -352,15 +372,15 @@ function syncMenuUI(): void {
     btn.classList.toggle('active', btn.dataset.tailmode === tailMode);
   });
   if (tailModeBadgeEl) {
-    tailModeBadgeEl.textContent = TAIL_MODE_LABELS[tailMode];
+    tailModeBadgeEl.textContent = settings.activeCharacterId ? '由人物包控制' : TAIL_MODE_LABELS[tailMode];
   }
   if (tailKeysCountEl) {
-    tailKeysCountEl.textContent = `${tailIds.length} 键`;
+    tailKeysCountEl.textContent = settings.activeCharacterId ? '人物配置' : `${tailIds.length} 键`;
   }
   const activeCat = catList.find((c) => c.id === settings.catBreed) ?? catList[0];
   renderBreedPills();
 
-  const renderMode: DesktopRenderMode = settings.renderMode === '2d' ? '2d' : '3d';
+  const renderMode: DesktopRenderMode = settings.activeCharacterId || settings.renderMode === '2d' ? '2d' : '3d';
   const collarColor: CollarColorId =
     settings.collarColor === 'red' ||
     settings.collarColor === 'blue' ||
@@ -388,21 +408,22 @@ function syncMenuUI(): void {
   });
   const headphoneRowEl = document.getElementById('headphone-row');
   if (headphoneRowEl) {
-    headphoneRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+    headphoneRowEl.classList.toggle('hidden', !!settings.activeCharacterId || settings.catBreed === 'dafeiyu');
   }
 
   const headerEl = document.getElementById('menu-header');
-  if (headerEl && activeCat) {
+  if (headerEl && activeCat && !settings.activeCharacterId) {
     const emoji = activeCat.emoji || '🐱';
     headerEl.textContent = `${emoji} KuroCat ${activeCat.name}`;
     headerEl.style.color = activeCat.accentColor || '#c8f538';
   }
 
   engine.showKeyBubbles = settings.showKeyBubbles;
-  engine.setCatAppearance(activeCat?.id || 'black', activeCat);
+  if (!settings.activeCharacterId) engine.setCatAppearance(activeCat?.id || 'black', activeCat);
+  void characterLoader.sync(!!settings.activeCharacterId);
   engine.setHeadphones(shouldWearHeadphonesNow());
   engine.setKeyboardConfig(kbLayout, kbOrient);
-  engine.setTailKeyConfig(tailMode, tailIds);
+  if (!settings.activeCharacterId) engine.setTailKeyConfig(tailMode, tailIds);
   if (!sliderDragging) {
     engine.setRenderScale(settings.scale);
   }
@@ -582,9 +603,11 @@ async function confirmTailPicker(): Promise<void> {
 }
 
 async function applySettingsPatch(patch: Partial<AppSettings>): Promise<void> {
+  const previous=settings;
   settings = { ...settings, ...patch };
   syncMenuUI();
-  settings = await invoke<AppSettings>('update_settings', { patch: settings });
+  try { settings = await invoke<AppSettings>('update_settings', { patch }); }
+  catch(error) { settings=await invoke<AppSettings>('get_settings').catch(()=>previous); characterStatus.textContent=`设置保存失败：${String(error)}`; }
   syncMenuUI();
 }
 
@@ -822,7 +845,20 @@ async function triggerManualUpdateCheck(): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
+  installCharacterMenu(invoke, (event,handler)=>listen(event,handler));
   engine.start();
+  let restartPublisher=true,lastPublisherError='';
+  const statePublisher=new CharacterStatePublisher(async()=>{
+    const epoch=await invoke<string>('character_sync_epoch',{restart:restartPublisher});restartPublisher=false;return epoch;
+  },()=>{
+    const identity=settings.activeCharacterId?characterLoader.identity:settings.catBreed==='dafeiyu'?BUILTIN_CHARACTER:null;
+    const state=engine.getCharacterState();return identity&&state?{identity,state}:null;
+  },frame=>invoke('publish_character_state',{frame}));
+  setInterval(()=>{
+    if(settings.obsEnabled&&engine.isProcedural())void statePublisher.tick().catch(error=>{
+      const message=String(error);if(message!==lastPublisherError){console.error('Character state publishing failed:',message);lastPublisherError=message;}
+    });
+  },100);
 
   // Hide Windows-only desktop shortcut button on macOS
   if (/Mac/i.test(navigator.platform) || /Macintosh/i.test(navigator.userAgent)) {
@@ -925,6 +961,7 @@ async function bootstrap(): Promise<void> {
 
   await listen<AppSettings>('kuro-settings', (ev) => {
     const prevLock = lastKnownLockState;
+    if (ev.payload.activeCharacterId && tailPickerOpen) closeTailPicker();
     settings = ev.payload;
     lastKnownLockState = settings.clickThroughLocked;
     syncMenuUI();
@@ -944,6 +981,10 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  await listen('kuro-characters', () => { void characterLoader.sync(!!settings.activeCharacterId); });
+  await listen<string>('kuro-character-selection-error', event => {
+    characterStatus.textContent=event.payload;
+  });
   await listen<CatSkinConfig[]>('kuro-cats', (ev) => {
     if (Array.isArray(ev.payload) && ev.payload.length > 0) {
       catList = ev.payload;
@@ -1059,18 +1100,22 @@ async function bootstrap(): Promise<void> {
     engine3d?.setHeadphones(wearNow);
   });
 
-  let lastPetHover = false;
+  let lastPetHover = false, lastPetHover3d = false;
   await listen<WindowCursorInfo>('kuro-cursor', (ev) => {
     const c = ev.payload;
     altOverride = Boolean(c.altOverride);
     if (active3d && engine3d) engine3d.onWindowCursor(c.relX, c.relY, c.overCat);
-    else engine.onWindowCursor(c.relX, c.relY, c.overCat);
+    else engine.onWindowCursor(c.relX, c.relY, engine.isProcedural() ? c.insideWindow && (!settings.clickThroughLocked || altOverride) : c.overCat);
     const interactive = !settings.clickThroughLocked || altOverride;
-    const petHover = c.overCat && interactive;
+    const petHover = (engine.isProcedural() ? c.insideWindow && engine.proceduralHitTest(c.relX,c.relY) : c.overCat) && interactive;
     if (petHover !== lastPetHover) {
       lastPetHover = petHover;
       canvas.classList.toggle('pet-hover', petHover);
-      canvas3d.classList.toggle('pet-hover', petHover);
+    }
+    const petHover3d = c.overCat && interactive;
+    if (petHover3d !== lastPetHover3d) {
+      lastPetHover3d = petHover3d;
+      canvas3d.classList.toggle('pet-hover', petHover3d);
     }
   });
 

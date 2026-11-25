@@ -1,0 +1,2003 @@
+{
+  "schema": "visual-preference-evidence/v1",
+  "updated": "2026-11-25 Asia/Shanghai",
+  "scope": "本任务的虚构人物图像审美整理；没有写入全局记忆、修改侧对话原始票或生成新的服装投票。",
+  "roleVotes": {
+    "已标注角色": 107,
+    "喜欢": 29,
+    "不喜欢": 78
+  },
+  "likedCharacters": [
+    {
+      "角色": "圣路易斯",
+      "作品": "碧蓝航线",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "仪玄",
+      "作品": "绝区零",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "埃吉尔",
+      "作品": "碧蓝航线",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "布兰儿",
+      "作品": "胜利女神：NIKKE",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "2B",
+      "作品": "尼尔：机械纪元",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "凝光",
+      "作品": "原神",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "约尔·福杰",
+      "作品": "间谍过家家",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "雅儿贝德",
+      "作品": "OVERLORD",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "玛奇玛",
+      "作品": "链锯人",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "罗贝尔特",
+      "作品": "黑礁",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "水原千鹤",
+      "作品": "租借女友",
+      "判断": "喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "申鹤",
+      "作品": "原神",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "夜兰",
+      "作品": "原神",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "雷电将军",
+      "作品": "原神",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "阮·梅",
+      "作品": "崩坏：星穹铁道",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "黄泉",
+      "作品": "崩坏：星穹铁道",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "镜流",
+      "作品": "崩坏：星穹铁道",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "长离",
+      "作品": "鸣潮",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "吟霖",
+      "作品": "鸣潮",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "白芷",
+      "作品": "鸣潮",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "八重神子",
+      "作品": "原神",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "卡芙卡",
+      "作品": "崩坏：星穹铁道",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "黑天鹅",
+      "作品": "崩坏：星穹铁道",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "姬子",
+      "作品": "崩坏：星穹铁道",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "翡翠",
+      "作品": "崩坏：星穹铁道",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "守岸人",
+      "作品": "鸣潮",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "坎特蕾拉",
+      "作品": "鸣潮",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "卡缇娅",
+      "作品": "尘白禁区",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "娜维娅",
+      "作品": "原神",
+      "判断": "喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    }
+  ],
+  "dislikedCharacters": [
+    {
+      "角色": "天狼星",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "贝尔法斯特",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "黛朵",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "柴郡",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "索达",
+      "作品": "胜利女神：NIKKE",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "爱德",
+      "作品": "胜利女神：NIKKE",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "普丽瓦蒂〔女仆版〕",
+      "作品": "胜利女神：NIKKE",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "爱宕",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "大凤",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "可畏",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "光辉",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "信浓",
+      "作品": "碧蓝航线",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "诺亚尔",
+      "作品": "胜利女神：NIKKE",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "蒂法",
+      "作品": "最终幻想 VII",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "莫莉卡",
+      "作品": "恶魔战士",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "贝优妮塔",
+      "作品": "猎天使魔女",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "古蕾菲亚·路西菲格斯",
+      "作品": "恶魔高校 D×D",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "娜贝拉尔·伽玛",
+      "作品": "OVERLORD",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "索留香·艾普西隆",
+      "作品": "OVERLORD",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "米拉杰·斯特劳斯",
+      "作品": "妖精的尾巴",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "吹雪",
+      "作品": "一拳超人",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "汉娜·安娜费罗斯",
+      "作品": "黑执事 II",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "露普斯蕾琪娜·贝塔",
+      "作品": "OVERLORD",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "紫苑",
+      "作品": "关于我转生变成史莱姆这档事",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "露科亚",
+      "作品": "小林家的龙女仆",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "艾露莎·舒卡勒托",
+      "作品": "妖精的尾巴",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "贝露丹迪",
+      "作品": "我的女神",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "乌尔德",
+      "作品": "我的女神",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "同期酱",
+      "作品": "加油！同期酱",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "后辈酱",
+      "作品": "加油！同期酱",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "前辈桑",
+      "作品": "加油！同期酱",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "桐须真冬",
+      "作品": "我们无法一起学习",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "松本乱菊",
+      "作品": "BLEACH",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "四枫院夜一",
+      "作品": "BLEACH",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "樱泽墨",
+      "作品": "租借女友",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "梅琳",
+      "作品": "黑执事",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "由莉·阿尔法",
+      "作品": "OVERLORD",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "儿岛加奈",
+      "作品": "为什么老师会在这里！？",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "艾玛",
+      "作品": "英国恋物语艾玛",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "姬野",
+      "作品": "链锯人",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "行桥玲奈",
+      "作品": "じみへんっ!!",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "渡濑咲",
+      "作品": "XL上司",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "藤桥凉",
+      "作品": "指先から本気の熱情",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "高崎三奈美",
+      "作品": "しょうたいむ！",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "星谷ふみ",
+      "作品": "俺の指で乱れろ。",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "相泽实里",
+      "作品": "終電後、カプセルホテルで…",
+      "判断": "不喜欢",
+      "来源": "首轮57条标注（已在本会话读取，原始选择见会话记录）",
+      "服装级判断": null
+    },
+    {
+      "角色": "闲云",
+      "作品": "原神",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "克洛琳德",
+      "作品": "原神",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "优菈",
+      "作品": "原神",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "简",
+      "作品": "绝区零",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "朱鸢",
+      "作品": "绝区零",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "丽娜",
+      "作品": "绝区零",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "格莉丝",
+      "作品": "绝区零",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "赞妮",
+      "作品": "鸣潮",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "比安卡",
+      "作品": "战双帕弥什",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "琴",
+      "作品": "原神",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "辰星",
+      "作品": "尘白禁区",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "瑶",
+      "作品": "尘白禁区",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "丽莎",
+      "作品": "原神",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "妮可",
+      "作品": "绝区零",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "芬妮",
+      "作品": "尘白禁区",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "D〔杀手妻子〕",
+      "作品": "胜利女神：NIKKE",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "毒蛇",
+      "作品": "胜利女神：NIKKE",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "凤凰寺红叶",
+      "作品": "女神的露天咖啡厅",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "月岛流星",
+      "作品": "女神的露天咖啡厅",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "幕泽樱花",
+      "作品": "女神的露天咖啡厅",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "橘阳菜",
+      "作品": "家有女友",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "壹原侑子",
+      "作品": "xxxHOLiC",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "艾姬多娜",
+      "作品": "Re：从零开始的异世界生活",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "塞拉斯·维多利亚",
+      "作品": "HELLSING",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "因特古拉",
+      "作品": "HELLSING",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "莉莎·霍克艾",
+      "作品": "钢之炼金术师",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "奥利维亚·米拉·阿姆斯特朗",
+      "作品": "钢之炼金术师",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "家入硝子〔成年〕",
+      "作品": "咒术回战",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "冥冥",
+      "作品": "咒术回战",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "九十九由基",
+      "作品": "咒术回战",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "与谢野晶子",
+      "作品": "文豪野犬",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    },
+    {
+      "角色": "羽前京香",
+      "作品": "魔都精兵的奴隶",
+      "判断": "不喜欢",
+      "来源": "C:\\Users\\江户川\\Downloads\\我的角色选择 (2).json",
+      "服装级判断": null
+    }
+  ],
+  "exactOutfitChoices": [
+    {
+      "character": "仪玄",
+      "outfit": "墨形影踪",
+      "status": "用户文字明确指定",
+      "evidence": [
+        "E2"
+      ]
+    }
+  ],
+  "wardrobeExportReceived": false,
+  "evidence": [
+    {
+      "id": "E1",
+      "title": "角色选择导出",
+      "detail": "107位已标注：29位喜欢、78位不喜欢。这里确认的是角色，服装判断为空。",
+      "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\角色偏好档案.json"
+    },
+    {
+      "id": "E2",
+      "title": "主对话明确要求",
+      "detail": "用户明确提到丝袜、女仆装、JK制服风、Cosplay、兔女郎；原作服装与官方皮肤优先，仪玄指定墨形影踪。",
+      "path": null
+    },
+    {
+      "id": "E3",
+      "title": "画风与构图反馈",
+      "detail": "用户拒绝半写实CG示例、AI、真人补充、粗糙草稿和头像凑数；要求手绘，至少上半身，优先全身。",
+      "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\_work\\data\\review-preferences.json"
+    },
+    {
+      "id": "E4",
+      "title": "椿的保留图",
+      "detail": "6张明确“可保留”的卡面，加上4张明确“加入”的用户漫画附件；保留不等于最终首选。",
+      "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\_work\\data\\round6-琉璃川椿.json"
+    },
+    {
+      "id": "E5",
+      "title": "红晕的直接反馈",
+      "detail": "用户明确指出“脸上的红晕”，并提供原作者短片。保存画面是表情参考，不是新增服装投票。",
+      "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\_work\\data\\round10-tsubaki-youtube-expression.json"
+    },
+    {
+      "id": "E6",
+      "title": "服装选择册",
+      "detail": "29位角色、59套服装、63张图片；未收到服装选择导出。除仪玄明确指定的墨形影踪外，不把展示服装算成已喜欢。",
+      "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\服装图册目录.json"
+    },
+    {
+      "id": "E7",
+      "title": "侧对话补充的明确偏好",
+      "detail": "用户补充御姐、甜妹与可爱小巧并列；成年角色的性感、适度露肤是加分项。当前角色与服装展示要求非露骨，成人题材兴趣与展示方式分开。",
+      "path": null
+    },
+    {
+      "id": "E8",
+      "title": "主对话原先的14位",
+      "detail": "原有14位角色范围见设计归档。用户本轮提醒“还有我原先喜欢的呢？”，本版恢复完整展示；与后来29位有5位重合，去重覆盖38位。",
+      "path": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "id": "E9",
+      "title": "主对话明确确认的图片",
+      "detail": "仪玄墨形影踪、海梦黑江雫文化祭喫茶版、椿原作者色纸面部参考共有3条明确确认；旧精选目录中的其他代表图由助手筛选，不自动当作用户喜欢票。",
+      "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\_work\\data\\user-approvals.json"
+    }
+  ],
+  "confirmed": [
+    {
+      "id": "C1",
+      "dimension": "服装",
+      "title": "原作身份与可辨识的衣服优先",
+      "conclusion": "原作实际服装、官方皮肤和原作出现过的角色扮装优先；仪玄固定墨形影踪。动作也要贴合角色设定。",
+      "evidence": [
+        "E2"
+      ],
+      "limit": "官方皮肤是加分项；尚不能把某角色的全部皮肤都记为喜欢。"
+    },
+    {
+      "id": "C2",
+      "dimension": "服装",
+      "title": "女仆装有直接图片支持",
+      "conclusion": "原作女仆头饰、围裙、褶边与裙装是已明确接受的组合；海梦黑江雫文化祭参考图已有确认，椿的保留图提供了重复证据。",
+      "evidence": [
+        "E2",
+        "E4",
+        "E9"
+      ],
+      "limit": "确认的是这些具体衣装与图像；女仆标签本身不能保证喜欢所有角色或设计。"
+    },
+    {
+      "id": "C3",
+      "dimension": "服装",
+      "title": "丝袜、制服、角色扮装、兔女郎是加分元素",
+      "conclusion": "这些元素来自你的直接表达；成年角色的性感造型与适度露肤也属于明确加分方向。",
+      "evidence": [
+        "E2",
+        "E7"
+      ],
+      "limit": "尚无证据排出黑丝／白丝、连裤袜／长筒袜、女仆／旗袍／礼服之间的稳定优先级。"
+    },
+    {
+      "id": "C4",
+      "dimension": "画风",
+      "title": "手绘日系2D，完成度和脸部质量重要",
+      "conclusion": "你明确要求手绘原画或同人，并拒绝AI、真人补充、粗糙草稿、走形和此前那组偏真人质感的半写实CG。",
+      "evidence": [
+        "E3"
+      ],
+      "limit": "这不等于排斥所有厚涂或所有游戏原画；按具体画面的动漫感、线条和完成度判断。"
+    },
+    {
+      "id": "C5",
+      "dimension": "画风",
+      "title": "精细彩色与精细黑白漫画都可以",
+      "conclusion": "椿的彩色卡面获准保留，近期4张黑白漫画被你明确要求加入；不能再把黑白漫画一概排除。",
+      "evidence": [
+        "E4"
+      ],
+      "limit": "能确认两种形式都可接受，不能据此断言黑白比彩色更喜欢。"
+    },
+    {
+      "id": "C6",
+      "dimension": "表情",
+      "title": "脸颊红晕是明确关注点",
+      "conclusion": "“脸上的红晕”有直接文字反馈。配合眼睛、眉形和嘴部细节观察，能比单看服装更准确地理解你的选择。",
+      "evidence": [
+        "E5",
+        "E4"
+      ],
+      "limit": "闭眼、半垂眼、皱眉或抿嘴的具体排序尚未确定；你提供的短片取帧不等于最终首选图。"
+    },
+    {
+      "id": "C7",
+      "dimension": "构图",
+      "title": "至少上半身，优先看完整服装",
+      "conclusion": "全身优先，最低至少上半身；头像只用于面部或表情识别，不补服装候选数量。动漫截图、漫画原画和手绘同人都可以。",
+      "evidence": [
+        "E3",
+        "E4"
+      ],
+      "limit": "这是参考图的构图要求，不能直接等同于对某个身体部位的唯一偏好。"
+    },
+    {
+      "id": "C8",
+      "dimension": "角色",
+      "title": "御姐、甜妹、可爱小巧均可",
+      "conclusion": "这三种外观方向并列。29位角色喜欢记录与78位不喜欢记录逐项保留；不把某部作品、发色或单一标签泛化为整体喜好。",
+      "evidence": [
+        "E1",
+        "E7"
+      ],
+      "limit": "普通人物外观与成年性感造型分开。“加入椿的图”不擅自改成侧对话的第30张角色喜欢票。"
+    },
+    {
+      "id": "C9",
+      "dimension": "范围",
+      "title": "成人题材兴趣与非露骨展示分开",
+      "conclusion": "你表达过成人题材兴趣并要求保留具体原图；之后又明确要求普通角色与服装参考不露骨。本图集使用非露骨展示，3张成人原附件只列归档入口。",
+      "evidence": [
+        "E2",
+        "E4",
+        "E7"
+      ],
+      "limit": "只整理已提供材料；选中一页不等于认可该页所有动作、剧情或关系，也不推断现实人格与关系偏好。"
+    },
+    {
+      "id": "C10",
+      "dimension": "范围",
+      "title": "原先14位与后来29位一起保留",
+      "conclusion": "雷姆、海梦、麻衣、C.C.、芙宁娜、薇尔莉特、爱蜜莉亚、02等原有角色继续纳入总览；原先14位与后来29位去重后共38位。",
+      "evidence": [
+        "E8",
+        "E9",
+        "E1"
+      ],
+      "limit": "原有角色范围、明确确认图片和后来逐项角色票分别保留；不把旧助手代表图自动变成服装首选。"
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "H1",
+      "dimension": "服装",
+      "title": "修身轮廓与清楚的腰线可能加分",
+      "conclusion": "椿的女仆裙与部分已喜欢角色的展示服装，腰线和整体轮廓较清楚。",
+      "evidence": [
+        "E1",
+        "E4"
+      ],
+      "test": "同一角色、相近表情下，比较收腰裙装与宽松服装；先控制画师和画风。"
+    },
+    {
+      "id": "H2",
+      "dimension": "服装",
+      "title": "整齐衣装与明显情绪变化的组合值得优先试",
+      "conclusion": "保留图反复出现较完整的女仆识别元素，同时面部表现较突出。",
+      "evidence": [
+        "E4",
+        "E5"
+      ],
+      "test": "同套衣服比较平静、脸红与微笑，确认吸引点来自服装、表情还是两者组合。"
+    },
+    {
+      "id": "H3",
+      "dimension": "表情",
+      "title": "可能偏好有细节的羞怯或犹豫神态",
+      "conclusion": "椿的保留卡面与红晕参考中，低头、半垂眼、眉形变化和手部小动作多次出现。",
+      "evidence": [
+        "E4",
+        "E5"
+      ],
+      "test": "与直视、自信微笑的同角色图片并排比较；目前不能把主动神态排除。"
+    },
+    {
+      "id": "H4",
+      "dimension": "角色",
+      "title": "优雅冷艳与温柔活泼应并列对照",
+      "conclusion": "后来29位提供了优雅、冷艳或神秘的线索；原先雷姆、海梦、芙宁娜等补回后，还应保留温柔、活泼与清冷的对照方向。具体神态仍按图片判断。",
+      "evidence": [
+        "E1",
+        "E8"
+      ],
+      "test": "保持服装相近，比较不同面部与气质；不由职业或发色代替实际图片判断。"
+    },
+    {
+      "id": "H5",
+      "dimension": "画风",
+      "title": "清楚的轮廓、克制的阴影可能更稳妥",
+      "conclusion": "已接受的彩色卡面与黑白漫画都保留了明显线条，脸部信息容易读清。",
+      "evidence": [
+        "E3",
+        "E4"
+      ],
+      "test": "同一角色比较线稿明确的动漫画法与柔化厚涂；不能仅靠“厚涂”标签淘汰。"
+    },
+    {
+      "id": "H6",
+      "dimension": "服装",
+      "title": "黑白配色、腿部线条和鞋袜细节可能加分",
+      "conclusion": "椿的女仆服样本里黑白对比、裙摆、袜口与鞋型较醒目。",
+      "evidence": [
+        "E4"
+      ],
+      "test": "跨角色或同角色换色对比；不要把黑白漫画的白色腿部留白自动认作白丝袜。"
+    }
+  ],
+  "historicalCharacters": [
+    {
+      "character": "02",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "雷电将军",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "八重神子",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "芙宁娜",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "仪玄",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "喜多川海梦",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "琉璃川椿",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "薇尔莉特",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "樱岛麻衣",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "雷姆",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "约尔·福杰",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "C.C.",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "玛奇玛",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    },
+    {
+      "character": "爱蜜莉亚",
+      "status": "主对话原先角色范围，本轮补回",
+      "source": "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md"
+    }
+  ],
+  "mainConversationConfirmedReferences": [
+    {
+      "character": "仪玄",
+      "id": "1940708651272229179",
+      "platform": "X",
+      "outfit": "墨形影踪"
+    },
+    {
+      "character": "喜多川海梦",
+      "id": "official-shizuku-cafe",
+      "platform": "官方网站",
+      "outfit": "黑江雫·文化祭版"
+    },
+    {
+      "character": "琉璃川椿",
+      "id": "98091169",
+      "platform": "Pixiv",
+      "outfit": "原作者女仆头饰与面部参考"
+    }
+  ],
+  "combinedCharacterCoverage": 38,
+  "scopeReconciliation": "原先14位与后来29位的并集为38位；原107条角色票保持不变。原有范围不等于新增逐套服装判断。",
+  "unresolved": [
+    "59套服装的喜欢／不喜欢与每角色最喜欢哪一套：尚未收到实际服装导出。",
+    "黑丝与白丝、长筒袜与连裤袜、露肤多少、颜色和材质的优先级：不能靠角色喜欢票推定。",
+    "女仆、旗袍、礼服、制服、日常装之间的顺序：目前没有可用的逐套比较结果。",
+    "胸部大小、腰臀比例、发色和长短发是否存在稳定排序：样本只能提供线索，不能直接下定论。",
+    "本次漫画中具体动作与情境的喜好：图片加入只确认保留，不把整页剧情当成你的偏好声明。"
+  ],
+  "retainedImageIds": [
+    "1793061435001",
+    "1769700567011",
+    "1773042315002",
+    "1769700567012",
+    "1769749635005",
+    "1769700567008",
+    "user-838f1580-6407-45d0-9539-81b309a3152c",
+    "user-b1394938-133d-48b5-9d93-c26956e749a1-1",
+    "user-b1394938-133d-48b5-9d93-c26956e749a1-2",
+    "user-fc8c0197-2721-4fa4-a7b5-ab256d4d2de7"
+  ],
+  "retentionIsNotFinalSelection": true,
+  "exclusions": {
+    "works": [
+      "英雄联盟",
+      "海贼王",
+      "火影忍者",
+      "博人传"
+    ],
+    "recommendations": [
+      "成人游戏"
+    ],
+    "images": [
+      "AI绘图",
+      "真人Cosplay补充",
+      "3D渲染",
+      "粗糙草稿",
+      "偏真人质感的半写实CG示例"
+    ]
+  },
+  "sourceFiles": [
+    "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\角色偏好档案.json",
+    "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\服装图册目录.json",
+    "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\_work\\data\\review-preferences.json",
+    "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\_work\\data\\round6-琉璃川椿.json",
+    "D:\\Vibe codinng\\kurocat\\design-archive\\requirements.md",
+    "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\_work\\data\\user-approvals.json"
+  ],
+  "historicalReferenceImages": [
+    {
+      "character": "雷姆",
+      "id": "59214113",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\雷姆\\59214113.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/59214113"
+    },
+    {
+      "character": "喜多川海梦",
+      "id": "official-shizuku-cafe",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\喜多川海梦\\shizuku-cafe.jpg",
+      "imageUserApproved": true,
+      "source": "https://bisquedoll-anime.com/special/gallery/"
+    },
+    {
+      "character": "樱岛麻衣",
+      "id": "150829353",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\樱岛麻衣\\150829353.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/150829353"
+    },
+    {
+      "character": "C.C.",
+      "id": "152271171",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\C.C\\152271171.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/152271171"
+    },
+    {
+      "character": "芙宁娜",
+      "id": "111157207",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\芙宁娜\\111157207.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/111157207"
+    },
+    {
+      "character": "薇尔莉特",
+      "id": "93964489",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\薇尔莉特\\93964489.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/93964489"
+    },
+    {
+      "character": "爱蜜莉亚",
+      "id": "74393535",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\爱蜜莉亚\\pixiv-74393535.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/74393535"
+    },
+    {
+      "character": "02",
+      "id": "67333054",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\02\\67333054.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/67333054"
+    },
+    {
+      "character": "琉璃川椿",
+      "id": "98091169",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\98091169--1.jpg",
+      "imageUserApproved": true,
+      "source": "https://www.pixiv.net/artworks/98091169"
+    },
+    {
+      "character": "仪玄",
+      "id": "1940708651272229179",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\仪玄\\x-tagecloud-approved.jpg",
+      "imageUserApproved": true,
+      "source": "https://x.com/TageCloud/status/1940708651272229179"
+    },
+    {
+      "character": "雷电将军",
+      "id": "92390436",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\雷电将军\\92390436.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/92390436"
+    },
+    {
+      "character": "八重神子",
+      "id": "91526701",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\八重神子\\91526701.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/91526701"
+    },
+    {
+      "character": "约尔·福杰",
+      "id": "99098117",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\约尔·福杰\\pixiv-99098117.jpg",
+      "imageUserApproved": false,
+      "source": "https://www.pixiv.net/artworks/99098117"
+    },
+    {
+      "character": "玛奇玛",
+      "id": "1318430712773537792",
+      "preview": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\玛奇玛\\x-1318430712773537792.jpg",
+      "imageUserApproved": false,
+      "source": "https://x.com/Classic_W_/status/1318430712773537792"
+    }
+  ],
+  "allIncludedCharacters": [
+    {
+      "character": "02",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "2B",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "C.C.",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "仪玄",
+      "mainConversationOriginal": true,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "八重神子",
+      "mainConversationOriginal": true,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "凝光",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "卡缇娅",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "卡芙卡",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "吟霖",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "喜多川海梦",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "圣路易斯",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "坎特蕾拉",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "埃吉尔",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "夜兰",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "姬子",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "娜维娅",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "守岸人",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "布兰儿",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "樱岛麻衣",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "水原千鹤",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "爱蜜莉亚",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "玛奇玛",
+      "mainConversationOriginal": true,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "琉璃川椿",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "申鹤",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "白芷",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "约尔·福杰",
+      "mainConversationOriginal": true,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "罗贝尔特",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "翡翠",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "芙宁娜",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "薇尔莉特",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "镜流",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "长离",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "阮·梅",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "雅儿贝德",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "雷姆",
+      "mainConversationOriginal": true,
+      "laterRoleVote": null,
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "雷电将军",
+      "mainConversationOriginal": true,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "黄泉",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    },
+    {
+      "character": "黑天鹅",
+      "mainConversationOriginal": false,
+      "laterRoleVote": "喜欢",
+      "scope": "角色范围保留；具体图片确认与服装首选另判"
+    }
+  ],
+  "atlas": {
+    "retainedImages": 10,
+    "identityAndExpressionReferences": 2,
+    "displayedRetainedImages": 7,
+    "archivedUserOriginals": 3,
+    "roleCount": 29,
+    "outfitCount": 59,
+    "historicalCharacterCount": 14,
+    "combinedCharacterCoverage": 38,
+    "wardrobeImageCount": 63,
+    "uniqueEmbeddedImages": 85,
+    "mediaManifest": [
+      {
+        "id": "m8cd564c9c71851c9ebd6",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\youtube-Kq9tcf8wkr4-10s-expression-round10.png",
+        "sha256": "8cd564c9c71851c9ebd697984b8fe61070274ba10de0f208ddff0be314d648cf",
+        "bytes": 580486
+      },
+      {
+        "id": "mf83ac736df1c9e36a3c8",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\bili-card-1793061435001-round8.png",
+        "sha256": "f83ac736df1c9e36a3c87ea3e133bf4d0bb0e3abda312cf5d3362ad318bbe442",
+        "bytes": 2444922
+      },
+      {
+        "id": "m4ba155c09e8e8f920c14",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\bili-card-1769700567011-round8.png",
+        "sha256": "4ba155c09e8e8f920c14037fbd1ed08fe74d9aa177a4afa563f3cbb2770fa3c2",
+        "bytes": 1819231
+      },
+      {
+        "id": "m29053230658a39801888",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\bili-card-1773042315002-round9.png",
+        "sha256": "29053230658a398018887d7a9bcc510964392948ea6bf42bc6c385ccaccbd3af",
+        "bytes": 995531
+      },
+      {
+        "id": "m64a6d8c636a88ba51047",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\bili-card-1769700567012-round9.jpg",
+        "sha256": "64a6d8c636a88ba510478f4b8a6008e38c9c83cdb769e41c4ea8533fe17d7bf1",
+        "bytes": 1026445
+      },
+      {
+        "id": "mc72963a40918c72bbbf1",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\bili-card-1769749635005-round9.png",
+        "sha256": "c72963a40918c72bbbf16d6038269729cd2e495ad2f71179caee02b9c30d6a65",
+        "bytes": 880935
+      },
+      {
+        "id": "me5f8f68eca5b3f0cded6",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\bili-card-1769700567008-round9.png",
+        "sha256": "e5f8f68eca5b3f0cded64da3f716037e16ee9bd7f0ce92d580f0dbac7ee1056b",
+        "bytes": 1926867
+      },
+      {
+        "id": "m64d9f075acfe21749f04",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\user-reference-838f1580-6407-45d0-9539-81b309a3152c.jpg",
+        "sha256": "64d9f075acfe21749f04154a253171122e86bffb85e8bf0f2b348697285b5c71",
+        "bytes": 107020
+      },
+      {
+        "id": "m1c46fba374b27c3e9840",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\琉璃川椿\\98091169--1.jpg",
+        "sha256": "1c46fba374b27c3e9840c29ccae4a61515ec26807315daf2843fc0eee1d59e65",
+        "bytes": 660645
+      },
+      {
+        "id": "m332a316c72bf6fdf6e78",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-louis-0.jpg",
+        "sha256": "332a316c72bf6fdf6e78c66f074b9ad9952a022a7f08aad572748371fe5e36fd",
+        "bytes": 60945
+      },
+      {
+        "id": "m50698714bd1190ed4849",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-louis-1.jpg",
+        "sha256": "50698714bd1190ed4849d631eb17e4241a6e6769eaf5fd266295c7e0d9618402",
+        "bytes": 66608
+      },
+      {
+        "id": "mcf0853475f8709dd5368",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-louis-2.jpg",
+        "sha256": "cf0853475f8709dd5368d4ed9a17343a353af599645812b26aa69c41a602ae31",
+        "bytes": 72232
+      },
+      {
+        "id": "me27930d33ad2a66f872e",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-louis-3.jpg",
+        "sha256": "e27930d33ad2a66f872e98b44569796ef60792e9fa19113d0ac4de766b148099",
+        "bytes": 51461
+      },
+      {
+        "id": "m2b4cb9c842a67bf7ecef",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-louis-4.jpg",
+        "sha256": "2b4cb9c842a67bf7ecef6f8acff9a52788d946795e2a6bef8ed6c2c7e02c7450",
+        "bytes": 252483
+      },
+      {
+        "id": "m2d569fbb17580455c79f",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\22-01.jpg",
+        "sha256": "2d569fbb17580455c79fc8e5a372655b13af11d3dd2ebcbbdee2c30748cd30b0",
+        "bytes": 175609
+      },
+      {
+        "id": "m65d1b5ffe9dd27fe2b7c",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-yixuan-original.jpg",
+        "sha256": "65d1b5ffe9dd27fe2b7cdd6b9f70a9de1f54233af6aabe29dc0e23a14eff5f7b",
+        "bytes": 281980
+      },
+      {
+        "id": "mf76bbd87ad27c23cc33f",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-agir-0.jpg",
+        "sha256": "f76bbd87ad27c23cc33f7258a68b4274ffb87de412332a2f9023bd28f34949e2",
+        "bytes": 383819
+      },
+      {
+        "id": "m3cb61f1a6234b924a138",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-agir-1.jpg",
+        "sha256": "3cb61f1a6234b924a138175f7edc07c002ec6ef6efafbadf6d097a5069987a53",
+        "bytes": 332370
+      },
+      {
+        "id": "m11d968dc2054beef2557",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-agir-2.jpg",
+        "sha256": "11d968dc2054beef2557c0106a627e2dfe2c474e186425c8540991f029786a76",
+        "bytes": 365048
+      },
+      {
+        "id": "m6b9da1bf4194cf4504e8",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-agir-3.jpg",
+        "sha256": "6b9da1bf4194cf4504e8f9b5bae848cc680619581fa0cefd273a54b04130eed3",
+        "bytes": 397978
+      },
+      {
+        "id": "m37c1fd8e79867119c054",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\n14-05.jpg",
+        "sha256": "37c1fd8e79867119c05428e0dc27753b9dd9f5a18f76fe1958040fc013730f27",
+        "bytes": 170738
+      },
+      {
+        "id": "m411243ee7d8d08d23ffe",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\n14-01.jpg",
+        "sha256": "411243ee7d8d08d23ffea9e28393f2565ea84aec9db496285ff976e09be45f2d",
+        "bytes": 165733
+      },
+      {
+        "id": "mfd51bc6845e641b44f26",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-blanc-1.jpg",
+        "sha256": "fd51bc6845e641b44f26b5f851471861e46f8ea42382157da314f95be9677fc9",
+        "bytes": 89433
+      },
+      {
+        "id": "mcb2b105973d660322af8",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-blanc-2.jpg",
+        "sha256": "cb2b105973d660322af8bebe95db8c4e264409d16429079043c7de0496d1fb1b",
+        "bytes": 116632
+      },
+      {
+        "id": "md962f94d6edb7b6a0e15",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\24-00.jpg",
+        "sha256": "d962f94d6edb7b6a0e1577c3fc0c62748a72b5155f7c3d0f69538b3689240f6c",
+        "bytes": 36193
+      },
+      {
+        "id": "mb475b079c43ee8e87448",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\24-03.jpg",
+        "sha256": "b475b079c43ee8e874485e2cad444b4523ef78e7e58d87f4e35aca111a004220",
+        "bytes": 168655
+      },
+      {
+        "id": "m927a3e77680632b4d483",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-2b-0.jpg",
+        "sha256": "927a3e77680632b4d483aea4b1f64f096d69657fb355d2c642b0f79b1808b4e5",
+        "bytes": 156268
+      },
+      {
+        "id": "ma5f63f78b8057aef4fb9",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-2b-1.jpg",
+        "sha256": "a5f63f78b8057aef4fb9dce81a129710ec8eb8cf3daf71037db204886b2b4349",
+        "bytes": 223885
+      },
+      {
+        "id": "md4ef005297ad01e83869",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-2b-2.jpg",
+        "sha256": "d4ef005297ad01e838699f80ba7f5002e08600a7c38046e2a67f0e961937b1da",
+        "bytes": 54483
+      },
+      {
+        "id": "m390e3f4f64d0a2cab8af",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\34-05.jpg",
+        "sha256": "390e3f4f64d0a2cab8afd72af377b2b78ded12713205dd560c205e19186e93a0",
+        "bytes": 77980
+      },
+      {
+        "id": "m7c7204f1a0b063b8c875",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\34-00.jpg",
+        "sha256": "7c7204f1a0b063b8c8750e3f67e182909a6a79797094a30e87303967de351c2a",
+        "bytes": 266822
+      },
+      {
+        "id": "mec08a33bad797900dc89",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\12-00.jpg",
+        "sha256": "ec08a33bad797900dc89ffcf2fa3a81a5a18657bbd84c10efea37051a2b23c47",
+        "bytes": 57401
+      },
+      {
+        "id": "m1ef27d9733eb98e97fb8",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\12-01.jpg",
+        "sha256": "1ef27d9733eb98e97fb878b5c16da370011058647add2039d26a605ec433762d",
+        "bytes": 101688
+      },
+      {
+        "id": "m7b8fa592e0338353a8c6",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-yor-casual.jpg",
+        "sha256": "7b8fa592e0338353a8c6350153babc19417a3ab5596ad1b5b6a56b7607b5fdd0",
+        "bytes": 152288
+      },
+      {
+        "id": "m2ca799359e7c673b9a82",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\09-01.jpg",
+        "sha256": "2ca799359e7c673b9a8261bdad5d8bc2464e24cef2662defc2fd7c7bb2996daa",
+        "bytes": 193454
+      },
+      {
+        "id": "m42d4a2a7dd7e31d4654a",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\09-03.jpg",
+        "sha256": "42d4a2a7dd7e31d4654aaa69d6823945e60008f18a0f8becc8ce3a5f3ca2743d",
+        "bytes": 315809
+      },
+      {
+        "id": "m60d82cb0ff684f6d701a",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\48-05.jpg",
+        "sha256": "60d82cb0ff684f6d701ae7482baf7cd9256d39a25c58899e05b959f6ddf49f92",
+        "bytes": 29061
+      },
+      {
+        "id": "m65ed9edc61c53e75abb7",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\57-01.jpg",
+        "sha256": "65ed9edc61c53e75abb7188477049c542c0109e4d9b97447942758d83c5cda0f",
+        "bytes": 75472
+      },
+      {
+        "id": "m319be5cd9512d8b226b4",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-chizuru-daily.jpg",
+        "sha256": "319be5cd9512d8b226b4110d09781fba4240f8bca88c258609c9e053bf0d2b51",
+        "bytes": 129766
+      },
+      {
+        "id": "ma0aa7ea588544a1a4f88",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-chizuru-pink.jpg",
+        "sha256": "a0aa7ea588544a1a4f884acfe6948fa5887743c98659163c64cd1df9ae65414d",
+        "bytes": 51151
+      },
+      {
+        "id": "m15716b35f75a1f7aface",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\e16-02.jpg",
+        "sha256": "15716b35f75a1f7aface22d15b7f423884e494c28a20d0e6039e56a57efdf664",
+        "bytes": 102211
+      },
+      {
+        "id": "m5ca31486a7187c5755d7",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next01-02.jpg",
+        "sha256": "5ca31486a7187c5755d7d9d91bb5bdab5aac19ffe6ee4f016496c01c10c56222",
+        "bytes": 68504
+      },
+      {
+        "id": "m2fa542b4139d403f8f92",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume050-00.jpg",
+        "sha256": "2fa542b4139d403f8f92e2d3433c534ac8e50c9ea3e5c12cf004484f27eb6095",
+        "bytes": 137181
+      },
+      {
+        "id": "mc6402650a75deb074bc7",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next02-00.jpg",
+        "sha256": "c6402650a75deb074bc7917871ddf772ee647a2e0b528c2af174b8f2c806e197",
+        "bytes": 31477
+      },
+      {
+        "id": "m3b1c1ec5f5611a811fd2",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume051-00.jpg",
+        "sha256": "3b1c1ec5f5611a811fd2e24d09d0055990a789683399894af52c24e8dc77c476",
+        "bytes": 129624
+      },
+      {
+        "id": "m81bb6c5f33dccf305470",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next04-06.jpg",
+        "sha256": "81bb6c5f33dccf305470c6000e606cb41841a2d0608612094fab0e7919d697fd",
+        "bytes": 169477
+      },
+      {
+        "id": "me387d7bce3ddec2fa67d",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next12-01.jpg",
+        "sha256": "e387d7bce3ddec2fa67d59b16ccdb5dcc9abfc009b94ce77552feb59588ab7b8",
+        "bytes": 427936
+      },
+      {
+        "id": "mbed909fc5e9dbe9868f8",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume001-00.jpg",
+        "sha256": "bed909fc5e9dbe9868f824b4b1fe7878596aab16219b8516f0f7fa3eacb3fa13",
+        "bytes": 108742
+      },
+      {
+        "id": "m04178a8aa62f4a2634db",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next13-00.jpg",
+        "sha256": "04178a8aa62f4a2634dbf574f5c9146608485e479cd1de23dd9bb7e19eb222f5",
+        "bytes": 441949
+      },
+      {
+        "id": "m1c1f1744e4099908e49e",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next15-02.jpg",
+        "sha256": "1c1f1744e4099908e49e95197bdafaeaa3b555afdd98cac38bd09e920b4fda1f",
+        "bytes": 424496
+      },
+      {
+        "id": "m850ee6851d80d2486720",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next22-03.jpg",
+        "sha256": "850ee6851d80d24867200f0537bcb2d98ef892331a0672f02fcd597a084c04e2",
+        "bytes": 260070
+      },
+      {
+        "id": "mdc24af8b2eeece3318c5",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\wardrobe-changli-laurel.jpg",
+        "sha256": "dc24af8b2eeece3318c5f121c67a5b7d1c3e281eb9c687f2b97325234de1d862",
+        "bytes": 112830
+      },
+      {
+        "id": "md0810b5589e8b7bbf3cc",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume003-00.jpg",
+        "sha256": "d0810b5589e8b7bbf3cc5092f9da1af665db5f4a6eb4379d4ba69baeec2afc3c",
+        "bytes": 293205
+      },
+      {
+        "id": "m018ce78d4e674b2c07a3",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next23-03.jpg",
+        "sha256": "018ce78d4e674b2c07a3eec5d39387ad00ddaae455ea32b5ef74f549955cf319",
+        "bytes": 421591
+      },
+      {
+        "id": "ma3056e9e6d8234bd3cdb",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next24-03.jpg",
+        "sha256": "a3056e9e6d8234bd3cdb5d0de3d26a54da969be0000fbeb05a357201385b2af1",
+        "bytes": 451402
+      },
+      {
+        "id": "m0254a5ebff721cd08363",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next05-00.jpg",
+        "sha256": "0254a5ebff721cd0836374ab7b68c3d69490d3ce1f1f4b4cd524aeec8dcb34e8",
+        "bytes": 156922
+      },
+      {
+        "id": "mc79e3d8cbf8b11af6513",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next10-00.jpg",
+        "sha256": "c79e3d8cbf8b11af6513156f5ddc24bd459b1ddcfc59569e45640cc35593899f",
+        "bytes": 181123
+      },
+      {
+        "id": "m2023c45a9b7d1fc049ea",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next11-01.jpg",
+        "sha256": "2023c45a9b7d1fc049ea5851c929c8fb9cd5a5853515ceac4f873fe4070c4f2d",
+        "bytes": 246273
+      },
+      {
+        "id": "m09eb9bc4f1715014f347",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next14-03.jpg",
+        "sha256": "09eb9bc4f1715014f3470db6acf882634c51cb2e158a2bb84ed58e3f6c0bb6e8",
+        "bytes": 152353
+      },
+      {
+        "id": "m4838c25528e68b1c12e0",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next16-02.jpg",
+        "sha256": "4838c25528e68b1c12e08d29500e05f6106ec0f77fc87b836905b301bc5c01e7",
+        "bytes": 269369
+      },
+      {
+        "id": "m8b937a697e785e3ddd29",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next25-00.jpg",
+        "sha256": "8b937a697e785e3ddd297cd04b88aed163153c195fb7b02612347190251df4ff",
+        "bytes": 336160
+      },
+      {
+        "id": "ma61ebeb37f8d1e0e76d9",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next26-01.jpg",
+        "sha256": "a61ebeb37f8d1e0e76d9e1b418a2980b81a298202122649da71cbd39e444755c",
+        "bytes": 410357
+      },
+      {
+        "id": "mb52a1385c9cf401cb7df",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next30-01.jpg",
+        "sha256": "b52a1385c9cf401cb7dfefd7cc882c4ae6f7c49c9c998195dce61c2e7d8119e5",
+        "bytes": 134834
+      },
+      {
+        "id": "mdb7341b44fc9b61640ab",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume042-00.jpg",
+        "sha256": "db7341b44fc9b61640ab58faf908b5af41cf51247fed9fba15debe98264ec2a7",
+        "bytes": 382903
+      },
+      {
+        "id": "m6d6db95a12f6520e4d85",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume043-00.jpg",
+        "sha256": "6d6db95a12f6520e4d85948f257b34e3c09b2243e6965a6681efa3bd35e89dfa",
+        "bytes": 429073
+      },
+      {
+        "id": "mfb4d1f8af1d2a7fdaf2f",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume044-00.jpg",
+        "sha256": "fb4d1f8af1d2a7fdaf2ff8d544aea7f45130ef9d1bba6bca54b8ccb731d3e349",
+        "bytes": 366362
+      },
+      {
+        "id": "mc38c4ba20bc6ee50f964",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume045-00.jpg",
+        "sha256": "c38c4ba20bc6ee50f964f7ad1c85397596f41eac4e095f2f7b7afa98981a9a3c",
+        "bytes": 353103
+      },
+      {
+        "id": "m8a03a708c4f4e0a72dd1",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume046-00.jpg",
+        "sha256": "8a03a708c4f4e0a72dd177a4d6f5157c7f090db32d211b6ad79f732774c6f393",
+        "bytes": 304458
+      },
+      {
+        "id": "m5b10e2e32c3027115cc0",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume047-00.jpg",
+        "sha256": "5b10e2e32c3027115cc0230a08724c20e4beed11606b3e757588cc61d1af36a0",
+        "bytes": 52317
+      },
+      {
+        "id": "mec0004d8aab14973a1ae",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume048-00.jpg",
+        "sha256": "ec0004d8aab14973a1aeea6ef77ab23acd80ed4408f03d61e932382e34af0d26",
+        "bytes": 288171
+      },
+      {
+        "id": "mf4435164c7a91bd65e07",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\costume049-00.jpg",
+        "sha256": "f4435164c7a91bd65e07f86aebe9abc7e3261567c91492cd09d9082dbc2915e0",
+        "bytes": 241635
+      },
+      {
+        "id": "mf8c790d360dcf1e8f202",
+        "path": "C:\\Users\\江户川\\.codex\\visualizations\\2026\\11\\24\\01a20c99-6470-7a30-9ada-3b97706bda36\\outputs\\assets\\next07-01.jpg",
+        "sha256": "f8c790d360dcf1e8f202d3cf40d96b2a03a050112b96ce7f6d304e183739059f",
+        "bytes": 157337
+      },
+      {
+        "id": "m96e3fa92be85d49fe792",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\雷姆\\59214113.jpg",
+        "sha256": "96e3fa92be85d49fe7920a875ba5e5c5587d1a919443d89e89051f7d656882c0",
+        "bytes": 57459
+      },
+      {
+        "id": "me6cca1116dadafef4d4f",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\喜多川海梦\\shizuku-cafe.jpg",
+        "sha256": "e6cca1116dadafef4d4f97911d547995d630a1c5a90618e9f9d16950be7781ae",
+        "bytes": 928947
+      },
+      {
+        "id": "m396b3d27083572e95d87",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\樱岛麻衣\\150829353.jpg",
+        "sha256": "396b3d27083572e95d8787f263074c82b2bc315b37ea4ab397753d2a3539e697",
+        "bytes": 37018
+      },
+      {
+        "id": "md743ae812e8afa0f1839",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\C.C\\152271171.jpg",
+        "sha256": "d743ae812e8afa0f18399ed5fb066f112ec15f4164a5c2d33861ea4526f437f6",
+        "bytes": 56715
+      },
+      {
+        "id": "m30666fa7be03bcb10093",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\芙宁娜\\111157207.jpg",
+        "sha256": "30666fa7be03bcb10093bc603f090c90d7f5bfaaa878d59b48b7004e1a531cd4",
+        "bytes": 71125
+      },
+      {
+        "id": "md235f5e5645595f70ac7",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\薇尔莉特\\93964489.jpg",
+        "sha256": "d235f5e5645595f70ac737e98692edbf1fb2bdaac14f7b5a3a8b8e69fc21cc2e",
+        "bytes": 39426
+      },
+      {
+        "id": "md02e7b1b4871c2173179",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\爱蜜莉亚\\pixiv-74393535.jpg",
+        "sha256": "d02e7b1b4871c21731791e48a8918bb49b06f286d68c2d89f81fe266c4fd9839",
+        "bytes": 27584
+      },
+      {
+        "id": "me3a935a514a07ba9861f",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\02\\67333054.jpg",
+        "sha256": "e3a935a514a07ba9861f5608e5287a3c77d204854d07cf230023bda25d204deb",
+        "bytes": 46431
+      },
+      {
+        "id": "m027a539970a5d5da8448",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\仪玄\\x-tagecloud-approved.jpg",
+        "sha256": "027a539970a5d5da84488d8dd9d7687e1eebb23691c77d86efcef62a09a6e442",
+        "bytes": 376318
+      },
+      {
+        "id": "m4ad264f1411b1f9edfb6",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\雷电将军\\92390436.jpg",
+        "sha256": "4ad264f1411b1f9edfb608adfe146493b10ab1ba81574c864302ef216fbfd8b3",
+        "bytes": 41727
+      },
+      {
+        "id": "m9698cade5e82a828c867",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\八重神子\\91526701.jpg",
+        "sha256": "9698cade5e82a828c867da87e82357f60d3f07ddbfaad1e8ef23074cad13c4cd",
+        "bytes": 30377
+      },
+      {
+        "id": "m3b55888ec7f53a483b0e",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\约尔·福杰\\pixiv-99098117.jpg",
+        "sha256": "3b55888ec7f53a483b0ef22589201f452192418e2994084bd44ee29ad5a7ab56",
+        "bytes": 32593
+      },
+      {
+        "id": "ma20abbc8cee3d053caaa",
+        "path": "D:\\Vibe codinng\\kurocat\\tmp\\character-references\\玛奇玛\\x-1318430712773537792.jpg",
+        "sha256": "a20abbc8cee3d053caaa783bfdc192d039a9836c6ffb201cc0154c9e7c333204",
+        "bytes": 65778
+      }
+    ]
+  }
+}

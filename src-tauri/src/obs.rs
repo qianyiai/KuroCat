@@ -52,8 +52,10 @@ pub fn obs_url(port: u16) -> String {
 
 pub fn set_privacy_active(active: bool) {
     OBS_PRIVACY_ACTIVE.store(active, Ordering::Relaxed);
+    crate::character_sync::invalidate();
     broadcast_raw("privacy", if active { "true" } else { "false" });
 }
+pub fn privacy_active()->bool {OBS_PRIVACY_ACTIVE.load(Ordering::Relaxed)}
 
 pub fn set_game_active(active: bool, payload_json: &str) {
     OBS_GAME_ACTIVE.store(active, Ordering::Relaxed);
@@ -101,6 +103,7 @@ fn build_state_snapshot_json(app: &AppHandle) -> String {
         "cats": cats,
         "privacy": privacy,
         "gameActive": game_active,
+        "characterState": crate::character_sync::snapshot(),
     }))
     .unwrap_or_else(|_| "{}".to_string())
 }
@@ -289,6 +292,31 @@ fn handle_connection(mut stream: TcpStream, app: &AppHandle, running: &Arc<Atomi
     }
 
     let clean_route = raw_path.split('?').next().unwrap_or("/");
+
+    if clean_route.starts_with("/characters/") {
+        let parts: Vec<_> = clean_route.trim_start_matches('/').split('/').collect();
+        let response = if parts.len()==3 && parts[2]=="manifest" {
+            crate::character_selection::active().and_then(|mut value| {
+                if value["entry"]["id"].as_str()!=Some(parts[1]) { return Err(crate::characters::error("CHARACTER_NOT_FOUND","Not selected")); }
+                if let Some(object)=value.as_object_mut() { object.remove("packagePath"); }
+                serde_json::to_vec(&value).map(|bytes|(bytes,"application/json"))
+                    .map_err(|e|crate::characters::error("INVALID_MANIFEST",e.to_string()))
+            })
+        } else if parts.len()>=5 {
+            crate::character_import::asset_bytes(parts[1],parts[2],&parts[3..].join("/"))
+                .map(|bytes|(bytes,"image/png"))
+        } else { Err(crate::characters::error("UNSAFE_PATH","Invalid character route")) };
+        match response {
+            Ok((bytes,mime))=>write_response(&mut stream,"200 OK",mime,"no-store",if method=="HEAD" {b""}else{&bytes}),
+            Err(error)=>{
+                let status=if error.code=="STALE_REVISION" {"409 Conflict"}else{"404 Not Found"};
+                // Resource errors reach the broadcast page. Keep codes but omit filesystem paths.
+                let body=serde_json::json!({"code":error.code,"message":"Character resource unavailable"}).to_string();
+                write_response(&mut stream,status,"application/json","no-store",if method=="HEAD" {b""}else{body.as_bytes()});
+            },
+        }
+        return;
+    }
 
     if clean_route == "/obs/events" {
         handle_sse(stream, app, running);

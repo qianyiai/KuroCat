@@ -85,6 +85,12 @@ static LAST_HOOK_MOUSE_Y: AtomicI32 = AtomicI32::new(i32::MIN);
 #[cfg(windows)]
 const WM_KURO_PAUSE_TOGGLE: u32 = 0x8007; // WM_APP + 7
 
+#[cfg(windows)]
+fn mouse_move_ready(x:i32,y:i32,last_x:i32,last_y:i32,now_ms:u32,last_ms:u32)->bool {
+    (x.abs_diff(last_x)>1 || y.abs_diff(last_y)>1)
+        && (last_x==i32::MIN || now_ms.wrapping_sub(last_ms)>=24)
+}
+
 fn is_alt_vk(vk: u32) -> bool {
     matches!(vk, 0x12 | 0xA4 | 0xA5)
 }
@@ -715,9 +721,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isiz
                     let ly = LAST_HOOK_MOUSE_Y.load(Ordering::Relaxed);
                     let now_ms = ms.time;
                     let prev_ms = LAST_HOOK_MOUSE_MS.load(Ordering::Relaxed);
-                    if ((px - lx).abs() > 1 || (py - ly).abs() > 1)
-                        && (lx == i32::MIN || now_ms.wrapping_sub(prev_ms) >= 24)
-                    {
+                    if mouse_move_ready(px,py,lx,ly,now_ms,prev_ms) {
                         LAST_HOOK_MOUSE_X.store(px, Ordering::Relaxed);
                         LAST_HOOK_MOUSE_Y.store(py, Ordering::Relaxed);
                         LAST_HOOK_MOUSE_MS.store(now_ms, Ordering::Relaxed);
@@ -2381,6 +2385,22 @@ pub mod linux_hook {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[cfg(windows)]
+    fn mouse_move_first_sample_and_large_coordinates_do_not_overflow() {
+        assert!(mouse_move_ready(100,200,i32::MIN,i32::MIN,0,0));
+        assert!(mouse_move_ready(i32::MAX,i32::MAX,-100,-100,100,0));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn mouse_move_gate_preserves_jitter_filter_and_wrapping_clock() {
+        assert!(!mouse_move_ready(101,201,100,200,100,0));
+        assert!(!mouse_move_ready(110,200,100,200,123,100));
+        assert!(mouse_move_ready(110,200,100,200,124,100));
+        assert!(mouse_move_ready(110,200,100,200,10,u32::MAX-20));
+    }
 
     #[test]
     fn linux_evdev_maps_letters_digits_modifiers_and_numpad() {

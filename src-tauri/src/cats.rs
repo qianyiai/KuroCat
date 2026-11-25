@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::io::Write;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -460,26 +461,50 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
 }
 
 pub fn load_custom_cats() -> Vec<CatSkinConfig> {
-    let path = cats_path();
-    if let Ok(content) = fs::read_to_string(&path) {
-        if let Ok(mut parsed) = serde_json::from_str::<Vec<CatSkinConfig>>(&content) {
-            for c in &mut parsed {
-                c.id = sanitize_cat_id(&c.id);
-                c.builtin = false;
-            }
-            return parsed;
-        }
-    }
-    vec![]
+    load_custom_cats_at(&crate::config::app_data_dir())
 }
 
-pub fn save_custom_cats(cats: &[CatSkinConfig]) -> Result<(), String> {
-    let path = cats_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+fn load_custom_cats_at(root: &Path) -> Vec<CatSkinConfig> {
+    try_load_custom_cats_at(root).unwrap_or_default()
+}
+
+fn try_load_custom_cats_at(root: &Path) -> Result<Vec<CatSkinConfig>, String> {
+    let content = match fs::read_to_string(root.join("cats.json")) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+        Err(e) => return Err(format!("Cannot read cat catalog: {e}")),
+    };
+    let mut cats: Vec<CatSkinConfig> = serde_json::from_str(&content)
+        .map_err(|e| format!("Invalid cat catalog: {e}"))?;
+    for cat in &mut cats {
+        cat.id = sanitize_cat_id(&cat.id);
+        cat.builtin = false;
     }
-    let json = serde_json::to_string_pretty(cats).map_err(|e| e.to_string())?;
-    fs::write(path, json).map_err(|e| e.to_string())
+    Ok(cats)
+}
+
+// Call only while holding the shared catalog lock. Readers see old or complete new JSON.
+fn save_custom_cats_at(root: &Path, cats: &[CatSkinConfig]) -> Result<(), String> {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static NEXT_WRITE: AtomicUsize = AtomicUsize::new(0);
+    let json = serde_json::to_vec_pretty(cats).map_err(|e| e.to_string())?;
+    let (temp, mut file) = loop {
+        let sequence = NEXT_WRITE.fetch_add(1, Ordering::Relaxed);
+        let path = root.join(format!("cats.{}.{sequence}.next.json", std::process::id()));
+        match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+            Ok(file) => break (path, file),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    file.write_all(&json).and_then(|()| file.sync_all()).map_err(|e| e.to_string())?;
+    drop(file);
+    fs::rename(&temp, root.join("cats.json")).map_err(|e| e.to_string())
+}
+
+pub(crate) fn catalog_contains_id(root: &Path, id: &str) -> Result<bool, String> {
+    let custom = try_load_custom_cats_at(root)?;
+    Ok(builtin_cats().iter().chain(custom.iter()).any(|cat| cat.id == id))
 }
 
 pub fn all_cats() -> Vec<CatSkinConfig> {
@@ -498,32 +523,47 @@ pub fn all_cats() -> Vec<CatSkinConfig> {
     list
 }
 
-pub fn upsert_custom_cat(mut cat: CatSkinConfig) -> Result<CatSkinConfig, String> {
+pub fn upsert_custom_cat(cat: CatSkinConfig) -> Result<CatSkinConfig, String> {
+    upsert_custom_cat_at(&crate::config::app_data_dir(), cat)
+}
+
+fn upsert_custom_cat_at(root: &Path, mut cat: CatSkinConfig) -> Result<CatSkinConfig, String> {
     cat.id = sanitize_cat_id(&cat.id);
+    let _lock = crate::character_import::acquire_lock_at(root).map_err(|e| e.message)?;
+    let mut custom = try_load_custom_cats_at(root)?;
+    // Existing cats remain editable even if the unrelated character registry is damaged.
+    let existing = builtin_cats().iter().any(|c| c.id == cat.id)
+        || custom.iter().any(|c| c.id == cat.id);
+    if !existing && crate::characters::load_registry_at(root).map_err(|e| e.message)?.characters.contains_key(&cat.id) {
+        return Err("ID belongs to an imported character package".to_string());
+    }
     if cat.name.trim().is_empty() {
         cat.name = cat.id.clone();
     }
     cat.builtin = false;
-
-    let mut custom = load_custom_cats();
     if let Some(existing) = custom.iter_mut().find(|c| c.id == cat.id) {
         *existing = cat.clone();
     } else {
         custom.push(cat.clone());
     }
-    save_custom_cats(&custom)?;
+    save_custom_cats_at(root, &custom)?;
     Ok(cat)
 }
 
 pub fn delete_custom_cat(id: &str) -> Result<bool, String> {
+    delete_custom_cat_at(&crate::config::app_data_dir(), id)
+}
+
+fn delete_custom_cat_at(root: &Path, id: &str) -> Result<bool, String> {
+    let _lock = crate::character_import::acquire_lock_at(root).map_err(|e| e.message)?;
     let clean_id = sanitize_cat_id(id);
-    let mut custom = load_custom_cats();
+    let mut custom = try_load_custom_cats_at(root)?;
     let before = custom.len();
     custom.retain(|c| c.id != clean_id);
     if custom.len() == before {
         return Ok(false);
     }
-    save_custom_cats(&custom)?;
+    save_custom_cats_at(root, &custom)?;
     Ok(true)
 }
 
@@ -637,4 +677,68 @@ pub fn cat_schema_guide() -> serde_json::Value {
             }
         }
     })
+}
+
+#[cfg(test)]
+mod catalog_tests {
+    use super::*;
+    struct Catalog(PathBuf);
+    impl Catalog {
+        fn new() -> Self {
+            let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let path = std::env::temp_dir().join(format!("kurocat-catalog-test-{}-{stamp}", std::process::id()));
+            fs::create_dir(&path).unwrap();
+            Self(path)
+        }
+    }
+    // Retain test catalogs for diagnosis; cleanup requires an explicit user request.
+    fn cat(id: &str) -> CatSkinConfig {
+        let mut cat = builtin_cats().remove(0);
+        cat.id = id.to_string();
+        cat
+    }
+    #[test]
+    fn damaged_character_registry_does_not_block_existing_cat_updates() {
+        let root = Catalog::new();
+        upsert_custom_cat_at(&root.0, cat("my-cat")).unwrap();
+        fs::write(root.0.join("characters.json"), b"broken").unwrap();
+        let mut changed = cat("my-cat");
+        changed.name = "Updated".into();
+        upsert_custom_cat_at(&root.0, changed).unwrap();
+        upsert_custom_cat_at(&root.0, cat("black")).unwrap();
+        assert_eq!(try_load_custom_cats_at(&root.0).unwrap()[0].name, "Updated");
+        assert!(upsert_custom_cat_at(&root.0, cat("new-cat")).is_err());
+        assert!(delete_custom_cat_at(&root.0, "my-cat").unwrap());
+    }
+    #[test]
+    fn writes_and_conflict_checks_reject_damaged_cat_catalog_without_overwriting() {
+        let root = Catalog::new();
+        let damaged = b"not a cat catalog";
+        fs::write(root.0.join("cats.json"), damaged).unwrap();
+        assert!(upsert_custom_cat_at(&root.0, cat("black")).is_err());
+        assert!(delete_custom_cat_at(&root.0, "my-cat").is_err());
+        assert!(catalog_contains_id(&root.0, "my-cat").is_err());
+        assert_eq!(fs::read(root.0.join("cats.json")).unwrap(), damaged);
+    }
+    #[test]
+    fn character_conflict_check_does_not_truncate_long_ids() {
+        let root = Catalog::new();
+        let cat_id = "a".repeat(36);
+        upsert_custom_cat_at(&root.0, cat(&cat_id)).unwrap();
+        assert!(catalog_contains_id(&root.0, &cat_id).unwrap());
+        assert!(!catalog_contains_id(&root.0, &(cat_id + "-person")).unwrap());
+    }
+    #[test]
+    fn deletion_and_upsert_share_the_catalog_lock() {
+        let root = Catalog::new();
+        upsert_custom_cat_at(&root.0, cat("old-cat")).unwrap();
+        let lock = crate::character_import::acquire_lock_at(&root.0).unwrap();
+        assert!(delete_custom_cat_at(&root.0, "old-cat").is_err());
+        assert!(upsert_custom_cat_at(&root.0, cat("new-cat")).is_err());
+        drop(lock);
+        upsert_custom_cat_at(&root.0, cat("new-cat")).unwrap();
+        delete_custom_cat_at(&root.0, "old-cat").unwrap();
+        assert!(catalog_contains_id(&root.0, "new-cat").unwrap());
+        assert!(!catalog_contains_id(&root.0, "old-cat").unwrap());
+    }
 }

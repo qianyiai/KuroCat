@@ -1,0 +1,1694 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:kurocat:procedural-2d-v1",
+  "type": "object",
+  "properties": {
+    "protocol": {
+      "const": "procedural-2d-v1",
+      "type": "string"
+    },
+    "rig": {
+      "$ref": "#/$defs/Rig"
+    },
+    "layouts": {
+      "$ref": "#/$defs/Layouts"
+    },
+    "body": {
+      "$ref": "#/$defs/Body"
+    },
+    "blink": {
+      "$ref": "#/$defs/Blink"
+    },
+    "mood": {
+      "$ref": "#/$defs/Mood"
+    },
+    "gaze": {
+      "$ref": "#/$defs/Gaze"
+    },
+    "hands": {
+      "$ref": "#/$defs/Hands"
+    },
+    "tail": {
+      "$ref": "#/$defs/Tail"
+    },
+    "bindings": {
+      "$ref": "#/$defs/Bindings"
+    },
+    "petting": {
+      "$ref": "#/$defs/Petting"
+    },
+    "personality": {
+      "$ref": "#/$defs/Personality"
+    },
+    "privacy": {
+      "$ref": "#/$defs/Privacy"
+    },
+    "particles": {
+      "$ref": "#/$defs/Particles"
+    },
+    "presentation": {
+      "$ref": "#/$defs/Presentation"
+    },
+    "sync": {
+      "$ref": "#/$defs/Sync"
+    }
+  },
+  "required": [
+    "protocol",
+    "rig",
+    "layouts",
+    "body",
+    "blink",
+    "mood",
+    "gaze",
+    "hands",
+    "tail",
+    "bindings",
+    "petting",
+    "personality",
+    "privacy",
+    "particles",
+    "presentation",
+    "sync"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "GradientStop": {
+      "type": "object",
+      "properties": {
+        "offset": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "color": {
+          "type": "string",
+          "format": "hex-color"
+        }
+      },
+      "required": [
+        "offset",
+        "color"
+      ],
+      "additionalProperties": false
+    },
+    "Spring": {
+      "type": "object",
+      "properties": {
+        "stiffness": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "damping": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "stiffness",
+        "damping"
+      ],
+      "additionalProperties": false
+    },
+    "Eye": {
+      "type": "object",
+      "properties": {
+        "center": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "radius": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 64
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "clip": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -4096,
+              "maximum": 4096
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 3,
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "center",
+        "radius",
+        "clip"
+      ],
+      "additionalProperties": false
+    },
+    "HairOcclusion": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "crop": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 4096
+          },
+          "minItems": 4,
+          "maxItems": 4
+        },
+        "regions": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 4096
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "minItems": 0,
+          "maxItems": 8
+        },
+        "alphaMin": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "redMax": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "blueMinusRedMin": {
+          "type": "number",
+          "minimum": -255,
+          "maximum": 255
+        },
+        "fallbackRgbMax": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "minItems": 3,
+          "maxItems": 3
+        }
+      },
+      "required": [
+        "enabled",
+        "crop",
+        "regions",
+        "alphaMin",
+        "redMax",
+        "blueMinusRedMin",
+        "fallbackRgbMax"
+      ],
+      "additionalProperties": false
+    },
+    "Rig": {
+      "type": "object",
+      "properties": {
+        "sourceSize": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "leftShoulder": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "rightShoulder": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "tailRoot": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "coverEyes": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "eyes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Eye"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "hairOcclusion": {
+          "$ref": "#/$defs/HairOcclusion"
+        }
+      },
+      "required": [
+        "sourceSize",
+        "leftShoulder",
+        "rightShoulder",
+        "tailRoot",
+        "coverEyes",
+        "eyes",
+        "hairOcclusion"
+      ],
+      "additionalProperties": false
+    },
+    "Layout": {
+      "type": "object",
+      "properties": {
+        "logicalSize": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2048
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "bodyCenter": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "drawWidth": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 2048
+        },
+        "pivotOffset": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 512
+        },
+        "keyboardCenter": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "keyboardSize": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 2048
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "keyboardTiltRad": {
+          "type": "number",
+          "minimum": -0.5,
+          "maximum": 0.5
+        },
+        "mouseBase": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "mouseBodyShift": {
+          "type": "number",
+          "minimum": -512,
+          "maximum": 512
+        },
+        "petEllipseCenter": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "petEllipseRadius": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0.01,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "logicalSize",
+        "bodyCenter",
+        "drawWidth",
+        "pivotOffset",
+        "keyboardCenter",
+        "keyboardSize",
+        "keyboardTiltRad",
+        "mouseBase",
+        "mouseBodyShift",
+        "petEllipseCenter",
+        "petEllipseRadius"
+      ],
+      "additionalProperties": false
+    },
+    "Layouts": {
+      "type": "object",
+      "properties": {
+        "compact": {
+          "$ref": "#/$defs/Layout"
+        },
+        "full": {
+          "$ref": "#/$defs/Layout"
+        }
+      },
+      "required": [
+        "compact",
+        "full"
+      ],
+      "additionalProperties": false
+    },
+    "Body": {
+      "type": "object",
+      "properties": {
+        "breathAmplitudePx": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "breathRadiansPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "bobKick": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "bobDecay": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "bobScale": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -0.25,
+            "maximum": 0.25
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "typingTiltRad": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.5
+        },
+        "typingShiftPx": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 128
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "mouseTiltRad": {
+          "type": "number",
+          "minimum": -0.5,
+          "maximum": 0.5
+        },
+        "mouseDivePx": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "mouseFollowPx": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "spring": {
+          "$ref": "#/$defs/Spring"
+        },
+        "bobMax": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "bobBreathScale": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 16
+        },
+        "mouseDiveRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "returnRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "keyboardClipFactor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "tiltSpring": {
+          "$ref": "#/$defs/Spring"
+        }
+      },
+      "required": [
+        "breathAmplitudePx",
+        "breathRadiansPerSecond",
+        "bobKick",
+        "bobDecay",
+        "bobScale",
+        "typingTiltRad",
+        "typingShiftPx",
+        "mouseTiltRad",
+        "mouseDivePx",
+        "mouseFollowPx",
+        "spring",
+        "bobMax",
+        "bobBreathScale",
+        "mouseDiveRate",
+        "returnRate",
+        "keyboardClipFactor",
+        "tiltSpring"
+      ],
+      "additionalProperties": false
+    },
+    "Blink": {
+      "type": "object",
+      "properties": {
+        "firstDelayMs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600000
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "intervalMs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600000
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "closedMs": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 2000
+        }
+      },
+      "required": [
+        "firstDelayMs",
+        "intervalMs",
+        "closedMs"
+      ],
+      "additionalProperties": false
+    },
+    "Mood": {
+      "type": "object",
+      "properties": {
+        "sampleWindowMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000
+        },
+        "cpsStart": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30
+        },
+        "cpsSpan": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 30
+        },
+        "heatRise": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "heatFall": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "riseThresholds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "fallThresholds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "riseDwellMs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600000
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "fallDwellMs": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 3600000
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "blushRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "blushByTier": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "blushHeatFactor": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "blushPetMinimum": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "blushPrivacyMinimum": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cheekCenters": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "cheekRadius": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 64
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "sampleWindowMs",
+        "cpsStart",
+        "cpsSpan",
+        "heatRise",
+        "heatFall",
+        "riseThresholds",
+        "fallThresholds",
+        "riseDwellMs",
+        "fallDwellMs",
+        "blushRate",
+        "blushByTier",
+        "blushHeatFactor",
+        "blushPetMinimum",
+        "blushPrivacyMinimum",
+        "cheekCenters",
+        "cheekRadius"
+      ],
+      "additionalProperties": false
+    },
+    "Gaze": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "activeMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        },
+        "targetDivisor": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 128
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "activeRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "returnRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "pupilParallax": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "irisGradient": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GradientStop"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "scleraGradient": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GradientStop"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "pupilColor": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "highlightColor": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "horizontalRangePx": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -32,
+            "maximum": 32
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "verticalRangePx": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -32,
+            "maximum": 32
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "enabled",
+        "activeMs",
+        "targetDivisor",
+        "activeRate",
+        "returnRate",
+        "pupilParallax",
+        "irisGradient",
+        "scleraGradient",
+        "pupilColor",
+        "highlightColor",
+        "horizontalRangePx",
+        "verticalRangePx"
+      ],
+      "additionalProperties": false
+    },
+    "HandStyle": {
+      "type": "object",
+      "properties": {
+        "sleeveGradient": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GradientStop"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "sleeveOutline": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "skin": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "skinOutline": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "cuff": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "cuffOutline": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "trim": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "button": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "shoulderRadius": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 32
+        },
+        "cuffRadius": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 32
+        },
+        "handRadius": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 32
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "handSquash": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 0.5
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "cuffStyle": {
+          "type": "string",
+          "enum": [
+            "ruffled",
+            "plain",
+            "ribbed"
+          ]
+        }
+      },
+      "required": [
+        "sleeveGradient",
+        "sleeveOutline",
+        "skin",
+        "skinOutline",
+        "cuff",
+        "cuffOutline",
+        "trim",
+        "button",
+        "shoulderRadius",
+        "cuffRadius",
+        "handRadius",
+        "handSquash"
+      ],
+      "additionalProperties": false
+    },
+    "Hands": {
+      "type": "object",
+      "properties": {
+        "style": {
+          "$ref": "#/$defs/HandStyle"
+        },
+        "followRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "squashDecay": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "holdMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3000
+        },
+        "busyMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3000
+        },
+        "maxReachPx": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "mouseReachCompact": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "mouseReachFull": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "rightMouseReach": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 512
+        },
+        "comfortReachPx": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "idleOffsets": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -4096,
+              "maximum": 4096
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "cheerOffsets": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "number",
+              "minimum": -4096,
+              "maximum": 4096
+            },
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "cheerAmplitudePx": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "cheerRadiansPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "mousePressPx": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 16
+        }
+      },
+      "required": [
+        "style",
+        "followRate",
+        "squashDecay",
+        "holdMs",
+        "busyMs",
+        "maxReachPx",
+        "mouseReachCompact",
+        "mouseReachFull",
+        "rightMouseReach",
+        "comfortReachPx",
+        "idleOffsets",
+        "cheerOffsets",
+        "cheerAmplitudePx",
+        "cheerRadiansPerSecond",
+        "mousePressPx"
+      ],
+      "additionalProperties": false
+    },
+    "CurveSegment": {
+      "type": "object",
+      "properties": {
+        "control1": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "control2": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "end": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "control1",
+        "control2",
+        "end"
+      ],
+      "additionalProperties": false
+    },
+    "Tail": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "extendMs": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 3000
+        },
+        "holdMs": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 5000
+        },
+        "releaseMs": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 5000
+        },
+        "followRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "idleRadiansPerSecond": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 40
+          },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "idleWagRadians": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "idleOffset": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "frontStart": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "segments": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 64
+        },
+        "stemRadius": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 64
+        },
+        "stemGradient": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GradientStop"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "flukeGradient": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/GradientStop"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "outline": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "flukeOutline": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CurveSegment"
+          },
+          "minItems": 2,
+          "maxItems": 8
+        },
+        "hotTypingRadiansPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "phaseRate": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        },
+        "squashDecay": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 100
+        }
+      },
+      "required": [
+        "enabled",
+        "extendMs",
+        "holdMs",
+        "releaseMs",
+        "followRate",
+        "idleRadiansPerSecond",
+        "idleWagRadians",
+        "idleOffset",
+        "frontStart",
+        "segments",
+        "stemRadius",
+        "stemGradient",
+        "flukeGradient",
+        "outline",
+        "flukeOutline",
+        "hotTypingRadiansPerSecond",
+        "phaseRate",
+        "squashDecay"
+      ],
+      "additionalProperties": false
+    },
+    "Bindings": {
+      "type": "object",
+      "properties": {
+        "tailMode": {
+          "type": "string",
+          "enum": [
+            "smart",
+            "custom",
+            "edge",
+            "off"
+          ]
+        },
+        "customKeys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "logical-key"
+          },
+          "minItems": 0,
+          "maxItems": 120
+        },
+        "mouseActiveMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        },
+        "typingActiveMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 5000
+        },
+        "ignoreRepeat": {
+          "const": true,
+          "type": "boolean"
+        },
+        "allowParallelLimbs": {
+          "const": true,
+          "type": "boolean"
+        },
+        "enterFlourishMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3000
+        },
+        "edgeThresholds": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1
+          },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      },
+      "required": [
+        "tailMode",
+        "customKeys",
+        "mouseActiveMs",
+        "typingActiveMs",
+        "ignoreRepeat",
+        "allowParallelLimbs",
+        "enterFlourishMs",
+        "edgeThresholds"
+      ],
+      "additionalProperties": false
+    },
+    "Petting": {
+      "type": "object",
+      "properties": {
+        "stepDistancePx": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 256
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "strokeDistancePx": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "requiredReversals": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 8
+        },
+        "directionDot": {
+          "type": "number",
+          "minimum": -1,
+          "maximum": 1
+        },
+        "energyPerPixel": {
+          "type": "number",
+          "minimum": 0.0001,
+          "maximum": 0.1
+        },
+        "decayInside": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 10
+        },
+        "decayOutside": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 10
+        },
+        "happyThreshold": {
+          "type": "number",
+          "minimum": 0.01,
+          "maximum": 1
+        },
+        "requireReleasedButtons": {
+          "const": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "stepDistancePx",
+        "strokeDistancePx",
+        "requiredReversals",
+        "directionDot",
+        "energyPerPixel",
+        "decayInside",
+        "decayOutside",
+        "happyThreshold",
+        "requireReleasedButtons"
+      ],
+      "additionalProperties": false
+    },
+    "Reaction": {
+      "type": "object",
+      "properties": {
+        "motion": {
+          "type": "string",
+          "enum": [
+            "tilt",
+            "nod",
+            "bounce",
+            "cheer",
+            "settle"
+          ]
+        },
+        "expression": {
+          "type": "string",
+          "enum": [
+            "idle",
+            "blink",
+            "shy",
+            "happy"
+          ]
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "cooldownMs": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3600000
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 10000
+        },
+        "offsetPx": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "rotationRad": {
+          "type": "number",
+          "minimum": -0.5,
+          "maximum": 0.5
+        }
+      },
+      "required": [
+        "motion",
+        "expression",
+        "weight",
+        "cooldownMs",
+        "durationMs",
+        "offsetPx",
+        "rotationRad"
+      ],
+      "additionalProperties": false
+    },
+    "Personality": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "format": "slug"
+        },
+        "idleReactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Reaction"
+          },
+          "minItems": 1,
+          "maxItems": 16
+        },
+        "typingReactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Reaction"
+          },
+          "minItems": 1,
+          "maxItems": 16
+        },
+        "petReactions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Reaction"
+          },
+          "minItems": 1,
+          "maxItems": 16
+        }
+      },
+      "required": [
+        "id",
+        "idleReactions",
+        "typingReactions",
+        "petReactions"
+      ],
+      "additionalProperties": false
+    },
+    "Privacy": {
+      "type": "object",
+      "properties": {
+        "priority": {
+          "const": "highest",
+          "type": "string"
+        },
+        "expression": {
+          "const": "blink",
+          "type": "string"
+        },
+        "coverBobPx": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 16
+        },
+        "coverRadiansPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "bodySwayRad": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.1
+        },
+        "bodyRadiansPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 40
+        },
+        "typingWindowMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "typingBob": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "clearHeldOnEnter": {
+          "const": true,
+          "type": "boolean"
+        },
+        "clearInputOnExit": {
+          "const": true,
+          "type": "boolean"
+        },
+        "hideKeyLabels": {
+          "const": true,
+          "type": "boolean"
+        },
+        "hideInputBadges": {
+          "const": true,
+          "type": "boolean"
+        },
+        "discardQueuedInput": {
+          "const": true,
+          "type": "boolean"
+        },
+        "typingSwayRad": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 0.1
+        }
+      },
+      "required": [
+        "priority",
+        "expression",
+        "coverBobPx",
+        "coverRadiansPerSecond",
+        "bodySwayRad",
+        "bodyRadiansPerSecond",
+        "typingWindowMs",
+        "typingBob",
+        "clearHeldOnEnter",
+        "clearInputOnExit",
+        "hideKeyLabels",
+        "hideInputBadges",
+        "discardQueuedInput",
+        "typingSwayRad"
+      ],
+      "additionalProperties": false
+    },
+    "Particles": {
+      "type": "object",
+      "properties": {
+        "heartsEnabled": {
+          "type": "boolean"
+        },
+        "waterEnabled": {
+          "type": "boolean"
+        },
+        "petPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30
+        },
+        "hotTypingPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 30
+        },
+        "lifetimeMs": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 5000
+        },
+        "maxCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "velocityPxPerSecond": {
+          "type": "array",
+          "items": {
+            "type": "number",
+            "minimum": -4096,
+            "maximum": 4096
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "rippleSpeedPxPerSecond": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 256
+        },
+        "heartColor": {
+          "type": "string",
+          "format": "hex-color"
+        },
+        "waterColor": {
+          "type": "string",
+          "format": "hex-color"
+        }
+      },
+      "required": [
+        "heartsEnabled",
+        "waterEnabled",
+        "petPerSecond",
+        "hotTypingPerSecond",
+        "lifetimeMs",
+        "maxCount",
+        "velocityPxPerSecond",
+        "rippleSpeedPxPerSecond",
+        "heartColor",
+        "waterColor"
+      ],
+      "additionalProperties": false
+    },
+    "Presentation": {
+      "type": "object",
+      "properties": {
+        "orientations": {
+          "const": [
+            "cat",
+            "viewer"
+          ],
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "drawOrder": {
+          "const": [
+            "tailBack",
+            "body",
+            "eyes",
+            "blush",
+            "desk",
+            "ripples",
+            "tailFront",
+            "hands",
+            "particles",
+            "badges"
+          ],
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 10,
+          "maxItems": 10
+        },
+        "keyboardBubbles": {
+          "type": "boolean"
+        },
+        "mouseBadges": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "orientations",
+        "drawOrder",
+        "keyboardBubbles",
+        "mouseBadges"
+      ],
+      "additionalProperties": false
+    },
+    "Sync": {
+      "type": "object",
+      "properties": {
+        "snapshotVersion": {
+          "const": 1,
+          "type": "integer"
+        },
+        "carryPetEnergy": {
+          "const": true,
+          "type": "boolean"
+        },
+        "carryMood": {
+          "const": true,
+          "type": "boolean"
+        },
+        "clearHeldOnReconnect": {
+          "const": true,
+          "type": "boolean"
+        },
+        "clearHeldOnOutfitChange": {
+          "const": true,
+          "type": "boolean"
+        },
+        "storeRawKeys": {
+          "const": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "snapshotVersion",
+        "carryPetEnergy",
+        "carryMood",
+        "clearHeldOnReconnect",
+        "clearHeldOnOutfitChange",
+        "storeRawKeys"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

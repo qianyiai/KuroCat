@@ -1,0 +1,723 @@
+{
+  "protocol": "procedural-2d-v1",
+  "rig": {
+    "sourceSize": [
+      224,
+      278
+    ],
+    "leftShoulder": [
+      0.39,
+      0.653
+    ],
+    "rightShoulder": [
+      0.61,
+      0.653
+    ],
+    "tailRoot": [
+      0.56,
+      0.785
+    ],
+    "coverEyes": [
+      [
+        0.39,
+        0.476
+      ],
+      [
+        0.598,
+        0.476
+      ]
+    ],
+    "eyes": [
+      {
+        "center": [
+          84.5,
+          137.4
+        ],
+        "radius": [
+          9.7,
+          10.2
+        ],
+        "clip": [
+          [
+            69.8,
+            132.8
+          ],
+          [
+            76,
+            128
+          ],
+          [
+            85,
+            127.4
+          ],
+          [
+            93.5,
+            129.4
+          ],
+          [
+            97.2,
+            134.5
+          ],
+          [
+            95.5,
+            143.5
+          ],
+          [
+            89,
+            147.2
+          ],
+          [
+            80,
+            147.2
+          ],
+          [
+            72.5,
+            143.8
+          ],
+          [
+            69.8,
+            138
+          ]
+        ]
+      },
+      {
+        "center": [
+          133.5,
+          137.2
+        ],
+        "radius": [
+          9.8,
+          10.2
+        ],
+        "clip": [
+          [
+            120.8,
+            134.5
+          ],
+          [
+            124.5,
+            129.2
+          ],
+          [
+            133.5,
+            127.2
+          ],
+          [
+            142.5,
+            128
+          ],
+          [
+            148.2,
+            132.8
+          ],
+          [
+            148.2,
+            138
+          ],
+          [
+            145.5,
+            143.8
+          ],
+          [
+            138,
+            147.2
+          ],
+          [
+            129,
+            147.2
+          ],
+          [
+            122.5,
+            143.5
+          ]
+        ]
+      }
+    ],
+    "hairOcclusion": {
+      "enabled": true,
+      "crop": [
+        60,
+        105,
+        102,
+        42
+      ],
+      "regions": [
+        [
+          96,
+          105,
+          26,
+          32
+        ],
+        [
+          100,
+          105,
+          18,
+          36
+        ],
+        [
+          60,
+          105,
+          9,
+          40
+        ],
+        [
+          149,
+          105,
+          13,
+          40
+        ]
+      ],
+      "alphaMin": 90,
+      "redMax": 175,
+      "blueMinusRedMin": -6,
+      "fallbackRgbMax": [
+        125,
+        120,
+        165
+      ]
+    }
+  },
+  "layouts": {
+    "compact": {
+      "logicalSize": [
+        420,
+        440
+      ],
+      "bodyCenter": [
+        192,
+        364
+      ],
+      "drawWidth": 262,
+      "pivotOffset": 48,
+      "keyboardCenter": [
+        234,
+        353
+      ],
+      "keyboardSize": [
+        266,
+        74
+      ],
+      "keyboardTiltRad": 0.059341194567807204,
+      "mouseBase": [
+        72,
+        322
+      ],
+      "mouseBodyShift": -38,
+      "petEllipseCenter": [
+        0.48,
+        0.49
+      ],
+      "petEllipseRadius": [
+        0.25,
+        0.27
+      ]
+    },
+    "full": {
+      "logicalSize": [
+        540,
+        456
+      ],
+      "bodyCenter": [
+        268,
+        366
+      ],
+      "drawWidth": 268,
+      "pivotOffset": 48,
+      "keyboardCenter": [
+        290,
+        356
+      ],
+      "keyboardSize": [
+        398,
+        96
+      ],
+      "keyboardTiltRad": 0.041887902047863905,
+      "mouseBase": [
+        54,
+        332
+      ],
+      "mouseBodyShift": -125,
+      "petEllipseCenter": [
+        0.51,
+        0.49
+      ],
+      "petEllipseRadius": [
+        0.21,
+        0.27
+      ]
+    }
+  },
+  "body": {
+    "breathAmplitudePx": 2.2,
+    "breathRadiansPerSecond": 3.4,
+    "bobKick": 0.72,
+    "bobDecay": 12,
+    "bobScale": [
+      0.022,
+      -0.018
+    ],
+    "typingTiltRad": 0.095,
+    "typingShiftPx": [
+      13,
+      22
+    ],
+    "mouseTiltRad": -0.1,
+    "mouseDivePx": 8,
+    "mouseFollowPx": 12,
+    "spring": {
+      "stiffness": 160,
+      "damping": 18
+    },
+    "bobMax": 1.1,
+    "bobBreathScale": 3.8,
+    "mouseDiveRate": 10,
+    "returnRate": 9,
+    "keyboardClipFactor": 0.36,
+    "tiltSpring": {
+      "stiffness": 180,
+      "damping": 17
+    }
+  },
+  "blink": {
+    "firstDelayMs": [
+      3600,
+      6200
+    ],
+    "intervalMs": [
+      4500,
+      7200
+    ],
+    "closedMs": 135
+  },
+  "mood": {
+    "sampleWindowMs": 2800,
+    "cpsStart": 2.4,
+    "cpsSpan": 5.4,
+    "heatRise": 2.2,
+    "heatFall": 0.65,
+    "riseThresholds": [
+      0.4,
+      0.78
+    ],
+    "fallThresholds": [
+      0.22,
+      0.55
+    ],
+    "riseDwellMs": [
+      1400,
+      1800
+    ],
+    "fallDwellMs": [
+      2200,
+      2200
+    ],
+    "blushRate": 3.2,
+    "blushByTier": [
+      0,
+      0.55,
+      0.85
+    ],
+    "blushHeatFactor": 0.92,
+    "blushPetMinimum": 0.45,
+    "blushPrivacyMinimum": 0.46,
+    "cheekCenters": [
+      [
+        0.372,
+        0.562
+      ],
+      [
+        0.616,
+        0.562
+      ]
+    ],
+    "cheekRadius": [
+      11.5,
+      6.2
+    ]
+  },
+  "gaze": {
+    "enabled": true,
+    "activeMs": 950,
+    "targetDivisor": [
+      21,
+      29
+    ],
+    "activeRate": 24,
+    "returnRate": 8.5,
+    "pupilParallax": 0.22,
+    "irisGradient": [
+      {
+        "offset": 0,
+        "color": "#162654"
+      },
+      {
+        "offset": 0.36,
+        "color": "#28407c"
+      },
+      {
+        "offset": 0.66,
+        "color": "#5898ca"
+      },
+      {
+        "offset": 0.88,
+        "color": "#b6e4f6"
+      },
+      {
+        "offset": 1,
+        "color": "#90b8cc"
+      }
+    ],
+    "scleraGradient": [
+      {
+        "offset": 0,
+        "color": "#c0b4c8"
+      },
+      {
+        "offset": 0.28,
+        "color": "#e8dce2"
+      },
+      {
+        "offset": 0.58,
+        "color": "#f6ecf0"
+      },
+      {
+        "offset": 1,
+        "color": "#faf3f5"
+      }
+    ],
+    "pupilColor": "#0a1e4a",
+    "highlightColor": "#f4faff",
+    "horizontalRangePx": [
+      -4.6,
+      4.6
+    ],
+    "verticalRangePx": [
+      0,
+      4.3
+    ]
+  },
+  "hands": {
+    "style": {
+      "sleeveGradient": [
+        {
+          "offset": 0,
+          "color": "#1f223b"
+        },
+        {
+          "offset": 0.65,
+          "color": "#272b4b"
+        },
+        {
+          "offset": 1,
+          "color": "#31365e"
+        }
+      ],
+      "sleeveOutline": "#181a2e",
+      "skin": "#fde7df",
+      "skinOutline": "#3d2c35",
+      "cuff": "#f8f9fe",
+      "cuffOutline": "#252844",
+      "trim": "#cdd4e8",
+      "button": "#e7c67b",
+      "shoulderRadius": 9.2,
+      "cuffRadius": 12,
+      "handRadius": [
+        8.4,
+        8.2
+      ],
+      "handSquash": [
+        0.14,
+        0.1
+      ]
+    },
+    "followRate": 26,
+    "squashDecay": 14,
+    "holdMs": 380,
+    "busyMs": 135,
+    "maxReachPx": 72,
+    "mouseReachCompact": 88,
+    "mouseReachFull": 96,
+    "rightMouseReach": 86,
+    "comfortReachPx": 76,
+    "idleOffsets": [
+      [
+        -15,
+        34
+      ],
+      [
+        15,
+        34
+      ]
+    ],
+    "cheerOffsets": [
+      [
+        -14,
+        4
+      ],
+      [
+        14,
+        4
+      ]
+    ],
+    "cheerAmplitudePx": 5,
+    "cheerRadiansPerSecond": 16,
+    "mousePressPx": 2.5
+  },
+  "tail": {
+    "enabled": true,
+    "extendMs": 65,
+    "holdMs": 260,
+    "releaseMs": 220,
+    "followRate": 36,
+    "idleRadiansPerSecond": [
+      4.2,
+      8.2,
+      15
+    ],
+    "idleWagRadians": [
+      0.16,
+      0.34
+    ],
+    "idleOffset": [
+      84,
+      -36
+    ],
+    "frontStart": 0.42,
+    "segments": 14,
+    "stemRadius": 12,
+    "stemGradient": [
+      {
+        "offset": 0,
+        "color": "#182244"
+      },
+      {
+        "offset": 0.18,
+        "color": "#1d3269"
+      },
+      {
+        "offset": 0.55,
+        "color": "#2957a4"
+      },
+      {
+        "offset": 1,
+        "color": "#52b2eb"
+      }
+    ],
+    "flukeGradient": [
+      {
+        "offset": 0,
+        "color": "#96ecff"
+      },
+      {
+        "offset": 0.38,
+        "color": "#4ba8e6"
+      },
+      {
+        "offset": 0.78,
+        "color": "#26539e"
+      },
+      {
+        "offset": 1,
+        "color": "#182f68"
+      }
+    ],
+    "outline": "#151f3b",
+    "flukeOutline": [
+      {
+        "control1": [
+          -8,
+          -19
+        ],
+        "control2": [
+          8,
+          -30
+        ],
+        "end": [
+          19,
+          -23
+        ]
+      },
+      {
+        "control1": [
+          22,
+          -14
+        ],
+        "control2": [
+          14,
+          -4
+        ],
+        "end": [
+          3,
+          0
+        ]
+      },
+      {
+        "control1": [
+          14,
+          4
+        ],
+        "control2": [
+          22,
+          14
+        ],
+        "end": [
+          19,
+          23
+        ]
+      },
+      {
+        "control1": [
+          8,
+          30
+        ],
+        "control2": [
+          -8,
+          19
+        ],
+        "end": [
+          -13,
+          4
+        ]
+      }
+    ],
+    "hotTypingRadiansPerSecond": 14,
+    "phaseRate": 34,
+    "squashDecay": 11
+  },
+  "bindings": {
+    "tailMode": "smart",
+    "customKeys": [
+      "enter",
+      "space",
+      "bs",
+      "esc"
+    ],
+    "mouseActiveMs": 900,
+    "typingActiveMs": 550,
+    "ignoreRepeat": true,
+    "allowParallelLimbs": true,
+    "enterFlourishMs": 450,
+    "edgeThresholds": [
+      0.34,
+      0.22
+    ]
+  },
+  "petting": {
+    "stepDistancePx": [
+      1.5,
+      80
+    ],
+    "strokeDistancePx": 14,
+    "requiredReversals": 2,
+    "directionDot": 0.35,
+    "energyPerPixel": 0.015,
+    "decayInside": 0.22,
+    "decayOutside": 1.15,
+    "happyThreshold": 0.25,
+    "requireReleasedButtons": true
+  },
+  "personality": {
+    "id": "dafeiyu-lively",
+    "idleReactions": [
+      {
+        "motion": "settle",
+        "expression": "idle",
+        "weight": 1,
+        "cooldownMs": 500,
+        "durationMs": 600,
+        "offsetPx": [
+          0,
+          0
+        ],
+        "rotationRad": 0
+      }
+    ],
+    "typingReactions": [
+      {
+        "motion": "tilt",
+        "expression": "idle",
+        "weight": 1,
+        "cooldownMs": 500,
+        "durationMs": 380,
+        "offsetPx": [
+          7,
+          0
+        ],
+        "rotationRad": 0.075
+      }
+    ],
+    "petReactions": [
+      {
+        "motion": "cheer",
+        "expression": "happy",
+        "weight": 1,
+        "cooldownMs": 500,
+        "durationMs": 800,
+        "offsetPx": [
+          0,
+          5
+        ],
+        "rotationRad": 0
+      }
+    ]
+  },
+  "privacy": {
+    "priority": "highest",
+    "expression": "blink",
+    "coverBobPx": 1.4,
+    "coverRadiansPerSecond": 8,
+    "bodySwayRad": 0.032,
+    "bodyRadiansPerSecond": 4.2,
+    "typingWindowMs": 240,
+    "typingBob": 0.42,
+    "clearHeldOnEnter": true,
+    "clearInputOnExit": true,
+    "hideKeyLabels": true,
+    "hideInputBadges": true,
+    "discardQueuedInput": true,
+    "typingSwayRad": 0.024
+  },
+  "particles": {
+    "heartsEnabled": true,
+    "waterEnabled": true,
+    "petPerSecond": 3.6,
+    "hotTypingPerSecond": 1.5,
+    "lifetimeMs": 1400,
+    "maxCount": 64,
+    "velocityPxPerSecond": [
+      0,
+      -30
+    ],
+    "rippleSpeedPxPerSecond": 58,
+    "heartColor": "#5cc8ff",
+    "waterColor": "#67d8ff"
+  },
+  "presentation": {
+    "orientations": [
+      "cat",
+      "viewer"
+    ],
+    "drawOrder": [
+      "tailBack",
+      "body",
+      "eyes",
+      "blush",
+      "desk",
+      "ripples",
+      "tailFront",
+      "hands",
+      "particles",
+      "badges"
+    ],
+    "keyboardBubbles": true,
+    "mouseBadges": true
+  },
+  "sync": {
+    "snapshotVersion": 1,
+    "carryPetEnergy": true,
+    "carryMood": true,
+    "clearHeldOnReconnect": true,
+    "clearHeldOnOutfitChange": true,
+    "storeRawKeys": false
+  }
+}

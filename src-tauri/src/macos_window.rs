@@ -281,7 +281,7 @@ pub fn handle_display_menu(app: &AppHandle, item_id: &str) {
             settings.x = Some(position.x);
             settings.y = Some(position.y);
         }
-        save_settings(&settings);
+        save_settings(&mut settings,if position.is_some(){&["displayId","x","y"]}else{&["displayId"]});
         settings.clone()
     };
     let _ = refresh_menu(app);
