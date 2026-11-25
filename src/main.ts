@@ -157,7 +157,8 @@ let settings: AppSettings = {
 let catList: CatSkinConfig[] = [...DEFAULT_BUILTIN_CATS];
 
 const canvas = document.getElementById('pet-canvas') as HTMLCanvasElement;
-const canvas3d = document.getElementById('pet-canvas-3d') as HTMLCanvasElement;
+// Replaced (not mutated) whenever the idle 3D dispose drops the WebGL context, see recycle3dCanvasElement().
+let canvas3d = document.getElementById('pet-canvas-3d') as HTMLCanvasElement;
 const menuEl = document.getElementById('context-menu') as HTMLDivElement;
 const breedPillsEl = document.getElementById('breed-pills') as HTMLDivElement;
 const scaleSliderEl = document.getElementById('scale-slider') as HTMLInputElement;
@@ -193,6 +194,22 @@ let gameActive = false;
 
 window.addEventListener('resize', () => engine3d?.resize());
 
+// A canvas element keeps exactly one WebGL context for its lifetime, and getContext() returns that same
+// (now lost) object after forceContextLoss(). Rebuilding the 3D engine on such an element throws inside
+// three.js, so an idle dispose hands over a brand-new canvas element instead.
+let rebindCanvas3dInput: (() => void) | null = null;
+
+function recycle3dCanvasElement(): void {
+  const next = document.createElement('canvas');
+  next.id = 'pet-canvas-3d';
+  next.className = canvas3d.className;
+  next.classList.remove('pet-hover', 'pet-dragging');
+  next.classList.add('hidden');
+  canvas3d.replaceWith(next);
+  canvas3d = next;
+  rebindCanvas3dInput?.();
+}
+
 function cancelPending3dDispose(): void {
   if (dispose3dTimer !== null) {
     window.clearTimeout(dispose3dTimer);
@@ -208,6 +225,7 @@ function schedule3dDisposeIf2D(): void {
     if (engine3d && !active3d && !tailPickerOpen && !wants3DNow()) {
       engine3d.dispose();
       engine3d = null;
+      recycle3dCanvasElement();
       void invoke('trim_idle_memory').catch(() => {});
     }
   }, IDLE_3D_DISPOSE_MS);
@@ -1188,7 +1206,6 @@ async function bootstrap(): Promise<void> {
     }
   };
   canvas.addEventListener('mousedown', handleCanvasMouseDown);
-  canvas3d.addEventListener('mousedown', handleCanvasMouseDown);
 
   // Right-click opens sleek dark glass settings menu (both 2D & 3D canvases!)
   const handleCanvasContextMenu = (e: MouseEvent) => {
@@ -1201,7 +1218,13 @@ async function bootstrap(): Promise<void> {
     openContextMenu(e.clientX, e.clientY);
   };
   canvas.addEventListener('contextmenu', handleCanvasContextMenu);
-  canvas3d.addEventListener('contextmenu', handleCanvasContextMenu);
+
+  // The 3D canvas element is swapped out after every idle dispose, so its listeners are (re)bound here.
+  rebindCanvas3dInput = () => {
+    canvas3d.addEventListener('mousedown', handleCanvasMouseDown);
+    canvas3d.addEventListener('contextmenu', handleCanvasContextMenu);
+  };
+  rebindCanvas3dInput();
 
   // Side menu window auto-closes on its own focus loss; do NOT close on main blur (clicking the menu blurs main!)
   window.addEventListener('keydown', (e) => {
