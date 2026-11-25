@@ -216,6 +216,12 @@ const IDLE_RENDER_AFTER_MS = 3000;
 const IDLE_RENDER_PAUSE_MS = 40;
 const KEYBOARD_HIT_HALF_WIDTH_RATIO = 0.54;
 const KEYBOARD_HIT_HALF_HEIGHT_RATIO = 0.56;
+// A tail pat is a one-shot gesture (lift 24px, then slap down). Replaying it for every keystroke of a typing
+// burst makes the tip buzz at the keystroke rate (~18 reversals/s), so only the first key of a burst lifts off.
+const TAIL_PAT_WINDUP_GAP_MS = 260;
+// drawTail() blends between a near swan-neck arch and a far hip sweep over ~173px of tip travel; blending it
+// per keystroke flips the whole tail silhouette, so the blend factor is smoothed instead.
+const TAIL_CROSS_BLEND_RATE = 9;
 
 export class KuroCatEngine {
   private canvas: HTMLCanvasElement;
@@ -257,10 +263,12 @@ export class KuroCatEngine {
     reach: 0,
     hover: 0,
     tapAt: -10000,
+    patAt: -10000,
     releaseAt: -10000,
     impactSquash: 0,
     active: false,
   };
+  private tailCrossLeft = 0;
   private privacyClose = 0;
   private privacyTypingAt = -10000;
   private lastMouseNX = 0.5;
@@ -368,6 +376,7 @@ export class KuroCatEngine {
     this.catTail.targetX = targetPt.x;
     this.catTail.targetY = targetPt.y;
     this.catTail.tapAt = now;
+    this.catTail.patAt = now;
     this.catTail.releaseAt = now + 220;
     this.catTail.impactSquash = 1.0;
     this.kbBounce = Math.min(1, this.kbBounce + 0.35);
@@ -1228,7 +1237,11 @@ export class KuroCatEngine {
       this.catTailHeldAt.set(vk, now);
       this.catTail.targetX = clampedTailPt.x;
       this.catTail.targetY = clampedTailPt.y;
-      this.catTail.tapAt = now;
+      // Continuous typing keeps the tip planted on the keycaps: only a key that arrives after a real pause
+      // gets the lift-and-slap windup, otherwise the tip would buzz at the keystroke rate.
+      const sinceLastPat = now - this.catTail.patAt;
+      this.catTail.patAt = now;
+      if (sinceLastPat >= TAIL_PAT_WINDUP_GAP_MS) this.catTail.tapAt = now;
       this.catTail.impactSquash = 1.0;
 
       // Subtle playful hip shift & rock as the tail pats the chosen key!
@@ -1991,11 +2004,13 @@ export class KuroCatEngine {
         this.catTail.heldVks.clear();
       }
       const tailAge = Math.max(0, now - this.catTail.tapAt);
-      const tailPressing = this.catTail.active && (this.catTail.heldVks.size > 0 || tailAge < 155);
+      const sinceLastPat = now - this.catTail.patAt;
+      const tailPressing =
+        this.catTail.active && (this.catTail.heldVks.size > 0 || sinceLastPat < 155);
       const sinceTailRelease =
         this.catTail.heldVks.size > 0
           ? 0
-          : Math.max(0, now - Math.max(this.catTail.tapAt + 155, this.catTail.releaseAt));
+          : Math.max(0, now - Math.max(this.catTail.patAt + 155, this.catTail.releaseAt));
       if (this.catTail.active && !tailPressing && sinceTailRelease > 460) {
         this.catTail.active = false;
       }
@@ -2022,6 +2037,14 @@ export class KuroCatEngine {
       this.catTail.tipX += (this.catTail.targetX - this.catTail.tipX) * tipFollow;
       this.catTail.tipY += (this.catTail.targetY - this.catTail.tipY) * tipFollow;
       this.catTail.impactSquash = Math.max(0, this.catTail.impactSquash - dt * 6.5);
+
+      // Smooth the near/far bezier blend used by drawTail() so hand-alternating typing sweeps the tail
+      // silhouette around the hip instead of flickering between two shapes on every keystroke.
+      const tailStartX = this.spinePoint(0.84, 0).x + 56;
+      const tipRel = tailStartX - 10 - this.catTail.tipX;
+      const targetCrossLeft = Math.max(0, Math.min(1, tipRel / (this.kbWidth * 0.65)));
+      this.tailCrossLeft +=
+        (targetCrossLeft - this.tailCrossLeft) * (1 - Math.exp(-TAIL_CROSS_BLEND_RATE * dt));
 
       // Rhythmic 3-beat grumpy tail desk-thump when cross (lift slowly -> slam hard -> bounce keyboard & dust puffs!)
       let targetThumpLift = 0;
@@ -2531,7 +2554,7 @@ export class KuroCatEngine {
     const maxEdgeX = this.logicalW - 14;
     // Near-right keys keep the iconic high swan-neck arch; far-left keys sweep smoothly around the
     // right hip and glide across the front keyboard deck below the cat's belly (zero body clipping!).
-    const crossLeft = Math.max(0, Math.min(1, (startX - 10 - patEndX) / (this.kbWidth * 0.65)));
+    const crossLeft = this.tailCrossLeft;
     const nearCp1X = Math.min(maxEdgeX, Math.max(startX + 44, patEndX + 32));
     const nearCp1Y = startY - 12 - this.catTail.hover * 0.35;
     const nearCp2X = Math.min(maxEdgeX, Math.max(startX + 54, patEndX + 40));
