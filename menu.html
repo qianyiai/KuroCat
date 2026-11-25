@@ -67,6 +67,10 @@
             <span>悬浮按键气泡</span>
             <span class="menu-check" id="chk-bubbles">✓</span>
           </button>
+          <button class="menu-item" data-action="toggle-typing-count" title="隐藏后桌宠旁不再显示打字统计角标，统计仍在后台继续">
+            <span>显示今日打字统计角标</span>
+            <span class="menu-check" id="chk-typing-count">✓</span>
+          </button>
           <button class="menu-item" data-action="toggle-lock" id="btn-toggle-lock" title="开启后重启保持锁定，按住 Alt 或在托盘可随时解锁">
             <span id="lbl-toggle-lock">锁定鼠标穿透（Alt 解锁）</span>
             <span class="menu-check" id="chk-lock"></span>
@@ -97,6 +101,14 @@
               <button class="kb-pill active" data-kborient="cat" type="button">面向猫咪</button>
               <button class="kb-pill" data-kborient="viewer" type="button">面向观众</button>
             </div>
+          </div>
+
+          <div class="menu-scale-row" id="typing-stats-row">
+            <div class="scale-header">
+              <span class="menu-scale-label">今日打字统计</span>
+              <span class="tail-mode-badge" id="menu-typing-stats-count">0 次按键</span>
+            </div>
+            <div class="typing-stats-hint">从今天 0 点起统计真实按键次数；长按重复与密码输入不计入</div>
           </div>
 
           <div class="menu-scale-row">

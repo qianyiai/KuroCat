@@ -504,6 +504,7 @@ pub fn start_global_hooks(app: AppHandle) {
                         if let Some(repeat) = dedup.on_key_down(vk, source, Instant::now()) {
                             if !repeat {
                                 KEY_EVENTS_RECEIVED.fetch_add(1, Ordering::Relaxed);
+                                crate::stats::record_key_press();
                             }
                             emit_input(&app, InputEvent::KeyDown { vk, scan, repeat });
                         }

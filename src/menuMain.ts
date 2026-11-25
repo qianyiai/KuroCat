@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { DEFAULT_TAIL_KEY_IDS, type KeyboardOrientation, type TailKeyMode } from './catEngine';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import type { KeyboardLayoutId } from './keyboardLayout';
+import { readKeyStats } from './keyStats';
 
 interface AppSettings {
   x: number | null;
@@ -28,6 +29,7 @@ interface AppSettings {
   renderMode?: '2d' | '3d';
   collarColor?: 'none' | 'red' | 'blue' | 'pink' | 'green';
   headphoneMode?: 'auto' | 'on' | 'off';
+  showTypingCount: boolean;
 }
 
 interface UpdateInfo {
@@ -84,6 +86,7 @@ let settings: AppSettings = {
   renderMode: '3d',
   collarColor: 'none',
   headphoneMode: 'off',
+  showTypingCount: true,
 };
 
 let catList: CatSkinConfig[] = [...DEFAULT_BUILTIN_CATS];
@@ -102,6 +105,7 @@ const tailModeBadgeEl = document.getElementById('tail-mode-badge') as HTMLSpanEl
 const tailKeysCountEl = document.getElementById('tail-keys-count') as HTMLSpanElement;
 const btnObsHideEl = document.getElementById('btn-obs-hide') as HTMLButtonElement;
 const btnCheckUpdateEl = document.getElementById('btn-check-update') as HTMLButtonElement | null;
+const menuTypingStatsEl = document.getElementById('menu-typing-stats-count') as HTMLSpanElement | null;
 
 function switchTab(nextTab: MenuTabId): void {
   activeTab = nextTab;
@@ -115,6 +119,19 @@ function switchTab(nextTab: MenuTabId): void {
   });
   if (tabBodyEl) {
     tabBodyEl.scrollTop = 0;
+  }
+  if (nextTab === 'system') {
+    void refreshTypingStats();
+  }
+}
+
+async function refreshTypingStats(): Promise<void> {
+  if (!menuTypingStatsEl) return;
+  try {
+    const stats = await readKeyStats();
+    menuTypingStatsEl.textContent = `${stats.total.toLocaleString('zh-CN')} 次按键`;
+  } catch {
+    // Non-critical: keep the last displayed value.
   }
 }
 
@@ -180,6 +197,7 @@ function syncUI(): void {
   setCheck('chk-top', settings.alwaysOnTop);
   setCheck('chk-autostart', settings.autostart);
   setCheck('chk-mcp', settings.mcpEnabled);
+  setCheck('chk-typing-count', settings.showTypingCount !== false);
   setCheck('chk-obs', Boolean(settings.obsEnabled));
   setCheck('chk-obs-hide', Boolean(settings.obsEnabled && settings.obsHidePet));
 
@@ -427,6 +445,7 @@ async function bootstrap(): Promise<void> {
   syncUI();
   renderFooterUpdateState();
   switchTab('appearance');
+  void refreshTypingStats();
 
   const isWin7 = await invoke<boolean>('is_win7_ulw_mode').catch(() => false);
   if (isWin7) {
@@ -544,6 +563,9 @@ async function bootstrap(): Promise<void> {
       case 'toggle-bubbles':
         void applySettingsPatch({ showKeyBubbles: !settings.showKeyBubbles });
         break;
+      case 'toggle-typing-count':
+        void applySettingsPatch({ showTypingCount: settings.showTypingCount === false });
+        break;
       case 'toggle-lock':
         void applySettingsPatch({ clickThroughLocked: !settings.clickThroughLocked });
         closeMenu();
@@ -643,6 +665,7 @@ async function bootstrap(): Promise<void> {
       }
       syncUI();
       renderFooterUpdateState();
+      void refreshTypingStats();
       if (tabBodyEl) tabBodyEl.scrollTop = 0;
     } catch {}
   });

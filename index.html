@@ -9,6 +9,12 @@
     <canvas id="pet-canvas"></canvas>
     <canvas id="pet-canvas-3d" class="hidden"></canvas>
 
+    <div id="typing-stats" class="typing-stats hidden" title="今日打字统计：真实按键次数（长按重复与密码输入不计入）">
+      <span>⌨ 打字统计</span>
+      <strong id="typing-stats-count">0</strong>
+      <span>次</span>
+    </div>
+
     <div id="update-toast" class="update-toast hidden" role="status" aria-live="polite">
       <span class="update-toast-text" id="update-toast-text">✨ 新版本</span>
       <button class="update-toast-btn hidden" id="btn-toast-install" type="button">更新</button>
@@ -82,6 +88,10 @@
       <button class="menu-item" data-action="toggle-bubbles">
         <span>悬浮按键气泡</span>
         <span class="menu-check" id="chk-bubbles">✓</span>
+      </button>
+      <button class="menu-item" data-action="toggle-typing-count" title="开关桌宠旁的今日打字统计角标">
+        <span>显示今日打字统计角标</span>
+        <span class="menu-check" id="chk-typing-count">✓</span>
       </button>
       <button class="menu-item" data-action="toggle-lock" title="开启后按住 Alt 键仍可拖动或右键解锁">
         <span>锁定鼠标穿透（Alt 解锁）</span>

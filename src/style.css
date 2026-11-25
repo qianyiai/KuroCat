@@ -24,6 +24,7 @@ html.win7-ulw-mode .context-menu {
 }
 
 html.win7-ulw-mode .update-toast,
+html.win7-ulw-mode .typing-stats,
 html.win7-ulw-mode .tail-picker-bar {
   background: #14161c;
   backdrop-filter: none;
@@ -338,6 +339,12 @@ html.win7-ulw-mode #collar-row {
   font-weight: 600;
 }
 
+.typing-stats-hint {
+  font-size: 10px;
+  line-height: 1.3;
+  color: #9ca3af;
+}
+
 .tail-mode-pills {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -625,6 +632,41 @@ html.win7-ulw-mode #collar-row {
 
 .update-toast.hidden {
   display: none;
+}
+
+.typing-stats {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: rgba(20, 22, 28, 0.78);
+  border: 1px solid rgba(200, 245, 56, 0.28);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(8px);
+  color: #e8ecef;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 9997;
+}
+
+.typing-stats strong {
+  color: #c8f538;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.typing-stats.hidden {
+  display: none;
+}
+
+.typing-stats:not(.hidden) ~ .update-toast {
+  top: 32px;
 }
 
 .update-toast-text {

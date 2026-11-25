@@ -18,6 +18,11 @@ import {
   type KeySpec,
 } from './keyboardLayout';
 import type { CollarColorId, KuroCatEngine3D } from './catEngine3d';
+import {
+  bumpWebKeyStats,
+  isNativeStatsBackend,
+  readKeyStats,
+} from './keyStats';
 
 type DesktopRenderMode = '2d' | '3d';
 type HeadphoneMode = 'auto' | 'on' | 'off';
@@ -45,6 +50,7 @@ interface AppSettings {
   renderMode?: DesktopRenderMode;
   collarColor?: CollarColorId;
   headphoneMode?: HeadphoneMode;
+  showTypingCount: boolean;
 }
 
 type InputEvent =
@@ -150,6 +156,7 @@ let settings: AppSettings = {
   renderMode: '3d',
   collarColor: 'none',
   headphoneMode: 'off',
+  showTypingCount: true,
 };
 
 let catList: CatSkinConfig[] = [...DEFAULT_BUILTIN_CATS];
@@ -173,6 +180,36 @@ const btnTailDoneEl = document.getElementById('btn-tail-done') as HTMLButtonElem
 const btnTailCancelEl = document.getElementById('btn-tail-cancel') as HTMLButtonElement;
 const tailModeBadgeEl = document.getElementById('tail-mode-badge') as HTMLSpanElement;
 const tailKeysCountEl = document.getElementById('tail-keys-count') as HTMLSpanElement;
+const typingStatsEl = document.getElementById('typing-stats') as HTMLDivElement | null;
+const typingStatsCountEl = document.getElementById('typing-stats-count') as HTMLElement | null;
+
+let todayKeyCount = 0;
+let typingStatsSynced = false;
+
+function renderTypingStats(): void {
+  if (!typingStatsEl || !typingStatsCountEl) return;
+  typingStatsCountEl.textContent = todayKeyCount.toLocaleString('zh-CN');
+  typingStatsEl.classList.toggle(
+    'hidden',
+    !typingStatsSynced || settings.showTypingCount === false,
+  );
+}
+
+async function syncTypingStats(): Promise<void> {
+  try {
+    todayKeyCount = (await readKeyStats()).total;
+    typingStatsSynced = true;
+    renderTypingStats();
+  } catch {
+    // Non-critical: keep the last known value visible.
+  }
+}
+
+function noteKeyPress(): void {
+  todayKeyCount += 1;
+  renderTypingStats();
+}
+
 const engine = new KuroCatEngine(canvas);
 
 // Lazy-loaded Three.js 3D engine (NEVER imported when user stays in 2D mode -> +0 MB overhead!)
@@ -327,6 +364,8 @@ function syncMenuUI(): void {
   setCheck('chk-top', settings.alwaysOnTop);
   setCheck('chk-autostart', settings.autostart);
   setCheck('chk-mcp', settings.mcpEnabled);
+  setCheck('chk-typing-count', settings.showTypingCount !== false);
+  renderTypingStats();
 
   if (!sliderDragging) {
     updateScaleSliderVisual(settings.scale);
@@ -992,6 +1031,7 @@ async function bootstrap(): Promise<void> {
     const p = ev.payload;
     switch (p.kind) {
       case 'keyDown':
+        if (!p.repeat) noteKeyPress();
         if (tailPickerOpen) {
           if (!p.repeat) {
             const spec = resolveKeyByVk(p.vk, settings.keyboardLayout);
@@ -1137,6 +1177,11 @@ async function bootstrap(): Promise<void> {
 
   // Side menu window auto-closes on its own focus loss; do NOT close on main blur (clicking the menu blurs main!)
   window.addEventListener('keydown', (e) => {
+    // Browser playground has no native hook: count real DOM key presses there.
+    if (!isNativeStatsBackend() && !e.repeat) {
+      todayKeyCount = bumpWebKeyStats();
+      renderTypingStats();
+    }
     if (tailPickerOpen) {
       // Enter and Space can be selected without activating the focused toolbar button.
       e.preventDefault();
@@ -1220,6 +1265,9 @@ async function bootstrap(): Promise<void> {
         break;
       case 'toggle-bubbles':
         void applySettingsPatch({ showKeyBubbles: !settings.showKeyBubbles });
+        break;
+      case 'toggle-typing-count':
+        void applySettingsPatch({ showTypingCount: settings.showTypingCount === false });
         break;
       case 'toggle-lock':
         void applySettingsPatch({ clickThroughLocked: !settings.clickThroughLocked });
@@ -1403,6 +1451,10 @@ async function bootstrap(): Promise<void> {
       kind: 'transient',
     });
   }
+
+  // Daily typing counter: initial load + periodic rollover/DST resync with the backend.
+  await syncTypingStats();
+  window.setInterval(() => void syncTypingStats(), 60_000);
 
   // If the background updater already discovered a release before the webview finished loading, show it.
   try {

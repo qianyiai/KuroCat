@@ -9,6 +9,7 @@ mod macos_window;
 mod mcp;
 mod obs;
 mod privacy;
+mod stats;
 mod tray;
 mod updater;
 #[cfg(windows)]
@@ -295,6 +296,11 @@ fn get_cats() -> Vec<CatSkinConfig> {
 #[tauri::command]
 fn get_game_active() -> bool {
     game_detect::is_game_active()
+}
+
+#[tauri::command]
+fn get_key_stats(day: i64, tz_offset_minutes: i64) -> stats::KeyStats {
+    stats::get_stats(day, tz_offset_minutes)
 }
 
 #[tauri::command]
@@ -2458,6 +2464,7 @@ pub fn run() {
             get_settings,
             get_cats,
             get_game_active,
+            get_key_stats,
             get_mcp_config,
             get_obs_url,
             get_app_version,

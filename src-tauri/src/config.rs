@@ -31,6 +31,10 @@ fn default_obs_hide_pet() -> bool {
     false
 }
 
+fn default_show_typing_count() -> bool {
+    true
+}
+
 pub fn default_render_mode() -> String {
     "3d".to_string()
 }
@@ -183,6 +187,8 @@ pub struct AppSettings {
     pub collar_color: String,
     #[serde(default = "default_headphone_mode")]
     pub headphone_mode: String,
+    #[serde(default = "default_show_typing_count")]
+    pub show_typing_count: bool,
 }
 
 impl Default for AppSettings {
@@ -214,6 +220,7 @@ impl Default for AppSettings {
             render_mode: default_render_mode(),
             collar_color: default_collar_color(),
             headphone_mode: default_headphone_mode(),
+            show_typing_count: default_show_typing_count(),
         }
     }
 }
