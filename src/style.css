@@ -40,7 +40,8 @@ html.win7-ulw-mode .tail-picker-bar {
 
 #pet-canvas.hidden,
 #pet-canvas-3d.hidden,
-.menu-scale-row.hidden {
+.menu-scale-row.hidden,
+.menu-item.hidden {
   display: none !important;
 }
 

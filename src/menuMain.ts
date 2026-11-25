@@ -1,4 +1,5 @@
 import './style.css';
+import { refreshPurrMenu, syncPurrMenu } from './purrMenu';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { DEFAULT_TAIL_KEY_IDS, type KeyboardOrientation, type TailKeyMode } from './catEngine';
@@ -425,6 +426,7 @@ async function bootstrap(): Promise<void> {
     console.error('Failed to load menu state:', err);
   }
   syncUI();
+  void refreshPurrMenu();
   renderFooterUpdateState();
   switchTab('appearance');
 
@@ -551,6 +553,12 @@ async function bootstrap(): Promise<void> {
       case 'toggle-sound':
         void applySettingsPatch({ soundEnabled: !settings.soundEnabled });
         break;
+      case 'pick-purr':
+        void invoke('pick_custom_purr').catch(() => {});
+        break;
+      case 'clear-purr':
+        void invoke('clear_custom_purr');
+        break;
       case 'toggle-top':
         void applySettingsPatch({ alwaysOnTop: !settings.alwaysOnTop });
         break;
@@ -604,6 +612,10 @@ async function bootstrap(): Promise<void> {
     syncUI();
   });
 
+  await listen<boolean>('kuro-purr-changed', (ev) => {
+    syncPurrMenu(ev.payload === true);
+  });
+
   await listen<CatSkinConfig[]>('kuro-cats', (ev) => {
     if (Array.isArray(ev.payload) && ev.payload.length > 0) {
       catList = ev.payload;
@@ -642,6 +654,7 @@ async function bootstrap(): Promise<void> {
         cachedUpdateInfo = cachedUpd;
       }
       syncUI();
+      void refreshPurrMenu();
       renderFooterUpdateState();
       if (tabBodyEl) tabBodyEl.scrollTop = 0;
     } catch {}

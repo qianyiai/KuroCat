@@ -9,6 +9,7 @@ import {
   type TailKeyMode,
 } from './catEngine';
 import { catAudio } from './audio';
+import { syncPurrMenu } from './purrMenu';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import {
   getKeyboardLayout,
@@ -821,6 +822,41 @@ async function triggerManualUpdateCheck(): Promise<void> {
   }
 }
 
+/** Set while we drop an unplayable recording ourselves, so that change is not announced as a user choice. */
+let silentPurrReset = false;
+
+/** Loads the custom purr recording (if any) into the audio engine. */
+async function loadCustomPurr(announce: boolean): Promise<void> {
+  let bytes: ArrayBuffer;
+  try {
+    const raw = await invoke<ArrayBuffer | number[]>('get_custom_purr');
+    bytes = raw instanceof ArrayBuffer ? raw : new Uint8Array(raw).buffer;
+  } catch (err) {
+    console.error('Failed to read custom purr:', err);
+    return;
+  }
+  const hasCustom = bytes.byteLength > 0;
+  try {
+    await catAudio.setCustomPurr(hasCustom ? bytes : null);
+  } catch (err) {
+    console.error('Custom purr could not be decoded:', err);
+    await catAudio.setCustomPurr(null);
+    silentPurrReset = true;
+    await invoke('clear_custom_purr').catch(() => {
+      silentPurrReset = false;
+    });
+    showUpdateToast('⚠️ 这段录音放不了，已换回内置呼噜声', { autoHideMs: 4200, kind: 'transient' });
+    return;
+  }
+  syncPurrMenu(hasCustom);
+  if (!announce) return;
+  showUpdateToast(hasCustom ? '🐾 已换成你的呼噜录音' : '🐾 已恢复内置呼噜声', {
+    autoHideMs: 2600,
+    kind: 'transient',
+  });
+  catAudio.preview();
+}
+
 async function bootstrap(): Promise<void> {
   engine.start();
 
@@ -849,6 +885,16 @@ async function bootstrap(): Promise<void> {
   } catch (err) {
     console.error('Failed to load settings or cats:', err);
   }
+
+  void loadCustomPurr(false);
+  await listen<boolean>('kuro-purr-changed', () => {
+    const announce = !silentPurrReset;
+    silentPurrReset = false;
+    void loadCustomPurr(announce);
+  });
+  await listen<string>('kuro-purr-error', (ev) => {
+    showUpdateToast(`⚠️ ${ev.payload}`, { autoHideMs: 4200, kind: 'transient' });
+  });
 
   await listen<UpdateProgressEvent>('kuro-update-status', (ev) => {
     handleUpdateProgressEvent(ev.payload, false);
@@ -1227,6 +1273,13 @@ async function bootstrap(): Promise<void> {
         break;
       case 'toggle-sound':
         void applySettingsPatch({ soundEnabled: !settings.soundEnabled });
+        break;
+      case 'pick-purr':
+        closeContextMenu();
+        void invoke('pick_custom_purr').catch(() => {});
+        break;
+      case 'clear-purr':
+        void invoke('clear_custom_purr');
         break;
       case 'toggle-top':
         void applySettingsPatch({ alwaysOnTop: !settings.alwaysOnTop });

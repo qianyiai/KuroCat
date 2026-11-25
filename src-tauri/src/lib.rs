@@ -9,6 +9,7 @@ mod macos_window;
 mod mcp;
 mod obs;
 mod privacy;
+mod purr;
 mod tray;
 mod updater;
 #[cfg(windows)]
@@ -2456,6 +2457,10 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            purr::pick_custom_purr,
+            purr::clear_custom_purr,
+            purr::has_custom_purr,
+            purr::get_custom_purr,
             get_cats,
             get_game_active,
             get_mcp_config,
