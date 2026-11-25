@@ -234,6 +234,8 @@ export class KuroCatEngine {
   private elapsed = 0;
 
   public showKeyBubbles = true;
+  /** When false, fast mouse sweeps no longer trigger the curious big-eyes face. */
+  public fastPointerCurious = true;
   public privacyMode = false;
   public onAfterRender: (() => void) | null = null;
   public catBreed: CatBreed = 'black';
@@ -1752,6 +1754,7 @@ export class KuroCatEngine {
     const pointerSpeed =
       this.pointerSamples.reduce((acc, s) => acc + s.dist, 0) / 0.22;
     const canTriggerCurious =
+      this.fastPointerCurious &&
       isCatMode &&
       !this.asleep &&
       !this.privacyMode &&

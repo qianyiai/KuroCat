@@ -37,6 +37,7 @@ interface AppSettings {
   keyboardLayout: KeyboardLayoutId;
   keyboardOrientation: KeyboardOrientation;
   privacyPasswordGuard: boolean;
+  fastPointerCurious?: boolean;
   tailKeyMode: TailKeyMode;
   tailKeyIds: string[];
   obsEnabled?: boolean;
@@ -145,6 +146,7 @@ let settings: AppSettings = {
   keyboardLayout: '65',
   keyboardOrientation: 'cat',
   privacyPasswordGuard: true,
+  fastPointerCurious: true,
   tailKeyMode: 'smart',
   tailKeyIds: [...DEFAULT_TAIL_KEY_IDS],
   renderMode: '3d',
@@ -226,6 +228,7 @@ function syncEngine3DState(): void {
       : 'none';
 
   engine3d.showKeyBubbles = settings.showKeyBubbles;
+  engine3d.fastPointerCurious = settings.fastPointerCurious !== false;
   engine3d.setRenderStyle('3d');
   if (activeCat) {
     engine3d.setCatSkin(activeCat);
@@ -322,6 +325,7 @@ function syncMenuUI(): void {
   };
   setCheck('chk-privacy', settings.privacyPasswordGuard !== false);
   setCheck('chk-bubbles', settings.showKeyBubbles);
+  setCheck('chk-curious', settings.fastPointerCurious !== false);
   setCheck('chk-lock', settings.clickThroughLocked);
   setCheck('chk-sound', settings.soundEnabled);
   setCheck('chk-top', settings.alwaysOnTop);
@@ -399,6 +403,7 @@ function syncMenuUI(): void {
   }
 
   engine.showKeyBubbles = settings.showKeyBubbles;
+  engine.fastPointerCurious = settings.fastPointerCurious !== false;
   engine.setCatAppearance(activeCat?.id || 'black', activeCat);
   engine.setHeadphones(shouldWearHeadphonesNow());
   engine.setKeyboardConfig(kbLayout, kbOrient);
@@ -1220,6 +1225,9 @@ async function bootstrap(): Promise<void> {
         break;
       case 'toggle-bubbles':
         void applySettingsPatch({ showKeyBubbles: !settings.showKeyBubbles });
+        break;
+      case 'toggle-curious':
+        void applySettingsPatch({ fastPointerCurious: !(settings.fastPointerCurious !== false) });
         break;
       case 'toggle-lock':
         void applySettingsPatch({ clickThroughLocked: !settings.clickThroughLocked });

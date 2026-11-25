@@ -500,6 +500,8 @@ function createHeadsetMaterial(
  */
 export class KuroCatEngine3D {
   public showKeyBubbles = true;
+  /** When false, fast mouse sweeps no longer trigger the curious big-eyes face. */
+  public fastPointerCurious = true;
   public privacyMode = false;
 
   private readonly canvas: HTMLCanvasElement;
@@ -2074,7 +2076,7 @@ export class KuroCatEngine3D {
     // Curious trigger from swift cursor sweep
     this.pointerSamples = this.pointerSamples.filter((s) => t - s.t <= 0.22);
     const pointerSpeed = this.pointerSamples.reduce((a, s) => a + s.dist, 0) / 0.22;
-    const canCurious = !this.asleep && !this.privacyMode && !this.isCross && t - this.lastKey > 0.9;
+    const canCurious = this.fastPointerCurious && !this.asleep && !this.privacyMode && !this.isCross && t - this.lastKey > 0.9;
     if (canCurious && this.pointerSamples.length >= 4 && pointerSpeed > 0.92) {
       this.curiousUntil = Math.max(this.curiousUntil, t + 2.2);
     }

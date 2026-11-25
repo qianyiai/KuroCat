@@ -20,6 +20,7 @@ interface AppSettings {
   keyboardLayout: KeyboardLayoutId;
   keyboardOrientation: KeyboardOrientation;
   privacyPasswordGuard: boolean;
+  fastPointerCurious?: boolean;
   tailKeyMode: TailKeyMode;
   tailKeyIds: string[];
   obsEnabled: boolean;
@@ -76,6 +77,7 @@ let settings: AppSettings = {
   keyboardLayout: '65',
   keyboardOrientation: 'cat',
   privacyPasswordGuard: true,
+  fastPointerCurious: true,
   tailKeyMode: 'smart',
   tailKeyIds: [...DEFAULT_TAIL_KEY_IDS],
   obsEnabled: false,
@@ -175,6 +177,7 @@ function syncUI(): void {
 
   setCheck('chk-privacy', settings.privacyPasswordGuard !== false);
   setCheck('chk-bubbles', settings.showKeyBubbles);
+  setCheck('chk-curious', settings.fastPointerCurious !== false);
   setCheck('chk-lock', settings.clickThroughLocked);
   setCheck('chk-sound', settings.soundEnabled);
   setCheck('chk-top', settings.alwaysOnTop);
@@ -543,6 +546,9 @@ async function bootstrap(): Promise<void> {
         break;
       case 'toggle-bubbles':
         void applySettingsPatch({ showKeyBubbles: !settings.showKeyBubbles });
+        break;
+      case 'toggle-curious':
+        void applySettingsPatch({ fastPointerCurious: !(settings.fastPointerCurious !== false) });
         break;
       case 'toggle-lock':
         void applySettingsPatch({ clickThroughLocked: !settings.clickThroughLocked });

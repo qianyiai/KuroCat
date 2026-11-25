@@ -15,6 +15,10 @@ fn default_privacy_password_guard() -> bool {
     true
 }
 
+fn default_fast_pointer_curious() -> bool {
+    true
+}
+
 fn default_mcp_port() -> u16 {
     27420
 }
@@ -167,6 +171,8 @@ pub struct AppSettings {
     pub keyboard_orientation: String,
     #[serde(default = "default_privacy_password_guard")]
     pub privacy_password_guard: bool,
+    #[serde(default = "default_fast_pointer_curious")]
+    pub fast_pointer_curious: bool,
     #[serde(default = "default_tail_key_mode")]
     pub tail_key_mode: String,
     #[serde(default = "default_tail_key_ids")]
@@ -206,6 +212,7 @@ impl Default for AppSettings {
             keyboard_layout: default_keyboard_layout(),
             keyboard_orientation: default_keyboard_orientation(),
             privacy_password_guard: default_privacy_password_guard(),
+            fast_pointer_curious: default_fast_pointer_curious(),
             tail_key_mode: default_tail_key_mode(),
             tail_key_ids: default_tail_key_ids(),
             obs_enabled: default_obs_enabled(),
@@ -525,5 +532,6 @@ mod tests {
         let parsed: AppSettings = serde_json::from_str(legacy).expect("legacy json should parse");
         assert_eq!(parsed.tail_key_mode, "smart");
         assert_eq!(parsed.tail_key_ids, default_tail_key_ids());
+        assert!(parsed.fast_pointer_curious);
     }
 }

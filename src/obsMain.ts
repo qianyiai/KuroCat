@@ -15,6 +15,7 @@ type ObsHeadphoneMode = 'auto' | 'on' | 'off';
 interface ObsAppSettings {
   scale?: number;
   showKeyBubbles?: boolean;
+  fastPointerCurious?: boolean;
   catBreed?: string;
   keyboardLayout?: KeyboardLayoutId;
   keyboardOrientation?: KeyboardOrientation;
@@ -139,6 +140,7 @@ function syncObs3D(
 
   if (engine3d) {
     engine3d.showKeyBubbles = showBubbles;
+    engine3d.fastPointerCurious = currentSettings.fastPointerCurious !== false;
     engine3d.setRenderStyle('3d');
     if (activeCat) engine3d.setCatSkin(activeCat);
     engine3d.setCollar(collar);
@@ -204,6 +206,7 @@ function applyState(): void {
       : 'none');
 
   engine.showKeyBubbles = showBubbles;
+  engine.fastPointerCurious = currentSettings.fastPointerCurious !== false;
   engine.setCatAppearance(activeCat?.id || 'black', activeCat);
   engine.setHeadphones(computeObsHeadphonesOn(activeCat));
   engine.setKeyboardConfig(layout, orient);

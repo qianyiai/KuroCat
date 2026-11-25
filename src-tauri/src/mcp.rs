@@ -143,7 +143,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "update_settings",
-            "description": "Update KuroCat desktop pet settings live (scale 0.2-1.5, showKeyBubbles, soundEnabled, alwaysOnTop, clickThroughLocked, catBreed, keyboardLayout 65|108, keyboardOrientation cat|viewer, tailKeyMode smart|custom|edge|off, tailKeyIds string[], autostart).",
+            "description": "Update KuroCat desktop pet settings live (scale 0.2-1.5, showKeyBubbles, fastPointerCurious, soundEnabled, alwaysOnTop, clickThroughLocked, catBreed, keyboardLayout 65|108, keyboardOrientation cat|viewer, tailKeyMode smart|custom|edge|off, tailKeyIds string[], autostart).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -161,6 +161,7 @@ fn tool_definitions() -> Value {
                         "description": "Logical key IDs tapped by the tail when tailKeyMode is 'custom' (e.g. ['enter', 'space', 'bs', 'esc', 'r', 'tab', 'up', 'down', 'left', 'right', 'np_0'])."
                     },
                     "showKeyBubbles": { "type": "boolean" },
+                    "fastPointerCurious": { "type": "boolean", "description": "Whether a fast mouse sweep makes the cat show its curious big-eyes face (default true)." },
                     "soundEnabled": { "type": "boolean" },
                     "alwaysOnTop": { "type": "boolean" },
                     "clickThroughLocked": { "type": "boolean" },
@@ -315,6 +316,9 @@ fn execute_tool(name: &str, args: &Value, on_change: &dyn Fn()) -> Value {
             }
             if let Some(b) = args.get("showKeyBubbles").and_then(|v| v.as_bool()) {
                 s.show_key_bubbles = b;
+            }
+            if let Some(b) = args.get("fastPointerCurious").and_then(|v| v.as_bool()) {
+                s.fast_pointer_curious = b;
             }
             if let Some(b) = args.get("soundEnabled").and_then(|v| v.as_bool()) {
                 s.sound_enabled = b;
