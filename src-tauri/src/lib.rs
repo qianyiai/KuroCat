@@ -264,6 +264,7 @@ pub struct AppState {
     pub mcp_enabled: Arc<AtomicBool>,
     pub update_banner_open: Arc<AtomicBool>,
     pub paused_guard: Arc<AtomicBool>,
+    pub hover_hidden: Arc<AtomicBool>,
 }
 
 /// Shared Chromium / WebView2 lean runtime flags.
@@ -339,6 +340,7 @@ struct WindowCursorInfo {
     rel_y: f64,
     inside_window: bool,
     over_cat: bool,
+    over_banner: bool,
     alt_override: bool,
 }
 
@@ -408,6 +410,8 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     patch.render_mode = config::normalize_render_mode(&patch.render_mode);
     patch.collar_color = config::normalize_collar_color(&patch.collar_color);
     patch.headphone_mode = config::normalize_headphone_mode(&patch.headphone_mode);
+    patch.hover_hide_delay_ms = patch.hover_hide_delay_ms.clamp(100, 1000);
+    patch.hover_hide_fade_ms = patch.hover_hide_fade_ms.clamp(100, 1000);
     patch.fps_cap = config::normalize_fps_cap(patch.fps_cap);
     patch.language = config::normalize_language(&patch.language);
 
@@ -426,6 +430,11 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     }
 
     state.mcp_enabled.store(patch.mcp_enabled, Ordering::Relaxed);
+    // Turning hover-hide off must immediately un-hide the pet, even if its own window
+    // never gets another cursor event to reset the flag.
+    if !patch.hover_hide_enabled {
+        state.hover_hidden.store(false, Ordering::Relaxed);
+    }
     obs::sync_obs_server(&app, patch.obs_enabled, patch.obs_port);
 
     let next_obs_hide = patch.obs_enabled && patch.obs_hide_pet;
@@ -756,6 +765,11 @@ fn get_obs_url(state: State<'_, AppState>) -> String {
 #[tauri::command]
 fn set_menu_open(state: State<'_, AppState>, open: bool) {
     state.menu_open.store(open, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn set_hover_hidden(state: State<'_, AppState>, hidden: bool) {
+    state.hover_hidden.store(hidden, Ordering::Relaxed);
 }
 
 #[tauri::command]
@@ -1729,6 +1743,7 @@ fn start_hit_test_loop(
     dragging: Arc<AtomicBool>,
     update_banner_open: Arc<AtomicBool>,
     paused_guard: Arc<AtomicBool>,
+    hover_hidden: Arc<AtomicBool>,
 ) {
     let tail_picker_bounds = app.state::<AppState>().tail_picker_bounds.clone();
     std::thread::spawn(move || {
@@ -1736,6 +1751,7 @@ fn start_hit_test_loop(
         let mut last_cursor: (i32, i32) = (i32::MIN, i32::MIN);
         let mut last_over_cat = false;
         let mut last_inside_pet = false;
+        let mut last_over_banner = false;
         let mut last_alt_override = false;
         let mut last_effective_locked = false;
         let mut last_cursor_emit = Instant::now() - Duration::from_secs(1);
@@ -1920,6 +1936,10 @@ fn start_hit_test_loop(
             }
             let alt_override = input_hook::is_alt_pressed();
             let effective_locked = locked && !alt_override;
+            // The pet is faded out by the frontend; while it is invisible (and Alt is not held)
+            // it must be click-through so the desktop underneath stays usable.
+            let hover_hidden_now = hover_hidden.load(Ordering::Relaxed);
+            let pass_through_hidden = hover_hidden_now && !alt_override;
 
             // Map window-relative (rx, ry) into exact pet-local (pet_rx, pet_ry),
             // since at small scales (20%..90%) the pet is anchored bottom-right inside a min-safe menu window!
@@ -1941,7 +1961,12 @@ fn start_hit_test_loop(
             };
             // While click-through is locked (and Alt is not held), suppress petting hover so users
             // aren't misled by squinting eyes when the cat is intentionally click-through.
-            let over_cat = if effective_locked { false } else { raw_over_cat };
+            // Also suppress it while the pet is faded out (invisible), for the same reason.
+            let over_cat = if effective_locked || pass_through_hidden {
+                false
+            } else {
+                raw_over_cat
+            };
 
             #[cfg(windows)]
             if is_win7_ulw {
@@ -1953,7 +1978,11 @@ fn start_hit_test_loop(
             let over_tail_picker =
                 inside && tail_picker_captures_cursor(picker_bounds, rx, ry, !is_win7_ulw);
 
-            let should_ignore = if is_drag || over_banner || over_tail_picker {
+            let should_ignore = if is_drag || over_tail_picker {
+                false
+            } else if pass_through_hidden {
+                true
+            } else if over_banner {
                 false
             } else if effective_locked {
                 true
@@ -2010,6 +2039,7 @@ fn start_hit_test_loop(
 
             let state_changed = over_cat != last_over_cat
                 || inside_pet != last_inside_pet
+                || over_banner != last_over_banner
                 || alt_override != last_alt_override
                 || effective_locked != last_effective_locked;
             let cursor_moved = last_cursor.0 == i32::MIN
@@ -2028,6 +2058,7 @@ fn start_hit_test_loop(
                 last_cursor = (cx, cy);
                 last_over_cat = over_cat;
                 last_inside_pet = inside_pet;
+                last_over_banner = over_banner;
                 last_alt_override = alt_override;
                 last_effective_locked = effective_locked;
                 last_cursor_emit = Instant::now();
@@ -2038,6 +2069,7 @@ fn start_hit_test_loop(
                         rel_y: pet_ry,
                         inside_window: inside_pet,
                         over_cat,
+                        over_banner,
                         alt_override,
                     },
                 );
@@ -2340,6 +2372,7 @@ pub fn run() {
     let mcp_enabled = Arc::new(AtomicBool::new(initial_settings.mcp_enabled));
     let update_banner_open = Arc::new(AtomicBool::new(false));
     let paused_guard = Arc::new(AtomicBool::new(false));
+    let hover_hidden = Arc::new(AtomicBool::new(false));
 
     let settings_for_setup = settings_arc.clone();
     let menu_for_setup = menu_open.clone();
@@ -2347,6 +2380,7 @@ pub fn run() {
     let mcp_for_setup = mcp_enabled.clone();
     let banner_for_setup = update_banner_open.clone();
     let paused_for_setup = paused_guard.clone();
+    let hover_hidden_for_setup = hover_hidden.clone();
 
     tauri::Builder::default()
         .manage(AppState {
@@ -2360,6 +2394,7 @@ pub fn run() {
             mcp_enabled,
             update_banner_open,
             paused_guard,
+            hover_hidden,
         })
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -2470,6 +2505,7 @@ pub fn run() {
                 drag_for_setup,
                 banner_for_setup,
                 paused_for_setup,
+                hover_hidden_for_setup,
             );
             start_storage_watcher(handle.clone());
             updater::start_background_update_checker(handle.clone());
@@ -2552,6 +2588,7 @@ pub fn run() {
             open_tail_picker_from_menu,
             preview_scale,
             set_menu_open,
+            set_hover_hidden,
             set_tail_picker_bounds,
             save_tail_picker_selection,
             set_dragging,

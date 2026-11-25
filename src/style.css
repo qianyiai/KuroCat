@@ -36,12 +36,28 @@ html.win7-ulw-mode .tail-picker-bar {
   width: 100vw;
   height: 100vh;
   background: transparent;
+  transition: opacity var(--hover-hide-fade-ms, 700ms) ease;
 }
 
 #pet-canvas.hidden,
 #pet-canvas-3d.hidden,
 .menu-scale-row.hidden {
   display: none !important;
+}
+
+/* Mouse-hover fade-out (settings: hoverHideEnabled). The pet canvases and the top
+   update/unlock toast fade out together, and the hidden toast must not stay an
+   invisible click target; the tail-picker bar and menus stay visible and clickable.
+   Duration is driven by --hover-hide-fade-ms, set from the saved hoverHideFadeMs setting. */
+html.pet-hover-hidden #pet-canvas,
+html.pet-hover-hidden #pet-canvas-3d {
+  opacity: 0;
+}
+
+html.pet-hover-hidden #update-toast {
+  opacity: 0;
+  pointer-events: none;
+  animation: none;
 }
 
 #pet-canvas.pet-hover,
@@ -67,6 +83,32 @@ html.win7-ulw-mode .tail-picker-bar {
   padding: 4.5px 2px;
 }
 
+/* The 266px side menu leaves the three equal headphone columns too narrow for
+   "🎮 游戏自动", which clips at the middle pill's right edge. Give that row's
+   middle column extra width; the outer 关闭 / 常戴 pills keep equal widths. */
+#headphone-row .render-mode-pills {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr) minmax(0, 0.9fr);
+}
+
+/* At real menu widths (266-276px) the narrow outer columns still clip localized
+   labels such as "🎧 Always" and "🎧 항상 착용". Let only this row's pills wrap to
+   two lines inside the same 26px pill height, so the row does not grow. keep-all
+   stops Korean words from splitting; anywhere is a last-resort break only. */
+#headphone-row .render-mode-pills .kb-pill {
+  height: 26px;
+  padding: 0 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: normal;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.1;
+}
+
 .collar-pills {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -76,6 +118,16 @@ html.win7-ulw-mode .tail-picker-bar {
 
 html.win7-ulw-mode #render-mode-row,
 html.win7-ulw-mode #collar-row {
+  display: none !important;
+}
+
+/* Hover-hide is CSS-opacity based, but the Win7/8 ULW presenter streams raw canvas
+   pixels via getImageData, so the fade cannot reach the native layered window there.
+   Hide the setting instead of exposing a toggle that would leave a visible pet
+   click-through. */
+html.win7-ulw-mode .hover-hide-item,
+html.win7-ulw-mode #hover-hide-delay-row,
+html.win7-ulw-mode #hover-hide-fade-row {
   display: none !important;
 }
 
@@ -156,6 +208,64 @@ html.win7-ulw-mode #collar-row {
   font-weight: 700;
   width: 14px;
   text-align: center;
+}
+
+.menu-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.menu-help-btn {
+  flex: none;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(220, 224, 232, 0.75);
+  font-size: 10.5px;
+  line-height: 1;
+  cursor: help;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.menu-help-btn:hover,
+.menu-help-btn:focus-visible {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #ffffff;
+}
+
+/* Portal tooltip: lives in <body> with computed fixed coordinates so the menu's
+   scroll container (and the small side-menu OS window) can never clip it. */
+.menu-help-tooltip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 100000;
+  max-width: min(230px, calc(100vw - 16px));
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(16, 17, 22, 0.97);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(10px);
+  color: #e5e7eb;
+  font-size: 10.8px;
+  line-height: 1.45;
+  text-align: left;
+  white-space: normal;
+  pointer-events: none;
+}
+
+.menu-help-tooltip.hidden {
+  display: none;
 }
 
 .menu-sep {
@@ -301,6 +411,13 @@ html.win7-ulw-mode #collar-row {
 
 .scale-tick-mid {
   margin-left: 16%;
+}
+
+/* The hover-hide sliders span 100-1000ms, where 550ms is the midpoint; the 16%
+   offset tuned for the 20-150 scale slider would push the label off-center. */
+#hover-hide-delay-row .scale-tick-mid,
+#hover-hide-fade-row .scale-tick-mid {
+  margin-left: 0;
 }
 
 .kb-pills {
@@ -641,6 +758,7 @@ html.win7-ulw-mode #collar-row {
   font-size: 11.5px;
   line-height: 1.2;
   z-index: 9998;
+  transition: opacity var(--hover-hide-fade-ms, 700ms) ease;
   animation: toastPop 0.2s ease-out;
 }
 

@@ -18,3 +18,5 @@ android/app/src/main/assets/web/
 *.keystore
 *.apk
 *.aab
+pnpm-lock.yaml
+pnpm-workspace.yaml

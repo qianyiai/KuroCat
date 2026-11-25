@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { DEFAULT_TAIL_KEY_IDS, type KeyboardOrientation, type TailKeyMode } from './catEngine';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import type { KeyboardLayoutId } from './keyboardLayout';
+import { setupMenuHelp, type MenuHelpController } from './menuHelp';
 import {
   applyDomTranslations,
   isMacPlatform,
@@ -36,6 +37,9 @@ interface AppSettings {
   renderMode?: '2d' | '3d';
   collarColor?: 'none' | 'red' | 'blue' | 'pink' | 'green';
   headphoneMode?: 'auto' | 'on' | 'off';
+  hoverHideEnabled: boolean;
+  hoverHideDelayMs: number;
+  hoverHideFadeMs: number;
   fpsCap?: number;
   language?: string;
 }
@@ -84,6 +88,9 @@ let settings: AppSettings = {
   renderMode: '3d',
   collarColor: 'none',
   headphoneMode: 'off',
+  hoverHideEnabled: false,
+  hoverHideDelayMs: 300,
+  hoverHideFadeMs: 700,
   fpsCap: 0,
   language: 'auto',
 };
@@ -91,10 +98,14 @@ let settings: AppSettings = {
 let catList: CatSkinConfig[] = [...DEFAULT_BUILTIN_CATS];
 let resolvedBackendLocale: string | null = null;
 let sliderDragging = false;
+let hoverDelayDragging = false;
+let hoverFadeDragging = false;
 let currentAppVersion = '5.1.1';
 let cachedUpdateInfo: UpdateInfo | null = null;
 let updateBusy = false;
 let activeTab: MenuTabId = 'appearance';
+let menuHelp: MenuHelpController | null = null;
+let appliedMenuHelpLocale: string | null = null;
 
 const menuEl = document.getElementById('context-menu') as HTMLDivElement;
 const tabBodyEl = document.getElementById('menu-tab-body') as HTMLDivElement | null;
@@ -105,6 +116,12 @@ const tailModeBadgeEl = document.getElementById('tail-mode-badge') as HTMLSpanEl
 const tailKeysCountEl = document.getElementById('tail-keys-count') as HTMLSpanElement;
 const btnObsHideEl = document.getElementById('btn-obs-hide') as HTMLButtonElement;
 const btnCheckUpdateEl = document.getElementById('btn-check-update') as HTMLButtonElement | null;
+const hoverHideDelayRowEl = document.getElementById('hover-hide-delay-row') as HTMLDivElement | null;
+const hoverHideDelaySliderEl = document.getElementById('hover-hide-delay') as HTMLInputElement | null;
+const hoverHideDelayValueEl = document.getElementById('hover-hide-delay-value') as HTMLButtonElement | null;
+const hoverHideFadeRowEl = document.getElementById('hover-hide-fade-row') as HTMLDivElement | null;
+const hoverHideFadeSliderEl = document.getElementById('hover-hide-fade') as HTMLInputElement | null;
+const hoverHideFadeValueEl = document.getElementById('hover-hide-fade-value') as HTMLButtonElement | null;
 
 function formatBreedPillLabel(cat: CatSkinConfig): string {
   const displayName = localizeBreedName(cat.id, cat.name, cat.builtin);
@@ -156,6 +173,7 @@ function renderFooterUpdateState(customLabel?: string, ready = false): void {
 }
 
 function closeMenu(): void {
+  menuHelp?.hide();
   void invoke('close_context_menu');
 }
 
@@ -168,6 +186,30 @@ function updateScaleSliderVisual(scaleVal: number): void {
   }
   if (scaleValueEl) {
     scaleValueEl.textContent = `${pctNum}%`;
+  }
+}
+
+function updateHoverDelayVisual(delayMs: number): void {
+  const ms = Math.round(Math.max(100, Math.min(1000, Number(delayMs) || 300)));
+  if (hoverHideDelaySliderEl) {
+    hoverHideDelaySliderEl.value = String(ms);
+    const fillPct = ((ms - 100) / (1000 - 100)) * 100;
+    hoverHideDelaySliderEl.style.setProperty('--pct', `${fillPct.toFixed(1)}%`);
+  }
+  if (hoverHideDelayValueEl) {
+    hoverHideDelayValueEl.textContent = `${ms}ms`;
+  }
+}
+
+function updateHoverFadeVisual(fadeMs: number): void {
+  const ms = Math.round(Math.max(100, Math.min(1000, Number(fadeMs) || 700)));
+  if (hoverHideFadeSliderEl) {
+    hoverHideFadeSliderEl.value = String(ms);
+    const fillPct = ((ms - 100) / (1000 - 100)) * 100;
+    hoverHideFadeSliderEl.style.setProperty('--pct', `${fillPct.toFixed(1)}%`);
+  }
+  if (hoverHideFadeValueEl) {
+    hoverHideFadeValueEl.textContent = `${ms}ms`;
   }
 }
 
@@ -188,8 +230,12 @@ function renderBreedPills(): void {
 }
 
 function syncUI(): void {
-  setActiveLocale(settings.language, resolvedBackendLocale);
+  const activeLocale = setActiveLocale(settings.language, resolvedBackendLocale);
   applyDomTranslations();
+  if (menuHelp && appliedMenuHelpLocale !== activeLocale) {
+    appliedMenuHelpLocale = activeLocale;
+    menuHelp.refresh();
+  }
 
   const setCheck = (id: string, on: boolean) => {
     const el = document.getElementById(id);
@@ -205,6 +251,20 @@ function syncUI(): void {
   setCheck('chk-mcp', settings.mcpEnabled);
   setCheck('chk-obs', Boolean(settings.obsEnabled));
   setCheck('chk-obs-hide', Boolean(settings.obsEnabled && settings.obsHidePet));
+  setCheck('chk-hover-hide', Boolean(settings.hoverHideEnabled));
+
+  if (hoverHideDelayRowEl) {
+    hoverHideDelayRowEl.classList.toggle('hidden', !settings.hoverHideEnabled);
+  }
+  if (hoverHideFadeRowEl) {
+    hoverHideFadeRowEl.classList.toggle('hidden', !settings.hoverHideEnabled);
+  }
+  if (!hoverDelayDragging) {
+    updateHoverDelayVisual(settings.hoverHideDelayMs);
+  }
+  if (!hoverFadeDragging) {
+    updateHoverFadeVisual(settings.hoverHideFadeMs);
+  }
 
   if (btnObsHideEl) {
     btnObsHideEl.classList.toggle('hidden', !settings.obsEnabled);
@@ -438,6 +498,8 @@ async function triggerManualUpdateCheck(): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
+  menuHelp = setupMenuHelp({ platformKey: isMacPlatform() ? 'Option' : 'Alt' });
+
   if (isMacPlatform()) {
     const shortcutBtn = document.getElementById('btn-desktop-shortcut');
     if (shortcutBtn) shortcutBtn.classList.add('hidden');
@@ -532,6 +594,62 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  if (hoverHideDelaySliderEl) {
+    hoverHideDelaySliderEl.addEventListener('pointerdown', () => {
+      hoverDelayDragging = true;
+    });
+    hoverHideDelaySliderEl.addEventListener('input', () => {
+      hoverDelayDragging = true;
+      updateHoverDelayVisual(Number(hoverHideDelaySliderEl.value));
+    });
+    const commitHoverDelay = () => {
+      hoverDelayDragging = false;
+      const nextDelay = Math.max(100, Math.min(1000, Number(hoverHideDelaySliderEl.value) || 300));
+      void applySettingsPatch({ hoverHideDelayMs: nextDelay });
+    };
+    hoverHideDelaySliderEl.addEventListener('change', commitHoverDelay);
+    hoverHideDelaySliderEl.addEventListener('pointerup', () => {
+      hoverDelayDragging = false;
+    });
+  }
+
+  if (hoverHideDelayValueEl) {
+    hoverHideDelayValueEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hoverDelayDragging = false;
+      updateHoverDelayVisual(300);
+      void applySettingsPatch({ hoverHideDelayMs: 300 });
+    });
+  }
+
+  if (hoverHideFadeSliderEl) {
+    hoverHideFadeSliderEl.addEventListener('pointerdown', () => {
+      hoverFadeDragging = true;
+    });
+    hoverHideFadeSliderEl.addEventListener('input', () => {
+      hoverFadeDragging = true;
+      updateHoverFadeVisual(Number(hoverHideFadeSliderEl.value));
+    });
+    const commitHoverFade = () => {
+      hoverFadeDragging = false;
+      const nextFade = Math.max(100, Math.min(1000, Number(hoverHideFadeSliderEl.value) || 700));
+      void applySettingsPatch({ hoverHideFadeMs: nextFade });
+    };
+    hoverHideFadeSliderEl.addEventListener('change', commitHoverFade);
+    hoverHideFadeSliderEl.addEventListener('pointerup', () => {
+      hoverFadeDragging = false;
+    });
+  }
+
+  if (hoverHideFadeValueEl) {
+    hoverHideFadeValueEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      hoverFadeDragging = false;
+      updateHoverFadeVisual(700);
+      void applySettingsPatch({ hoverHideFadeMs: 700 });
+    });
+  }
+
   menuEl.addEventListener('click', (e) => {
     const tabBtn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
     if (tabBtn) {
@@ -621,7 +739,9 @@ async function bootstrap(): Promise<void> {
         break;
       case 'toggle-lock':
         void applySettingsPatch({ clickThroughLocked: !settings.clickThroughLocked });
-        closeMenu();
+        break;
+      case 'toggle-hover-hide':
+        void applySettingsPatch({ hoverHideEnabled: !settings.hoverHideEnabled });
         break;
       case 'toggle-sound':
         void applySettingsPatch({ soundEnabled: !settings.soundEnabled });
@@ -728,6 +848,7 @@ async function bootstrap(): Promise<void> {
       }
       syncUI();
       renderFooterUpdateState();
+      menuHelp?.refresh();
       if (tabBodyEl) tabBodyEl.scrollTop = 0;
     } catch {}
   });

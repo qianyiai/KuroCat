@@ -31,6 +31,14 @@ fn default_obs_hide_pet() -> bool {
     false
 }
 
+fn default_hover_hide_delay_ms() -> u32 {
+    300
+}
+
+fn default_hover_hide_fade_ms() -> u32 {
+    700
+}
+
 pub fn default_render_mode() -> String {
     "3d".to_string()
 }
@@ -203,6 +211,12 @@ pub struct AppSettings {
     pub collar_color: String,
     #[serde(default = "default_headphone_mode")]
     pub headphone_mode: String,
+    #[serde(default)]
+    pub hover_hide_enabled: bool,
+    #[serde(default = "default_hover_hide_delay_ms")]
+    pub hover_hide_delay_ms: u32,
+    #[serde(default = "default_hover_hide_fade_ms")]
+    pub hover_hide_fade_ms: u32,
     #[serde(default = "default_fps_cap")]
     pub fps_cap: u16,
     #[serde(default = "default_language")]
@@ -238,6 +252,9 @@ impl Default for AppSettings {
             render_mode: default_render_mode(),
             collar_color: default_collar_color(),
             headphone_mode: default_headphone_mode(),
+            hover_hide_enabled: false,
+            hover_hide_delay_ms: default_hover_hide_delay_ms(),
+            hover_hide_fade_ms: default_hover_hide_fade_ms(),
             fps_cap: default_fps_cap(),
             language: default_language(),
         }
@@ -284,6 +301,8 @@ pub fn load_settings() -> AppSettings {
             parsed.render_mode = normalize_render_mode(&parsed.render_mode);
             parsed.collar_color = normalize_collar_color(&parsed.collar_color);
             parsed.headphone_mode = normalize_headphone_mode(&parsed.headphone_mode);
+            parsed.hover_hide_delay_ms = parsed.hover_hide_delay_ms.clamp(100, 1000);
+            parsed.hover_hide_fade_ms = parsed.hover_hide_fade_ms.clamp(100, 1000);
             parsed.fps_cap = normalize_fps_cap(parsed.fps_cap);
             parsed.language = normalize_language(&parsed.language);
             return parsed;

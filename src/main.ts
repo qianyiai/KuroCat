@@ -18,6 +18,7 @@ import {
   type KeySpec,
 } from './keyboardLayout';
 import type { CollarColorId, KuroCatEngine3D } from './catEngine3d';
+import { setupMenuHelp, type MenuHelpController } from './menuHelp';
 import {
   applyDomTranslations,
   isMacPlatform,
@@ -53,6 +54,9 @@ interface AppSettings {
   renderMode?: DesktopRenderMode;
   collarColor?: CollarColorId;
   headphoneMode?: HeadphoneMode;
+  hoverHideEnabled: boolean;
+  hoverHideDelayMs: number;
+  hoverHideFadeMs: number;
   fpsCap?: number;
   language?: string;
 }
@@ -71,6 +75,7 @@ interface WindowCursorInfo {
   relY: number;
   insideWindow: boolean;
   overCat: boolean;
+  overBanner: boolean;
   altOverride?: boolean;
 }
 
@@ -120,6 +125,12 @@ let currentToastKind: 'update' | 'transient' | null = null;
 let toastAutoHideTimer: number | null = null;
 let sliderDragging = false;
 let altOverride = false;
+let hoverHideTimer: number | null = null;
+let hoverHidden = false;
+let petDragging = false;
+let lastCursorInfo: WindowCursorInfo | null = null;
+let menuHelp: MenuHelpController | null = null;
+let appliedMenuHelpLocale: string | null = null;
 let lastKnownLockState: boolean | null = null;
 let syncWin7OverlayFn: ((focusMenu?: boolean) => void) | null = null;
 let tailPickerOpen = false;
@@ -150,6 +161,9 @@ let settings: AppSettings = {
   renderMode: '3d',
   collarColor: 'none',
   headphoneMode: 'off',
+  hoverHideEnabled: false,
+  hoverHideDelayMs: 300,
+  hoverHideFadeMs: 700,
   fpsCap: 0,
   language: 'auto',
 };
@@ -369,8 +383,12 @@ function updateScaleSliderVisual(scaleVal: number): void {
 }
 
 function syncMenuUI(): void {
-  setActiveLocale(settings.language, resolvedBackendLocale);
+  const activeLocale = setActiveLocale(settings.language, resolvedBackendLocale);
   applyDomTranslations();
+  if (menuHelp && appliedMenuHelpLocale !== activeLocale) {
+    appliedMenuHelpLocale = activeLocale;
+    menuHelp.refresh();
+  }
 
   const setCheck = (id: string, on: boolean) => {
     const el = document.getElementById(id);
@@ -383,6 +401,8 @@ function syncMenuUI(): void {
   setCheck('chk-top', settings.alwaysOnTop);
   setCheck('chk-autostart', settings.autostart);
   setCheck('chk-mcp', settings.mcpEnabled);
+  setCheck('chk-hover-hide', Boolean(settings.hoverHideEnabled));
+  applyHoverHideFadeDuration();
 
   if (!sliderDragging) {
     updateScaleSliderVisual(settings.scale);
@@ -487,6 +507,63 @@ function syncWindowInteractiveState(): void {
   void invoke('set_menu_open', { open });
 }
 
+function clearHoverHideTimer(): void {
+  if (hoverHideTimer !== null) {
+    window.clearTimeout(hoverHideTimer);
+    hoverHideTimer = null;
+  }
+}
+
+function applyHoverHideFadeDuration(): void {
+  const raw = Number(settings.hoverHideFadeMs) || 700;
+  const ms = Math.round(Math.max(100, Math.min(1000, raw)));
+  document.documentElement.style.setProperty('--hover-hide-fade-ms', `${ms}ms`);
+}
+
+function applyHoverHidden(hidden: boolean): void {
+  if (hoverHidden === hidden) return;
+  hoverHidden = hidden;
+  document.documentElement.classList.toggle('pet-hover-hidden', hidden);
+  void invoke('set_hover_hidden', { hidden }).catch(() => {
+    // Backend may be unavailable while the app is shutting down
+  });
+}
+
+function updateHoverHide(c: WindowCursorInfo): void {
+  // On Win7/8 the visible pet is the native UpdateLayeredWindow presenter fed by raw
+  // canvas pixels, so this CSS-only fade never applies. Keep hover-hide off there
+  // instead of fading nothing and leaving a visible pet click-through.
+  const suppressed =
+    isWin7Ulw ||
+    !settings.hoverHideEnabled ||
+    tailPickerOpen ||
+    petDragging ||
+    altOverride ||
+    c.overBanner ||
+    !menuEl.classList.contains('hidden');
+  if (suppressed || !c.insideWindow) {
+    clearHoverHideTimer();
+    applyHoverHidden(false);
+    return;
+  }
+  if (!hoverHidden && hoverHideTimer === null) {
+    const delay = Math.max(100, Math.min(1000, Number(settings.hoverHideDelayMs) || 300));
+    hoverHideTimer = window.setTimeout(() => {
+      hoverHideTimer = null;
+      if (
+        isWin7Ulw ||
+        !settings.hoverHideEnabled ||
+        tailPickerOpen ||
+        petDragging ||
+        altOverride
+      )
+        return;
+      if (!lastCursorInfo?.insideWindow || lastCursorInfo?.overBanner) return;
+      applyHoverHidden(true);
+    }, delay);
+  }
+}
+
 function syncTailPickerBounds(): void {
   if (!tailPickerOpen) {
     void invoke('set_tail_picker_bounds', { bounds: null });
@@ -522,6 +599,7 @@ function syncTailPickerSelection(): void {
 }
 
 function closeContextMenu(): void {
+  menuHelp?.hide();
   if (!menuEl.classList.contains('hidden')) {
     menuEl.classList.add('hidden');
     syncWindowInteractiveState();
@@ -531,6 +609,10 @@ function closeContextMenu(): void {
 }
 
 function openContextMenu(clientX: number, clientY: number): void {
+  // Cancel any armed hover-hide so the pet cannot fade/click-through under the opening menu
+  clearHoverHideTimer();
+  applyHoverHidden(false);
+  menuHelp?.hide();
   // Always pop the dedicated non-overlapping side menu window beside the cat so it NEVER blocks the pet!
   if (!menuEl.classList.contains('hidden')) {
     menuEl.classList.add('hidden');
@@ -559,6 +641,8 @@ async function openTailPicker(): Promise<void> {
     tailPickerSelection = new Set(settings.tailKeyIds ?? DEFAULT_TAIL_KEY_IDS);
     tailPickerStatusOverride = null;
     tailPickerOpen = true;
+    clearHoverHideTimer();
+    applyHoverHidden(false);
     closeContextMenu();
     tailPickerBarEl.classList.remove('hidden');
     syncMenuUI();
@@ -887,6 +971,7 @@ async function triggerManualUpdateCheck(): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   engine.start();
+  menuHelp = setupMenuHelp({ platformKey: isMacPlatform() ? 'Option' : 'Alt' });
 
   // Hide Windows-only desktop shortcut button on macOS
   if (/Mac/i.test(navigator.platform) || /Macintosh/i.test(navigator.userAgent)) {
@@ -993,9 +1078,19 @@ async function bootstrap(): Promise<void> {
 
   await listen<AppSettings>('kuro-settings', (ev) => {
     const prevLock = lastKnownLockState;
+    const prevHoverEnabled = settings.hoverHideEnabled;
+    const prevHoverDelayMs = settings.hoverHideDelayMs;
     settings = ev.payload;
     lastKnownLockState = settings.clickThroughLocked;
     syncMenuUI();
+    applyHoverHideFadeDuration();
+    if (!settings.hoverHideEnabled) {
+      clearHoverHideTimer();
+      applyHoverHidden(false);
+    } else if (lastCursorInfo && (!prevHoverEnabled || prevHoverDelayMs !== settings.hoverHideDelayMs)) {
+      clearHoverHideTimer();
+      updateHoverHide(lastCursorInfo);
+    }
     if (prevLock !== null && prevLock !== settings.clickThroughLocked) {
       if (settings.clickThroughLocked) {
         showUpdateToast(formatLockedToastText(false), {
@@ -1131,15 +1226,17 @@ async function bootstrap(): Promise<void> {
   await listen<WindowCursorInfo>('kuro-cursor', (ev) => {
     const c = ev.payload;
     altOverride = Boolean(c.altOverride);
+    lastCursorInfo = c;
     if (active3d && engine3d) engine3d.onWindowCursor(c.relX, c.relY, c.overCat);
     else engine.onWindowCursor(c.relX, c.relY, c.overCat);
     const interactive = !settings.clickThroughLocked || altOverride;
-    const petHover = c.overCat && interactive;
+    const petHover = c.overCat && interactive && (!settings.hoverHideEnabled || altOverride);
     if (petHover !== lastPetHover) {
       lastPetHover = petHover;
       canvas.classList.toggle('pet-hover', petHover);
       canvas3d.classList.toggle('pet-hover', petHover);
     }
+    updateHoverHide(c);
   });
 
   canvas.addEventListener('mousemove', (e) => {
@@ -1169,6 +1266,9 @@ async function bootstrap(): Promise<void> {
         }
       }
       if (settings.clickThroughLocked && !altOverride && !e.altKey) return;
+      petDragging = true;
+      clearHoverHideTimer();
+      applyHoverHidden(false);
       canvas.classList.add('pet-dragging');
       canvas3d.classList.add('pet-dragging');
       void invoke('set_dragging', { dragging: true });
@@ -1184,6 +1284,10 @@ async function bootstrap(): Promise<void> {
         engine3d?.onMouseUp('left');
         void invoke('set_dragging', { dragging: false });
         void invoke('save_window_pos');
+        petDragging = false;
+        if (lastCursorInfo?.insideWindow && settings.hoverHideEnabled) {
+          updateHoverHide(lastCursorInfo);
+        }
       }
     }
   };
@@ -1303,7 +1407,9 @@ async function bootstrap(): Promise<void> {
         break;
       case 'toggle-lock':
         void applySettingsPatch({ clickThroughLocked: !settings.clickThroughLocked });
-        closeContextMenu();
+        break;
+      case 'toggle-hover-hide':
+        void applySettingsPatch({ hoverHideEnabled: !settings.hoverHideEnabled });
         break;
       case 'toggle-sound':
         void applySettingsPatch({ soundEnabled: !settings.soundEnabled });

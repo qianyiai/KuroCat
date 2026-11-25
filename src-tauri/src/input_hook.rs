@@ -715,7 +715,7 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isiz
                     let ly = LAST_HOOK_MOUSE_Y.load(Ordering::Relaxed);
                     let now_ms = ms.time;
                     let prev_ms = LAST_HOOK_MOUSE_MS.load(Ordering::Relaxed);
-                    if ((px - lx).abs() > 1 || (py - ly).abs() > 1)
+                    if ((px as i64 - lx as i64).abs() > 1 || (py as i64 - ly as i64).abs() > 1)
                         && (lx == i32::MIN || now_ms.wrapping_sub(prev_ms) >= 24)
                     {
                         LAST_HOOK_MOUSE_X.store(px, Ordering::Relaxed);

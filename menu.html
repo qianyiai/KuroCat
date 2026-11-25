@@ -6,6 +6,7 @@
     <title>KuroCat Menu</title>
   </head>
   <body class="menu-window-body">
+    <div class="menu-help-tooltip hidden" id="menu-help-tooltip" role="tooltip"></div>
     <div id="context-menu" class="context-menu floating-side-menu tab-menu-layout">
       <div class="menu-header-row">
         <div class="menu-header" id="menu-header">🐈‍⬛ KuroCat 小黑猫</div>
@@ -68,9 +69,63 @@
             <span class="menu-check" id="chk-bubbles">✓</span>
           </button>
           <button class="menu-item" data-action="toggle-lock" id="btn-toggle-lock">
-            <span id="lbl-toggle-lock" data-i18n="menu.toggle_lock">锁定鼠标穿透（Alt 解锁）</span>
+            <span class="menu-label">
+              <span id="lbl-toggle-lock" data-i18n="menu.toggle_lock">锁定鼠标穿透</span>
+              <span class="menu-help-btn" role="button" tabindex="0" data-help="toggle-lock">?</span>
+            </span>
             <span class="menu-check" id="chk-lock"></span>
           </button>
+          <button class="menu-item hover-hide-item" data-action="toggle-hover-hide">
+            <span class="menu-label">
+              <span data-i18n="menu.hover_hide">鼠标移入隐藏</span>
+              <span class="menu-help-btn" role="button" tabindex="0" data-help="hover-hide">?</span>
+            </span>
+            <span class="menu-check" id="chk-hover-hide"></span>
+          </button>
+          <div class="menu-scale-row hidden" id="hover-hide-delay-row">
+            <div class="scale-header">
+              <span class="menu-scale-label" data-i18n="menu.hover_delay_label">移入触发延迟</span>
+              <button class="scale-value-btn" id="hover-hide-delay-value" type="button" data-i18n-title="menu.hover_delay_reset_title" title="点击复位 300ms">300ms</button>
+            </div>
+            <div class="scale-slider-wrap">
+              <input
+                type="range"
+                id="hover-hide-delay"
+                class="scale-slider"
+                min="100"
+                max="1000"
+                step="50"
+                value="300"
+              />
+              <div class="scale-ticks">
+                <span>100ms</span>
+                <span class="scale-tick-mid">550ms</span>
+                <span>1000ms</span>
+              </div>
+            </div>
+          </div>
+          <div class="menu-scale-row hidden" id="hover-hide-fade-row">
+            <div class="scale-header">
+              <span class="menu-scale-label" data-i18n="menu.hover_fade_label">淡出动画时长</span>
+              <button class="scale-value-btn" id="hover-hide-fade-value" type="button" data-i18n-title="menu.hover_fade_reset_title" title="点击复位 700ms">700ms</button>
+            </div>
+            <div class="scale-slider-wrap">
+              <input
+                type="range"
+                id="hover-hide-fade"
+                class="scale-slider"
+                min="100"
+                max="1000"
+                step="50"
+                value="700"
+              />
+              <div class="scale-ticks">
+                <span>100ms</span>
+                <span class="scale-tick-mid">550ms</span>
+                <span>1000ms</span>
+              </div>
+            </div>
+          </div>
           <button class="menu-item" data-action="toggle-sound">
             <span data-i18n="menu.toggle_sound">摸头呼噜声</span>
             <span class="menu-check" id="chk-sound">✓</span>

@@ -6,6 +6,7 @@
     <title>KuroCat</title>
   </head>
   <body>
+    <div class="menu-help-tooltip hidden" id="menu-help-tooltip" role="tooltip"></div>
     <canvas id="pet-canvas"></canvas>
     <canvas id="pet-canvas-3d" class="hidden"></canvas>
 
@@ -84,9 +85,19 @@
         <span data-i18n="menu.toggle_bubbles">悬浮按键气泡</span>
         <span class="menu-check" id="chk-bubbles">✓</span>
       </button>
-      <button class="menu-item" data-action="toggle-lock">
-        <span data-i18n="menu.toggle_lock">锁定鼠标穿透（Alt 解锁）</span>
+      <button class="menu-item" data-action="toggle-lock" id="btn-toggle-lock">
+        <span class="menu-label">
+          <span id="lbl-toggle-lock" data-i18n="menu.toggle_lock">锁定鼠标穿透</span>
+          <span class="menu-help-btn" role="button" tabindex="0" data-help="toggle-lock">?</span>
+        </span>
         <span class="menu-check" id="chk-lock"></span>
+      </button>
+      <button class="menu-item hover-hide-item" data-action="toggle-hover-hide">
+        <span class="menu-label">
+          <span data-i18n="menu.hover_hide">鼠标移入隐藏</span>
+          <span class="menu-help-btn" role="button" tabindex="0" data-help="hover-hide">?</span>
+        </span>
+        <span class="menu-check" id="chk-hover-hide"></span>
       </button>
       <button class="menu-item" data-action="toggle-sound">
         <span data-i18n="menu.toggle_sound">摸头呼噜声</span>
