@@ -1,6 +1,12 @@
 #![recursion_limit = "256"]
 
 mod cats;
+mod characters;
+mod character_selection;
+mod character_sync;
+mod motion2d;
+mod motion2d_types;
+mod character_import;
 mod config;
 mod game_detect;
 mod input_hook;
@@ -254,6 +260,7 @@ pub fn run_mcp_stdio() {
 
 pub struct AppState {
     pub settings: Arc<Mutex<AppSettings>>,
+    character_layouts: Arc<Mutex<Option<(String, motion2d_types::Layouts)>>>,
     pub menu_open: Arc<AtomicBool>,
     tail_picker_bounds: Arc<Mutex<Option<TailPickerBounds>>>,
     pub menu_creating: Arc<AtomicBool>,
@@ -288,6 +295,36 @@ fn get_settings(state: State<'_, AppState>) -> AppSettings {
 }
 
 #[tauri::command]
+fn character_sync_epoch(window:tauri::WebviewWindow,restart:bool)->Result<String,String> {
+    if window.label()!="main"{return Err("Character publisher must be the desktop window".into());}
+    Ok(character_sync::epoch(restart))
+}
+#[tauri::command]
+fn publish_character_state(window:tauri::WebviewWindow,app:AppHandle,frame:character_sync::Frame)->Result<bool,String> {
+    if window.label()!="main"{return Err("Character publisher must be the desktop window".into());}
+    character_sync::publish(&app,frame)
+}
+#[tauri::command]
+async fn get_active_character() -> Result<serde_json::Value, String> {
+    tauri::async_runtime::spawn_blocking(character_selection::active).await.map_err(|e|e.to_string())?
+        .map_err(|e|e.message)
+}
+#[tauri::command]
+fn get_character_list() -> Result<serde_json::Value, String> { characters::list_characters().map_err(|e| e.message) }
+#[tauri::command]
+async fn get_character_asset(id: String, revision: String, asset: String) -> Result<tauri::ipc::Response, String> {
+    tauri::async_runtime::spawn_blocking(move || character_import::asset_bytes(&id, &revision, &asset)).await
+        .map_err(|e| e.to_string())?.map(tauri::ipc::Response::new)
+        .map_err(|e| serde_json::to_string(&e).unwrap_or(e.message))
+}
+#[tauri::command]
+fn switch_character(app: AppHandle, id: String, outfit_id: Option<String>) -> Result<serde_json::Value, String> {
+    let result = character_selection::choose(&id, outfit_id.as_deref(), true).map_err(|e| e.message)?;
+    reload_and_emit_all(&app);
+    let _ = app.emit("kuro-character-selection-error", "");
+    Ok(result)
+}
+#[tauri::command]
 fn get_cats() -> Vec<CatSkinConfig> {
     all_cats()
 }
@@ -303,11 +340,19 @@ fn get_mcp_config(state: State<'_, AppState>) -> String {
     let exe = std::env::current_exe()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_else(|_| "KuroCat.exe".to_string());
+    // A client may start stdio from another environment or working directory.
+    // Pin the same data-root input used by config::app_data_dir; export no other variables.
+    let data_key=if cfg!(windows){"APPDATA"}else{"HOME"};
+    let data_root=std::path::PathBuf::from(std::env::var(data_key).unwrap_or_else(|_|".".into()));
+    let data_root=std::path::absolute(&data_root).unwrap_or(data_root);
+    let mut data_env=serde_json::Map::new();
+    data_env.insert(data_key.into(),serde_json::json!(data_root.to_string_lossy()));
     serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
             "kurocat": {
                 "command": exe,
                 "args": ["--mcp"],
+                "env": data_env,
                 "url": format!("http://127.0.0.1:{}/mcp", port)
             }
         }
@@ -316,7 +361,15 @@ fn get_mcp_config(state: State<'_, AppState>) -> String {
 }
 
 #[tauri::command]
-fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSettings) -> AppSettings {
+fn update_settings(app: AppHandle, state: State<'_, AppState>, patch: serde_json::Value) -> Result<AppSettings, String> {
+    let explicit_breed = patch.get("catBreed").is_some();
+    let object = patch.as_object().ok_or("Expected a settings object")?;
+    let mut merged = serde_json::to_value(load_settings()).map_err(|e| e.to_string())?;
+    for (key, value) in object {
+        if key != "activeCharacterId" && key != "characterOutfits" { merged[key] = value.clone(); }
+    }
+    let mut patch: AppSettings = serde_json::from_value(merged).map_err(|e| e.to_string())?;
+    config::project_character_selection(&mut patch);
     patch.scale = patch.scale.clamp(0.20, 1.50);
     let clean_breed = sanitize_cat_id(&patch.cat_breed);
     patch.cat_breed = if cat_exists(&clean_breed) {
@@ -375,6 +428,12 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
         }
     }
 
+    let known=serde_json::to_value(&patch).map_err(|e|e.to_string())?;
+    let mut fields:Vec<&str>=object.keys().filter(|key|known.get(*key).is_some()
+        && !matches!(key.as_str(),"activeCharacterId"|"characterOutfits"|"x"|"y"|"displayId"|"windowsDisplayId"))
+        .map(String::as_str).collect();
+    if size_changed {fields.extend(["x","y"]);}
+    if object.contains_key("obsEnabled")&&!patch.obs_enabled {fields.push("obsHidePet");}
     {
         let mut s = state.settings.lock().unwrap();
         #[cfg(target_os = "macos")]
@@ -394,14 +453,16 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
                 patch.y = s.y;
             }
         }
+        let result=if explicit_breed {config::try_save_cat_settings(&mut patch,&fields)}
+            else {try_save_settings(&mut patch,&fields)};
+        if let Err(error)=result {*s=load_settings();return Err(error.to_string());}
         *s = patch.clone();
-        save_settings(&s);
     }
     let _ = app.emit("kuro-settings", patch.clone());
     if size_changed {
         reposition_context_menu_if_open(&app);
     }
-    patch
+    Ok(patch)
 }
 
 const SIDE_MENU_LOGICAL_W: f64 = 266.0;
@@ -692,7 +753,7 @@ fn save_tail_picker_selection(
         let mut updated = settings.clone();
         updated.tail_key_mode = "custom".to_string();
         updated.tail_key_ids = normalize_tail_key_ids(&key_ids);
-        try_save_settings(&updated).map_err(|error| format!("保存自定义尾巴按键失败: {error}"))?;
+        try_save_settings(&mut updated,&["tailKeyMode","tailKeyIds"]).map_err(|error| format!("保存自定义尾巴按键失败: {error}"))?;
         *settings = updated.clone();
         updated
     };
@@ -907,7 +968,7 @@ fn save_window_pos(app: AppHandle) {
             }
             settings.x = Some(position.x);
             settings.y = Some(position.y);
-            save_settings(&settings);
+            save_settings(&mut settings,if unpinned {&["x","y","displayId"]}else{&["x","y"]});
             unpinned.then(|| settings.clone())
         };
         if let Some(settings) = unpinned {
@@ -925,7 +986,7 @@ fn save_window_pos(app: AppHandle, state: State<'_, AppState>) {
             let mut s = state.settings.lock().unwrap();
             s.x = Some(pos.x);
             s.y = Some(pos.y);
-            save_settings(&s);
+            save_settings(&mut s,&["x","y"]);
         }
     }
 }
@@ -957,7 +1018,15 @@ pub fn apply_breed_and_save(app: &AppHandle, breed: &str) {
     let updated = {
         let mut s = state.settings.lock().unwrap();
         s.cat_breed = normalized;
-        save_settings(&s);
+        if let Err(error)=config::try_save_cat_settings(&mut s,&["catBreed"]) {
+            *s=load_settings();
+            let restored = s.clone();
+            drop(s);
+            eprintln!("Cannot select cat: {error}");
+            // Reconcile native check items, which auto-toggle before the save attempt.
+            let _ = app.emit("kuro-settings", restored);
+            return;
+        }
         s.clone()
     };
     let _ = app.emit("kuro-settings", updated);
@@ -966,6 +1035,7 @@ pub fn apply_breed_and_save(app: &AppHandle, breed: &str) {
 pub fn reload_and_emit_all(app: &AppHandle) {
     let cats = all_cats();
     let state = app.state::<AppState>();
+    *state.character_layouts.lock().unwrap() = character_selection::active_layouts().ok().flatten();
 
     let (disk_settings, size_changed, top_changed, display_changed) = {
         let mut s = state.settings.lock().unwrap();
@@ -1013,6 +1083,9 @@ pub fn reload_and_emit_all(app: &AppHandle) {
         }
     }
 
+    if let Ok(characters) = characters::list_characters() {
+        let _ = app.emit("kuro-characters", characters);
+    }
     let _ = app.emit("kuro-cats", cats);
     let _ = app.emit("kuro-settings", disk_settings);
 }
@@ -1027,12 +1100,18 @@ fn start_storage_watcher(app: AppHandle) {
         let s_path = config_path();
         let mut last_cats_m = file_mtime(&c_path);
         let mut last_settings_m = file_mtime(&s_path);
+        let mut last_selection = character_selection::load().ok();
+        let mut last_character_generation = characters::load_registry().ok().map(|r| r.generation);
 
         loop {
             std::thread::sleep(Duration::from_millis(400));
             let cur_c = file_mtime(&c_path);
             let cur_s = file_mtime(&s_path);
-            if cur_c != last_cats_m || cur_s != last_settings_m {
+            let selection = character_selection::load().ok();
+            let cur_characters = characters::load_registry().ok().map(|r| r.generation);
+            if cur_c != last_cats_m || cur_s != last_settings_m || cur_characters != last_character_generation || selection != last_selection {
+                last_selection = selection;
+                last_character_generation = cur_characters;
                 last_cats_m = cur_c;
                 last_settings_m = cur_s;
                 reload_and_emit_all(&app);
@@ -1055,7 +1134,7 @@ pub fn apply_scale_and_save(app: &AppHandle, scale: f64) {
             s.x = Some(nx);
             s.y = Some(ny);
         }
-        save_settings(&s);
+        save_settings(&mut s,if new_pos.is_some(){&["scale","x","y"]}else{&["scale"]});
         s.clone()
     };
     let _ = app.emit("kuro-settings", updated);
@@ -1075,7 +1154,7 @@ pub fn apply_keyboard_layout_and_save(app: &AppHandle, layout: &str) {
             s.x = Some(nx);
             s.y = Some(ny);
         }
-        save_settings(&s);
+        save_settings(&mut s,if new_pos.is_some(){&["keyboardLayout","x","y"]}else{&["keyboardLayout"]});
         s.clone()
     };
     let _ = app.emit("kuro-settings", updated);
@@ -1087,7 +1166,7 @@ pub fn apply_keyboard_orientation_and_save(app: &AppHandle, orientation: &str) {
     let updated = {
         let mut s = state.settings.lock().unwrap();
         s.keyboard_orientation = normalized;
-        save_settings(&s);
+        save_settings(&mut s,&["keyboardOrientation"]);
         s.clone()
     };
     let _ = app.emit("kuro-settings", updated);
@@ -1099,7 +1178,7 @@ pub fn apply_tail_key_mode_and_save(app: &AppHandle, mode: &str) {
     let updated = {
         let mut s = state.settings.lock().unwrap();
         s.tail_key_mode = normalized;
-        save_settings(&s);
+        save_settings(&mut s,&["tailKeyMode"]);
         s.clone()
     };
     let _ = app.emit("kuro-settings", updated);
@@ -1118,7 +1197,7 @@ pub fn reset_window_position(app: &AppHandle) {
             if let Ok(position) = win.outer_position() {
                 settings.x = Some(position.x);
                 settings.y = Some(position.y);
-                save_settings(&settings);
+                save_settings(&mut settings,&["x","y"]);
             }
         }
     });
@@ -1163,7 +1242,7 @@ pub fn reset_window_position(app: &AppHandle) {
         let mut s = state.settings.lock().unwrap();
         s.x = Some(target_x);
         s.y = Some(target_y);
-        save_settings(&s);
+        save_settings(&mut s,&["x","y"]);
     }
 }
 
@@ -1579,6 +1658,20 @@ fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool) -> (bool, bool
     (over_cat || over_desk, over_cat)
 }
 
+fn is_over_character_silhouette(rx: f64, ry: f64, layout: &motion2d_types::Layout) -> (bool, bool) {
+    let [cx, cy] = layout.pet_ellipse_center;
+    let [ex, ey] = layout.pet_ellipse_radius;
+    let over_body = ((rx-cx)/ex).powi(2) + ((ry-cy)/ey).powi(2) <= 1.0;
+    let x = rx * f64::from(layout.logical_size[0]);
+    let y = ry * f64::from(layout.logical_size[1]);
+    let dx = x-layout.keyboard_center[0]; let dy = y-layout.keyboard_center[1];
+    let (sin, cos) = (-layout.keyboard_tilt_rad).sin_cos();
+    let over_keyboard = (dx*cos-dy*sin).abs() <= layout.keyboard_size[0]*0.5+8.0
+        && (dx*sin+dy*cos).abs() <= layout.keyboard_size[1]*0.5+8.0;
+    let over_mouse = ((x-layout.mouse_base[0])/28.0).powi(2) + ((y-layout.mouse_base[1])/36.0).powi(2) <= 1.0;
+    (over_body || over_keyboard || over_mouse, over_body)
+}
+
 fn tail_picker_captures_cursor(
     bounds: Option<TailPickerBounds>,
     rx: f64,
@@ -1609,6 +1702,17 @@ fn tail_picker_captures_cursor(
 #[cfg(test)]
 mod tail_picker_hit_tests {
     use super::{tail_picker_captures_cursor, TailPickerBounds};
+
+    #[test]
+    fn character_hit_region_uses_selected_layout_ellipse() {
+        let motion: crate::motion2d_types::Motion2d = serde_json::from_value(crate::motion2d::reference()).unwrap();
+        let mut layout=motion.layouts.compact;
+        layout.pet_ellipse_center=[0.12,0.18];layout.pet_ellipse_radius=[0.05,0.07];
+        assert_eq!(super::is_over_character_silhouette(0.12,0.18,&layout),(true,true));
+        assert_eq!(super::is_over_character_silhouette(0.48,0.49,&layout),(false,false));
+        let [w,h]=layout.logical_size.map(f64::from);
+        assert_eq!(super::is_over_character_silhouette(layout.keyboard_center[0]/w,layout.keyboard_center[1]/h,&layout),(true,false));
+    }
 
     #[test]
     fn captures_picker_controls_and_keyboard_only_while_open() {
@@ -1649,6 +1753,8 @@ fn start_hit_test_loop(
     paused_guard: Arc<AtomicBool>,
 ) {
     let tail_picker_bounds = app.state::<AppState>().tail_picker_bounds.clone();
+    let character_layouts = app.state::<AppState>().character_layouts.clone();
+    let builtin_motion: motion2d_types::Motion2d = serde_json::from_value(motion2d::reference()).expect("built-in motion");
     std::thread::spawn(move || {
         let mut last_ignore: Option<bool> = None;
         let mut last_cursor: (i32, i32) = (i32::MIN, i32::MIN);
@@ -1728,13 +1834,14 @@ fn start_hit_test_loop(
             let rx = (cx - win_x) as f64 / w;
             let ry = (cy - win_y) as f64 / h;
             let inside = rx >= 0.0 && rx <= 1.0 && ry >= 0.0 && ry <= 1.0;
-            let (locked, always_on_top, is_108, cur_scale) = {
+            let (locked, always_on_top, is_108, cur_scale, active_id, breed) = {
                 let s = settings.lock().unwrap();
                 (
                     s.click_through_locked,
                     s.always_on_top,
                     s.keyboard_layout == "108",
                     s.scale.clamp(0.20, 1.50),
+                    s.active_character_id.clone(), s.cat_breed.clone(),
                 )
             };
             let layout_str = if is_108 { "108" } else { "65" };
@@ -1844,8 +1951,18 @@ fn start_hit_test_loop(
             let (bw, bh) = base_dimensions(layout_str);
             let win_log_w = (w / sf).max(1.0);
             let win_log_h = (h / sf).max(1.0);
-            let pet_w_frac = ((bw * cur_scale) / win_log_w).clamp(0.05, 1.0);
-            let pet_h_frac = ((bh * cur_scale) / win_log_h).clamp(0.05, 1.0);
+            // Match Canvas bottom-right fit exactly, including nonstandard character canvases.
+            let selected_layout = character_layouts.lock().unwrap().as_ref()
+                .filter(|(id, _)| active_id.as_deref()==Some(id.as_str()))
+                .map(|(_, layouts)| if is_108 { layouts.full.clone() } else { layouts.compact.clone() });
+            let procedural_layout = selected_layout.or_else(|| if active_id.is_none() && breed=="dafeiyu" {
+                Some(if is_108 { builtin_motion.layouts.full.clone() } else { builtin_motion.layouts.compact.clone() })
+            } else { None });
+            let (pet_w_frac, pet_h_frac) = if let Some(layout) = &procedural_layout {
+                let [lw,lh] = layout.logical_size.map(f64::from);
+                let scale = cur_scale.min(win_log_w/lw).min(win_log_h/lh);
+                (lw*scale/win_log_w, lh*scale/win_log_h)
+            } else { (((bw*cur_scale)/win_log_w).clamp(0.05,1.0), ((bh*cur_scale)/win_log_h).clamp(0.05,1.0)) };
             let pet_x0 = 1.0 - pet_w_frac;
             let pet_y0 = 1.0 - pet_h_frac;
             let pet_rx = (rx - pet_x0) / pet_w_frac;
@@ -1853,7 +1970,8 @@ fn start_hit_test_loop(
             let inside_pet = pet_rx >= 0.0 && pet_rx <= 1.0 && pet_ry >= 0.0 && pet_ry <= 1.0;
 
             let (over_interactive, raw_over_cat) = if inside_pet {
-                is_over_interactive_silhouette(pet_rx, pet_ry, is_108)
+                if let Some(layout) = &procedural_layout { is_over_character_silhouette(pet_rx,pet_ry,layout) }
+                else { is_over_interactive_silhouette(pet_rx, pet_ry, is_108) }
             } else {
                 (false, false)
             };
@@ -2248,7 +2366,7 @@ pub fn run() {
     // Emergency CLI escape hatch: launching with `--unlock` clears click-through lock immediately.
     if std::env::args().any(|a| a == "--unlock") && initial_settings.click_through_locked {
         initial_settings.click_through_locked = false;
-        save_settings(&initial_settings);
+        save_settings(&mut initial_settings,&["clickThroughLocked"]);
     }
     let settings_arc = Arc::new(Mutex::new(initial_settings.clone()));
     let menu_open = Arc::new(AtomicBool::new(false));
@@ -2269,6 +2387,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(AppState {
             settings: settings_arc,
+            character_layouts: Arc::new(Mutex::new(character_selection::active_layouts().ok().flatten())),
             menu_open,
             tail_picker_bounds: Arc::new(Mutex::new(None)),
             menu_creating,
@@ -2399,6 +2518,7 @@ pub fn run() {
 
             // Forward settings / cats / privacy broadcasts to OBS SSE clients (1ns no-op when OBS is off)
             handle.listen("kuro-settings", |ev| {
+                character_sync::invalidate();
                 obs::broadcast_raw("settings", ev.payload());
             });
             handle.listen("kuro-cats", |ev| {
@@ -2457,6 +2577,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_settings,
             get_cats,
+            get_active_character, get_character_list, get_character_asset, switch_character,
+            character_sync_epoch, publish_character_state,
             get_game_active,
             get_mcp_config,
             get_obs_url,

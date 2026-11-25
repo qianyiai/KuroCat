@@ -183,7 +183,7 @@ pub fn reset_position(app: &AppHandle, window: &WebviewWindow) -> bool {
     }
     settings.x = Some(target.position.x);
     settings.y = Some(target.position.y);
-    save_settings(&settings);
+    save_settings(&mut settings,&["x","y"]);
     true
 }
 
@@ -211,7 +211,7 @@ pub fn remember_dragged_position(app: &AppHandle, position: PhysicalPosition<i32
             if unpinned || settings.x != Some(position.x) || settings.y != Some(position.y) {
                 settings.x = Some(position.x);
                 settings.y = Some(position.y);
-                save_settings(&settings);
+                save_settings(&mut settings,if unpinned {&["windowsDisplayId","x","y"]}else{&["x","y"]});
             }
             unpinned.then(|| settings.clone())
         };
@@ -357,7 +357,7 @@ pub fn handle_menu(app: &AppHandle, item_id: &str) {
             settings.x = Some(position.x);
             settings.y = Some(position.y);
         }
-        save_settings(&settings);
+        save_settings(&mut settings,if position.is_some(){&["windowsDisplayId","x","y"]}else{&["windowsDisplayId"]});
         settings.clone()
     };
     let _ = refresh_menu(app, &displays);
@@ -384,6 +384,31 @@ mod tests {
         let placement = bottom_right(&display("external", -1920, false, 1.5), 420.0, 440.0);
         assert_eq!(placement.size, PhysicalSize::new(630, 660));
         assert_eq!(placement.position, PhysicalPosition::new(-672, 256));
+    }
+
+    #[test]
+    fn full_keyboard_uses_fractional_and_double_dpi_above_primary() {
+        let mut above = display("above", 0, false, 1.25);
+        above.origin = PhysicalPosition::new(0, -2160);
+        above.work_size = PhysicalSize::new(3840, 2080);
+        let fractional = bottom_right(&above, 540.0, 456.0);
+        assert_eq!(fractional.size, PhysicalSize::new(675, 570));
+        assert_eq!(fractional.position, PhysicalPosition::new(3130, -670));
+
+        above.scale_factor = 2.0;
+        let double = bottom_right(&above, 540.0, 456.0);
+        assert_eq!(double.size, PhysicalSize::new(1080, 912));
+        assert_eq!(double.position, PhysicalPosition::new(2704, -1024));
+    }
+
+    #[test]
+    fn oversized_window_starts_at_work_area_origin_without_underflow() {
+        let mut small = display("small", -200, false, 1.5);
+        small.origin.y = 50;
+        small.work_size = PhysicalSize::new(400, 300);
+        let placement = bottom_right(&small, 540.0, 456.0);
+        assert_eq!(placement.size, PhysicalSize::new(810, 684));
+        assert_eq!(placement.position, PhysicalPosition::new(-200, 50));
     }
 
     #[test]

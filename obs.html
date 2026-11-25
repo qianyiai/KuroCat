@@ -27,11 +27,29 @@
       .hidden {
         display: none !important;
       }
+      #obs-character-status {
+        position: fixed;
+        top: 8px;
+        left: 8px;
+        right: 8px;
+        padding: 10px;
+        border-radius: 8px;
+        background: #752b2b;
+        color: #fff;
+        font: 13px/1.5 sans-serif;
+        overflow-wrap: anywhere;
+      }
+      #obs-character-status[hidden] { display: none; }
+      #obs-character-retry { margin-top: 6px; padding: 3px 10px; cursor: pointer; }
     </style>
   </head>
   <body>
     <canvas id="obs-canvas" aria-label="KuroCat OBS Transparent Source"></canvas>
     <canvas id="obs-canvas-3d" class="hidden" aria-label="KuroCat OBS 3D Transparent Source"></canvas>
+    <div id="obs-character-status" role="status" hidden>
+      <p id="obs-character-error"></p>
+      <button id="obs-character-retry" type="button">重试人物加载</button>
+    </div>
     <script type="module" src="/src/obsMain.ts"></script>
   </body>
 </html>

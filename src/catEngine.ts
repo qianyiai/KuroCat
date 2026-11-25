@@ -10,6 +10,8 @@ import {
 import { catAudio } from './audio';
 import { resolveCustomSkin, type CatSkinConfig, type ResolvedSkin } from './catSkins';
 import { DaFeiYuRenderer, type DaFeiYuLayout } from './dafeiyuRenderer';
+import type { ProceduralCharacterRenderer } from './proceduralCharacterRenderer';
+import type { CharacterContinuousState } from './characterSync';
 
 export const LOGICAL_W = 420;
 export const LOGICAL_H = 440;
@@ -247,7 +249,10 @@ export class KuroCatEngine {
   private tailPickerHoverId: string | null = null;
   private renderScale = 1.0;
   private embedded = false;
-  private dafeiyu = new DaFeiYuRenderer();
+  private dafeiyu: ProceduralCharacterRenderer = new DaFeiYuRenderer();
+  private builtinDafeiyu = this.dafeiyu;
+  private packageActor = false;
+  private appearanceId = 'black';
   private catTail = {
     heldVks: new Set<number>(),
     targetX: 320,
@@ -267,10 +272,17 @@ export class KuroCatEngine {
   private lastDt = 1 / 60;
 
   public setPrivacyMode(active: boolean): void {
+    if (active === this.privacyMode) return;
     this.wakeRendering();
+    this.mouseLeftDown=this.mouseRightDown=this.mouseMiddleDown=false;
+    this.lastMouseMoveAt=this.lastMouseClickAt=-10000;
+    this.recentKeyTimes.length=0;this.lastAnyKeyAt=-10000;
+    this.resetPetStrokes();this.petEnergy=0;
+    this.mouseBadges.length=0;
+    this.heldKeys.clear();this.catTail.heldVks.clear();
     this.privacyMode = active;
     this.dafeiyu.onPrivacyModeChanged(active);
-    if (active) {
+    {
       this.heldKeys.clear();
       this.catTail.heldVks.clear();
       this.catTailHeldAt.clear();
@@ -424,6 +436,15 @@ export class KuroCatEngine {
     );
   }
 
+  public characterPointAtClient(clientX:number,clientY:number):{x:number;y:number}|null {
+    const rect=this.canvas.getBoundingClientRect();
+    if(rect.width<2||rect.height<2)return null;
+    const {offsetX,offsetY,uniformScale}=this.getViewportTransform();
+    if(uniformScale<=.001)return null;
+    return {x:((clientX-rect.left)*this.canvas.width/rect.width-offsetX)/uniformScale/this.logicalW,
+      y:((clientY-rect.top)*this.canvas.height/rect.height-offsetY)/uniformScale/this.logicalH};
+  }
+
   public hitTestKeyAtClientPoint(clientX: number, clientY: number): KeySpec | null {
     const rect = this.canvas.getBoundingClientRect();
     if (rect.width < 2 || rect.height < 2) return null;
@@ -499,6 +520,7 @@ export class KuroCatEngine {
     prevAnyKeyAt: number,
     now: number,
   ): boolean {
+    if (this.catBreed === 'dafeiyu' && !this.dafeiyu.motion.tail.enabled) return false;
     if (this.tailKeyMode === 'off') return false;
     if (this.tailKeyMode === 'custom') {
       return this.tailKeyIdSet.has(spec.id);
@@ -507,8 +529,8 @@ export class KuroCatEngine {
       if (EDGE_PROTECTED_WASD_IDS.has(spec.id)) return false;
       const edgeThresholdX =
         this.keyboardLayout === '108'
-          ? this.kbCenterX + this.kbWidth * 0.22
-          : this.kbCenterX + this.kbWidth * 0.34;
+          ? this.kbCenterX + this.kbWidth * (this.catBreed === 'dafeiyu' ? this.dafeiyu.motion.bindings.edgeThresholds[1] : .22)
+          : this.kbCenterX + this.kbWidth * (this.catBreed === 'dafeiyu' ? this.dafeiyu.motion.bindings.edgeThresholds[0] : .34);
       return targetPoint.x >= edgeThresholdX;
     }
 
@@ -540,7 +562,8 @@ export class KuroCatEngine {
     // 2) Satisfying punctuation flourish: tail slaps Enter / Numpad Enter right after typing a burst!
     if (
       (spec.id === 'enter' || spec.id === 'np_ent') &&
-      (this.typingEnergy > 0.24 || (now - prevAnyKeyAt < 450 && this.recentKeyTimes.length >= 2))
+      ((this.catBreed !== 'dafeiyu' && this.typingEnergy > 0.24) ||
+        (now - prevAnyKeyAt < (this.catBreed === 'dafeiyu' ? this.dafeiyu.motion.bindings.enterFlourishMs : 450) && this.recentKeyTimes.length >= 2))
     ) {
       return true;
     }
@@ -549,6 +572,12 @@ export class KuroCatEngine {
 
   private syncLayoutPositions(): void {
     const isBigFish = this.catBreed === 'dafeiyu';
+    if (isBigFish) {
+      const l = this.keyboardLayout === '108' ? this.dafeiyu.motion.layouts.full : this.dafeiyu.motion.layouts.compact;
+      [this.logicalW,this.logicalH]=l.logicalSize;[this.kbCenterX,this.kbCenterY]=l.keyboardCenter;
+      [this.kbWidth,this.kbHeight]=l.keyboardSize;this.kbTiltRad=l.keyboardTiltRad;
+      [this.mouseBaseX,this.mouseBaseY]=l.mouseBase;return;
+    }
     if (this.keyboardLayout === '108') {
       this.logicalW = 540;
       this.logicalH = 456;
@@ -578,7 +607,50 @@ export class KuroCatEngine {
     }
   }
 
+  private characterFollower=false;
+  public setCharacterFollower(active:boolean):void {this.characterFollower=active;this.dafeiyu.setFollowing(active);this.resetCharacterInput();}
+  public getCharacterState():CharacterContinuousState|null {return this.isProcedural()?this.dafeiyu.continuousState():null;}
+  public applyCharacterState(state:CharacterContinuousState,ageMs:number):void {
+    if(this.isProcedural()){this.dafeiyu.applyContinuousState(state,ageMs);this.wakeRendering();}
+  }
+  public setProceduralCharacter(actor: ProceduralCharacterRenderer | null): void {
+    this.packageActor = !!actor;
+    this.dafeiyu = actor ?? this.builtinDafeiyu;
+    this.dafeiyu.setFollowing(this.characterFollower);
+    if (actor) { this.catBreed = 'dafeiyu'; this.tailKeyMode=actor.motion.bindings.tailMode; this.tailKeyIdSet=new Set(actor.motion.bindings.customKeys); }
+    this.resetPetStrokes(); this.petEnergy=0; this.cursorOverCat=false;
+    this.heldKeys.clear(); this.bubbles.length=0; this.mouseBadges.length=0;
+    this.recentKeyTimes.length=0;this.lastAnyKeyAt=-10000;
+    this.lastMouseMoveAt=this.lastMouseClickAt=-10000;
+    this.mouseLeftDown=this.mouseRightDown=this.mouseMiddleDown=false;
+    for(const key of this.keyAnims.values()){key.pressed=false;key.pressAmount=0;}
+    this.dafeiyu.onPrivacyModeChanged(this.privacyMode);
+    this.syncLayoutPositions(); this.wakeRendering();
+  }
+  public resetCharacterInput(): void {
+    if (!this.isProcedural()) return;
+    this.resetPetStrokes();this.petEnergy=0;this.cursorOverCat=false;
+    this.privacyTypingAt=-10000;
+    this.mouseLeftDown=this.mouseRightDown=this.mouseMiddleDown=false;
+    this.lastMouseMoveAt=this.lastMouseClickAt=-10000;
+    this.recentKeyTimes.length=0;this.lastAnyKeyAt=-10000;
+    this.heldKeys.clear();this.bubbles.length=0;this.mouseBadges.length=0;
+    for(const key of this.keyAnims.values()){key.pressed=false;key.pressAmount=0;}
+    this.dafeiyu.onPrivacyModeChanged(this.privacyMode);this.wakeRendering();
+  }
+  public proceduralHitTest(x:number,y:number): boolean { return this.dafeiyu.hitTest(x,y); }
+  public isProcedural(): boolean { return this.catBreed === 'dafeiyu'; }
   public setCatAppearance(breedId: string, skin?: CatSkinConfig | null): void {
+    if (this.packageActor) return;
+    if(breedId!==this.appearanceId){
+      this.appearanceId=breedId;this.dafeiyu.onPrivacyModeChanged(this.privacyMode);
+      this.heldKeys.clear();this.bubbles.length=0;this.mouseBadges.length=0;
+      this.resetPetStrokes();this.petEnergy=0;
+      this.recentKeyTimes.length=0;this.lastAnyKeyAt=-10000;
+      this.lastMouseMoveAt=this.lastMouseClickAt=-10000;
+      this.mouseLeftDown=this.mouseRightDown=this.mouseMiddleDown=false;
+      for(const key of this.keyAnims.values()){key.pressed=false;key.pressAmount=0;}
+    }
     if (breedId === 'dafeiyu') {
       this.catBreed = 'dafeiyu';
       this.customSkin = null;
@@ -612,12 +684,15 @@ export class KuroCatEngine {
     const nextLayout: KeyboardLayoutId = layout === '108' ? '108' : '65';
     const nextOrientation: KeyboardOrientation = orientation === 'viewer' ? 'viewer' : 'cat';
     const layoutChanged = this.keyboardLayout !== nextLayout;
+    const orientationChanged = this.keyboardOrientation !== nextOrientation;
     this.keyboardLayout = nextLayout;
     this.keyboardOrientation = nextOrientation;
 
     this.syncLayoutPositions();
 
-    if (layoutChanged) {
+    if (layoutChanged || (orientationChanged && this.isProcedural())) {
+      if(this.isProcedural())this.resetCharacterInput();
+      else this.dafeiyu.onPrivacyModeChanged(this.privacyMode);
       this.heldKeys.clear();
       this.catTail.heldVks.clear();
       this.catTailHeldAt.clear();
@@ -1079,6 +1154,7 @@ export class KuroCatEngine {
       if (!repeat) this.onPrivacyTyping();
       return;
     }
+    if (repeat && this.catBreed === 'dafeiyu' && !this.dafeiyu.hasHeldKey(vk)) return;
     const now = performance.now();
     const spec = resolveKeyByVk(vk, this.keyboardLayout);
     if (!spec) return;
@@ -1121,7 +1197,8 @@ export class KuroCatEngine {
     this.squashSpring.kick(1.85);
 
     const activelyMousing =
-      this.mouseLeftDown || this.mouseRightDown || now - this.lastMouseMoveAt < 320;
+      this.mouseLeftDown || this.mouseRightDown || now - this.lastMouseMoveAt <
+        (this.catBreed === 'dafeiyu' ? this.dafeiyu.motion.bindings.mouseActiveMs : 320);
     const rawKeyPt = this.getKeyWorldCenter(spec);
     const useTail = this.shouldUseTailForKey(spec, rawKeyPt, activelyMousing, prevAnyKeyAt, now);
 
@@ -1130,7 +1207,7 @@ export class KuroCatEngine {
       const dafeiyuMouseBusy =
         dafeiyuLayout.mouseLeft ||
         dafeiyuLayout.mouseRight ||
-        now - dafeiyuLayout.mouseActiveAt < 900;
+        now - dafeiyuLayout.mouseActiveAt < this.dafeiyu.motion.bindings.mouseActiveMs;
       const dafeiyuUseTail =
         useTail ||
         this.shouldUseTailForKey(spec, rawKeyPt, dafeiyuMouseBusy, prevAnyKeyAt, now);
@@ -1345,14 +1422,14 @@ export class KuroCatEngine {
     const primary = this.customSkin
       ? this.customSkin.accentColor
       : this.catBreed === 'dafeiyu'
-        ? '#5cc8ff'
+        ? this.dafeiyu.motion.particles.heartColor
         : this.catBreed === 'ragdoll'
           ? '#7ac7ff'
           : '#d4f044';
     const scroll = this.customSkin
       ? this.customSkin.accentSideColor
       : this.catBreed === 'dafeiyu'
-        ? '#2563eb'
+        ? this.dafeiyu.motion.particles.waterColor
         : this.catBreed === 'ragdoll'
           ? '#4690d8'
           : '#92ba12';
@@ -1465,6 +1542,10 @@ export class KuroCatEngine {
   }
 
   public onWindowCursor(relX: number, relY: number, overCat: boolean): void {
+    if (this.catBreed === 'dafeiyu') {
+      this.dafeiyu.onWindowCursor(relX, relY, overCat, !this.mouseLeftDown && !this.mouseRightDown, this.keyboardLayout === '108');
+      this.wakeRendering(); return;
+    }
     const now = performance.now();
     const cursorDelta = Math.hypot(relX - this.cursorRelX, relY - this.cursorRelY);
     if (relX !== this.cursorRelX || relY !== this.cursorRelY || overCat !== this.cursorOverCat) {
@@ -2247,8 +2328,8 @@ export class KuroCatEngine {
       this.drawKeyboard(ctx);
       this.dafeiyu.renderForeground(ctx, this.lastDt, now, layout);
       if (this.showKeyBubbles && !this.privacyMode) {
-        this.drawKeyBubbles(ctx);
-        this.drawMouseBadges(ctx);
+        if(this.dafeiyu.motion.presentation.keyboardBubbles)this.drawKeyBubbles(ctx);
+        if(this.dafeiyu.motion.presentation.mouseBadges)this.drawMouseBadges(ctx);
       }
       ctx.restore();
       return;

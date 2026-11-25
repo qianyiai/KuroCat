@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::io::Write;
+use std::path::{Path,PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn default_cat_breed() -> String {
@@ -183,6 +184,10 @@ pub struct AppSettings {
     pub collar_color: String,
     #[serde(default = "default_headphone_mode")]
     pub headphone_mode: String,
+    #[serde(default)]
+    pub active_character_id: Option<String>,
+    #[serde(default)]
+    pub character_outfits: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for AppSettings {
@@ -214,6 +219,8 @@ impl Default for AppSettings {
             render_mode: default_render_mode(),
             collar_color: default_collar_color(),
             headphone_mode: default_headphone_mode(),
+            active_character_id: None,
+            character_outfits: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -258,30 +265,89 @@ pub fn load_settings() -> AppSettings {
             parsed.render_mode = normalize_render_mode(&parsed.render_mode);
             parsed.collar_color = normalize_collar_color(&parsed.collar_color);
             parsed.headphone_mode = normalize_headphone_mode(&parsed.headphone_mode);
+            project_character_selection(&mut parsed);
             return parsed;
         }
     }
-    AppSettings::default()
+    let mut value = AppSettings::default();
+    project_character_selection(&mut value);
+    value
 }
 
-pub fn save_settings(settings: &AppSettings) {
-    let _ = try_save_settings(settings);
+pub fn project_character_selection(value: &mut AppSettings) {
+    project_character_selection_at(value,&app_data_dir());
+}
+fn project_character_selection_at(value:&mut AppSettings,root:&Path) {
+    let selection = crate::character_selection::view_at(root).unwrap_or_default();
+    value.active_character_id = selection.active_character_id;
+    value.character_outfits = selection.character_outfits;
 }
 
-pub fn try_save_settings(settings: &AppSettings) -> std::io::Result<()> {
+/// Legacy UI writers explicitly name the fields they own; refresh the memory snapshot after saving.
+pub fn save_settings(settings: &mut AppSettings,fields:&[&str]) {
+    if let Err(error)=try_save_settings(settings,fields) {
+        eprintln!("Cannot save settings: {error}");
+        *settings=load_settings();
+    }
+}
+
+pub fn try_save_settings(settings: &mut AppSettings,fields:&[&str]) -> std::io::Result<()> {
+    *settings=save_fields_at(&app_data_dir(),settings,fields,false)?;
+    Ok(())
+}
+pub fn try_save_cat_settings(settings:&mut AppSettings,fields:&[&str])->std::io::Result<()> {
+    *settings=save_fields_at(&app_data_dir(),settings,fields,true)?;Ok(())
+}
+pub(crate) fn save_fields_at(root:&Path,snapshot:&AppSettings,fields:&[&str],select_cat:bool)->std::io::Result<AppSettings> {
+    let _lock=crate::character_import::acquire_settings_lock_at(root)
+        .map_err(|e|std::io::Error::other(e.message))?;
+    let path=root.join("settings.json");
+    let current=match fs::read_to_string(&path) {
+        Ok(text)=>serde_json::from_str::<AppSettings>(&text).map_err(std::io::Error::other)?,
+        Err(e) if e.kind()==std::io::ErrorKind::NotFound=>AppSettings::default(),
+        Err(e)=>return Err(e),
+    };
+    let source=serde_json::to_value(snapshot).map_err(std::io::Error::other)?;
+    let mut merged=serde_json::to_value(current).map_err(std::io::Error::other)?;
+    for &field in fields {
+        if matches!(field,"activeCharacterId"|"characterOutfits"){continue;}
+        let value=source.get(field).cloned().or_else(||
+            matches!(field,"displayId"|"windowsDisplayId").then_some(serde_json::Value::Null))
+            .ok_or_else(||std::io::Error::new(std::io::ErrorKind::InvalidInput,format!("Unknown setting field: {field}")))?;
+        merged[field]=value;
+    }
+    let mut updated:AppSettings=serde_json::from_value(merged).map_err(std::io::Error::other)?;
+    if select_cat && !crate::cats::builtin_cats().iter().any(|cat|cat.id==updated.cat_breed)
+        && !crate::cats::catalog_contains_id(root,&updated.cat_breed).map_err(std::io::Error::other)? {
+        return Err(std::io::Error::other("Selected cat no longer exists"));
+    }
+    write_settings_at(root,&updated)?;
+    if select_cat {
+        // The cat choice is durable before clearing character selection; both are under the catalog lock.
+        crate::character_selection::clear_locked_at(root)
+            .map_err(|e|std::io::Error::other(format!("Cat settings saved, but character selection could not be cleared: {}",e.message)))?;
+    }
+    project_character_selection_at(&mut updated,root);
+    Ok(updated)
+}
+fn write_settings_at(root:&Path,settings:&AppSettings)->std::io::Result<()> {
     static NEXT_WRITE: AtomicUsize = AtomicUsize::new(0);
-    let path = config_path();
+    let path = root.join("settings.json");
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(settings).map_err(std::io::Error::other)?;
+    let mut value = serde_json::to_value(settings).map_err(std::io::Error::other)?;
+    // These fields are projections, not owned by legacy settings.json writers.
+    value.as_object_mut().unwrap().remove("activeCharacterId");
+    value.as_object_mut().unwrap().remove("characterOutfits");
+    let json = serde_json::to_vec_pretty(&value).map_err(std::io::Error::other)?;
     let write_id = NEXT_WRITE.fetch_add(1, Ordering::Relaxed);
-    let temporary_path = path.with_extension(format!("json.{}.{write_id}.tmp", std::process::id()));
-    let result = fs::write(&temporary_path, json).and_then(|()| fs::rename(&temporary_path, path));
-    if result.is_err() {
-        let _ = fs::remove_file(temporary_path);
-    }
-    result
+    let nonce=std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(std::io::Error::other)?.as_nanos();
+    let temporary_path = path.with_extension(format!("json.{}.{write_id}.{nonce}.tmp", std::process::id()));
+    let mut file=fs::OpenOptions::new().write(true).create_new(true).open(&temporary_path)?;
+    file.write_all(&json)?;file.sync_all()?;drop(file);
+    // Failed temporary files remain for diagnosis; never truncate an existing candidate.
+    fs::rename(&temporary_path,path)
 }
 
 #[cfg(windows)]
@@ -485,6 +551,73 @@ pub fn create_desktop_shortcut() -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Retain isolated fixtures for diagnosis; these never touch the user's profile.
+    fn settings_fixture() -> PathBuf {
+        static NEXT: AtomicUsize = AtomicUsize::new(0);
+        let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+        let root = std::env::temp_dir().join(format!("kurocat-settings-{}-{nonce}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+        fs::create_dir_all(&root).unwrap();
+        root
+    }
+
+    fn selected_character(root: &Path) {
+        fs::write(root.join("character-selection.json"), r#"{"activeCharacterId":"motion-fixture","characterOutfits":{"motion-fixture":"alternate"}}"#).unwrap();
+    }
+
+    #[test]
+    fn concurrent_stale_snapshots_preserve_independent_fields() {
+        let root = settings_fixture();
+        let initial = AppSettings::default();
+        write_settings_at(&root, &initial).unwrap();
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        std::thread::scope(|scope| {
+            let barrier_a = barrier.clone();
+            let root_a = &root;
+            let mut first = initial.clone();
+            first.sound_enabled = !initial.sound_enabled;
+            scope.spawn(move || {
+                barrier_a.wait();
+                save_fields_at(root_a, &first, &["soundEnabled"], false).unwrap();
+            });
+            let mut second = initial.clone();
+            second.show_key_bubbles = !initial.show_key_bubbles;
+            barrier.wait();
+            save_fields_at(&root, &second, &["showKeyBubbles"], false).unwrap();
+        });
+        let saved: AppSettings = serde_json::from_slice(&fs::read(root.join("settings.json")).unwrap()).unwrap();
+        assert_eq!(saved.sound_enabled, !initial.sound_enabled);
+        assert_eq!(saved.show_key_bubbles, !initial.show_key_bubbles);
+    }
+
+    #[test]
+    fn explicit_same_cat_exits_character_but_fallback_patch_preserves_it() {
+        let root = settings_fixture();
+        selected_character(&root);
+        let initial = AppSettings::default();
+        save_fields_at(&root, &initial, &["catBreed"], false).unwrap();
+        assert_eq!(crate::character_selection::load_at(&root).unwrap().active_character_id.as_deref(), Some("motion-fixture"));
+        let saved = save_fields_at(&root, &initial, &["catBreed"], true).unwrap();
+        assert!(saved.active_character_id.is_none());
+        assert_eq!(saved.character_outfits.get("motion-fixture").map(String::as_str), Some("alternate"));
+    }
+
+    #[test]
+    fn corrupt_settings_are_preserved_and_missing_cat_does_not_clear_selection() {
+        let root = settings_fixture();
+        selected_character(&root);
+        let path = root.join("settings.json");
+        fs::write(&path, b"{broken").unwrap();
+        assert!(save_fields_at(&root, &AppSettings::default(), &["scale"], false).is_err());
+        assert_eq!(fs::read(&path).unwrap(), b"{broken");
+        write_settings_at(&root, &AppSettings::default()).unwrap();
+        let before = fs::read(&path).unwrap();
+        let mut missing = AppSettings::default();
+        missing.cat_breed = "deleted-custom-cat".into();
+        assert!(save_fields_at(&root, &missing, &["catBreed"], true).is_err());
+        assert_eq!(fs::read(&path).unwrap(), before);
+        assert_eq!(crate::character_selection::load_at(&root).unwrap().active_character_id.as_deref(), Some("motion-fixture"));
+    }
 
     #[test]
     fn tail_key_mode_normalizes_safely() {

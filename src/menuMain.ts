@@ -1,3 +1,4 @@
+import { installCharacterMenu } from './characterMenu';
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -6,6 +7,8 @@ import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import type { KeyboardLayoutId } from './keyboardLayout';
 
 interface AppSettings {
+  activeCharacterId?: string | null;
+  characterOutfits?: Record<string,string>;
   x: number | null;
   y: number | null;
   scale: number;
@@ -162,7 +165,7 @@ function renderBreedPills(): void {
     btn.textContent = `${emoji}${cat.name}`;
     const accent = cat.accentColor || (cat.id === 'ragdoll' ? '#7ac7ff' : '#c8f538');
     btn.style.setProperty('--pill-accent', accent);
-    btn.classList.toggle('active', cat.id === settings.catBreed);
+    btn.classList.toggle('active', !settings.activeCharacterId && cat.id === settings.catBreed);
     breedPillsEl.appendChild(btn);
   }
 }
@@ -215,16 +218,16 @@ function syncUI(): void {
     btn.classList.toggle('active', btn.dataset.tailmode === tailMode);
   });
   if (tailModeBadgeEl) {
-    tailModeBadgeEl.textContent = TAIL_MODE_LABELS[tailMode];
+    tailModeBadgeEl.textContent = settings.activeCharacterId ? '由人物包控制' : TAIL_MODE_LABELS[tailMode];
   }
   if (tailKeysCountEl) {
-    tailKeysCountEl.textContent = `${tailIds.length} 键`;
+    tailKeysCountEl.textContent = settings.activeCharacterId ? '人物配置' : `${tailIds.length} 键`;
   }
 
   const activeCat = catList.find((c) => c.id === settings.catBreed) ?? catList[0];
   renderBreedPills();
 
-  const renderMode = settings.renderMode === '2d' ? '2d' : '3d';
+  const renderMode = settings.activeCharacterId || settings.renderMode === '2d' ? '2d' : '3d';
   const collarColor =
     settings.collarColor === 'red' ||
     settings.collarColor === 'blue' ||
@@ -252,11 +255,11 @@ function syncUI(): void {
   });
   const headphoneRowEl = document.getElementById('headphone-row');
   if (headphoneRowEl) {
-    headphoneRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+    headphoneRowEl.classList.toggle('hidden', !!settings.activeCharacterId || settings.catBreed === 'dafeiyu');
   }
 
   const headerEl = document.getElementById('menu-header');
-  if (headerEl && activeCat) {
+  if (headerEl && activeCat && !settings.activeCharacterId) {
     const emoji = activeCat.emoji || '🐱';
     headerEl.textContent = `${emoji} KuroCat ${activeCat.name}`;
     headerEl.style.color = activeCat.accentColor || '#c8f538';
@@ -264,9 +267,11 @@ function syncUI(): void {
 }
 
 async function applySettingsPatch(patch: Partial<AppSettings>): Promise<void> {
+  const previous=settings;
   settings = { ...settings, ...patch };
   syncUI();
-  settings = await invoke<AppSettings>('update_settings', { patch: settings });
+  try { settings = await invoke<AppSettings>('update_settings', { patch }); }
+  catch(error) { settings=await invoke<AppSettings>('get_settings').catch(()=>previous); const status=document.querySelector('.character-menu-status');if(status)status.textContent=String(error); }
   syncUI();
 }
 
@@ -395,6 +400,7 @@ async function triggerManualUpdateCheck(): Promise<void> {
 }
 
 async function bootstrap(): Promise<void> {
+  installCharacterMenu(invoke, (event,handler)=>listen(event,handler));
   if (isMacPlatform()) {
     const shortcutBtn = document.getElementById('btn-desktop-shortcut');
     if (shortcutBtn) shortcutBtn.classList.add('hidden');

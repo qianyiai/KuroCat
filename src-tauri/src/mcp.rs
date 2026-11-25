@@ -2,7 +2,7 @@ use crate::cats::{
     all_cats, cat_exists, cat_schema_guide, cats_path, delete_custom_cat, sanitize_cat_id,
     upsert_custom_cat, CatSkinConfig,
 };
-use crate::config::{load_settings, save_settings, set_windows_autostart};
+use crate::config::{load_settings, try_save_settings, try_save_cat_settings, set_windows_autostart};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -13,7 +13,7 @@ const SERVER_NAME: &str = "kurocat";
 const SERVER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn tool_definitions() -> Value {
-    json!([
+    let mut definitions = json!([
         {
             "name": "list_cats",
             "description": "List all available KuroCat desktop pet skins (built-in and custom cats) and show which cat is currently active on screen.",
@@ -168,7 +168,9 @@ fn tool_definitions() -> Value {
                 }
             }
         }
-    ])
+    ]);
+    definitions.as_array_mut().unwrap().extend(crate::character_import::tool_definitions());
+    definitions
 }
 
 fn ok_text(payload: Value) -> Value {
@@ -187,6 +189,15 @@ fn err_text(msg: &str) -> Value {
 }
 
 fn execute_tool(name: &str, args: &Value, on_change: &dyn Fn()) -> Value {
+    if let Some(result) = crate::character_import::execute_tool(name, args) {
+        return match result {
+            Ok(payload) => {
+                if matches!(name, "import_character_package" | "switch_character" | "set_character_outfit") { on_change(); }
+                ok_text(payload)
+            }
+            Err(error) => json!({"content":[{"type":"text", "text":serde_json::to_string(&error).unwrap_or_default()}], "isError":true}),
+        };
+    }
     match name {
         "list_cats" => {
             let settings = load_settings();
@@ -216,7 +227,9 @@ fn execute_tool(name: &str, args: &Value, on_change: &dyn Fn()) -> Value {
                     if activate {
                         let mut s = load_settings();
                         s.cat_breed = saved.id.clone();
-                        save_settings(&s);
+                        if let Err(error)=try_save_cat_settings(&mut s,&["catBreed"]) {
+                            return err_text(&format!("Cat saved, but activation failed: {error}"));
+                        }
                     }
                     on_change();
                     ok_text(json!({
@@ -242,7 +255,7 @@ fn execute_tool(name: &str, args: &Value, on_change: &dyn Fn()) -> Value {
             }
             let mut s = load_settings();
             s.cat_breed = id.clone();
-            save_settings(&s);
+            if let Err(error)=try_save_cat_settings(&mut s,&["catBreed"]) {return err_text(&error.to_string());}
             on_change();
             ok_text(json!({
                 "status": "switched",
@@ -260,7 +273,9 @@ fn execute_tool(name: &str, args: &Value, on_change: &dyn Fn()) -> Value {
                         let mut s = load_settings();
                         if s.cat_breed == id && !cat_exists(&id) {
                             s.cat_breed = "black".to_string();
-                            save_settings(&s);
+                            if let Err(error)=try_save_settings(&mut s,&["catBreed"]) {
+                                return err_text(&format!("Cat deleted, but fallback settings failed: {error}"));
+                            }
                         }
                         on_change();
                         ok_text(json!({
@@ -277,36 +292,46 @@ fn execute_tool(name: &str, args: &Value, on_change: &dyn Fn()) -> Value {
         "get_settings" => ok_text(serde_json::to_value(load_settings()).unwrap_or(json!({}))),
         "update_settings" => {
             let mut s = load_settings();
+            let mut fields=Vec::new();
             if let Some(breed) = args.get("catBreed").and_then(|v| v.as_str()) {
                 let clean = sanitize_cat_id(breed);
                 if cat_exists(&clean) {
+                    fields.push("catBreed");
                     s.cat_breed = clean;
                 } else {
                     return err_text(&format!("Unknown catBreed '{}'.", clean));
                 }
             }
             if let Some(scale) = args.get("scale").and_then(|v| v.as_f64()) {
+                fields.push("scale");
                 s.scale = scale.clamp(0.20, 1.50);
             }
             if let Some(rm) = args.get("renderMode").and_then(|v| v.as_str()) {
+                fields.push("renderMode");
                 s.render_mode = crate::config::normalize_render_mode(rm);
             }
             if let Some(cc) = args.get("collarColor").and_then(|v| v.as_str()) {
+                fields.push("collarColor");
                 s.collar_color = crate::config::normalize_collar_color(cc);
             }
             if let Some(hm) = args.get("headphoneMode").and_then(|v| v.as_str()) {
+                fields.push("headphoneMode");
                 s.headphone_mode = crate::config::normalize_headphone_mode(hm);
             }
             if let Some(layout) = args.get("keyboardLayout").and_then(|v| v.as_str()) {
+                fields.push("keyboardLayout");
                 s.keyboard_layout = crate::config::normalize_keyboard_layout(layout);
             }
             if let Some(orient) = args.get("keyboardOrientation").and_then(|v| v.as_str()) {
+                fields.push("keyboardOrientation");
                 s.keyboard_orientation = crate::config::normalize_keyboard_orientation(orient);
             }
             if let Some(mode) = args.get("tailKeyMode").and_then(|v| v.as_str()) {
+                fields.push("tailKeyMode");
                 s.tail_key_mode = crate::config::normalize_tail_key_mode(mode);
             }
             if let Some(arr) = args.get("tailKeyIds").and_then(|v| v.as_array()) {
+                fields.push("tailKeyIds");
                 let raw: Vec<String> = arr
                     .iter()
                     .filter_map(|v| v.as_str().map(|s| s.to_string()))
@@ -314,23 +339,30 @@ fn execute_tool(name: &str, args: &Value, on_change: &dyn Fn()) -> Value {
                 s.tail_key_ids = crate::config::normalize_tail_key_ids(&raw);
             }
             if let Some(b) = args.get("showKeyBubbles").and_then(|v| v.as_bool()) {
+                fields.push("showKeyBubbles");
                 s.show_key_bubbles = b;
             }
             if let Some(b) = args.get("soundEnabled").and_then(|v| v.as_bool()) {
+                fields.push("soundEnabled");
                 s.sound_enabled = b;
             }
             if let Some(b) = args.get("alwaysOnTop").and_then(|v| v.as_bool()) {
+                fields.push("alwaysOnTop");
                 s.always_on_top = b;
             }
             if let Some(b) = args.get("clickThroughLocked").and_then(|v| v.as_bool()) {
+                fields.push("clickThroughLocked");
                 s.click_through_locked = b;
             }
             if let Some(b) = args.get("autostart").and_then(|v| v.as_bool()) {
                 if set_windows_autostart(b).is_ok() {
+                    fields.push("autostart");
                     s.autostart = b;
                 }
             }
-            save_settings(&s);
+            let saved=if fields.contains(&"catBreed") {try_save_cat_settings(&mut s,&fields)}
+                else {try_save_settings(&mut s,&fields)};
+            if let Err(error)=saved {return err_text(&error.to_string());}
             on_change();
             ok_text(serde_json::to_value(&s).unwrap_or(json!({})))
         }
@@ -368,7 +400,7 @@ pub fn handle_jsonrpc(req: &Value, on_change: &dyn Fn()) -> Option<Value> {
                     "name": SERVER_NAME,
                     "version": SERVER_VERSION
                 },
-                "instructions": "Use get_cat_schema to inspect the custom cat design format, then call upsert_cat (with activate: true) to create or customize desktop pet cats in real time on the user's Windows desktop."
+                "instructions": "For cat skins, use get_cat_schema then upsert_cat (activate: true selects the cat). For custom people, call get_character_schema first, prepare real aligned local PNGs and a complete character manifest with motion, personality and assetNotice; validate_character_package then import_character_package. Keep multiple outfits under one character ID. Read get_character_package before edits and preserve the complete manifest when updating with replace: true. Report importing and activation separately; neither alone proves visual runtime validation."
             }))
         }
         "ping" => Ok(json!({})),
@@ -475,7 +507,7 @@ fn handle_http_conn(mut stream: TcpStream, enabled: &AtomicBool, on_change: &dyn
     });
 
     let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() || request_line.is_empty() {
+    if (&mut reader).take(8193).read_line(&mut request_line).is_err() || request_line.is_empty() || request_line.len() > 8192 {
         return;
     }
     let parts: Vec<&str> = request_line.trim().split_whitespace().collect();
@@ -486,16 +518,26 @@ fn handle_http_conn(mut stream: TcpStream, enabled: &AtomicBool, on_change: &dyn
     let path = parts[1];
 
     let mut content_length: usize = 0;
+    let mut origin_present = false;
+    let mut host = String::new();
+    let mut header_bytes = 0usize;
     loop {
         let mut header = String::new();
-        if reader.read_line(&mut header).is_err() {
+        if (&mut reader).take(8193).read_line(&mut header).is_err() {
             return;
         }
+        header_bytes += header.len();
+        if header_bytes > 32768 || header.len() > 8192 { return; }
         let trimmed = header.trim();
         if trimmed.is_empty() {
             break;
         }
         if let Some((k, v)) = trimmed.split_once(':') {
+            if k.eq_ignore_ascii_case("origin") { origin_present = true; }
+            if k.eq_ignore_ascii_case("host") {
+                if !host.is_empty() { return; }
+                host = v.trim().to_ascii_lowercase();
+            }
             if k.eq_ignore_ascii_case("content-length") {
                 content_length = v.trim().parse().unwrap_or(0);
             }
@@ -556,6 +598,17 @@ fn handle_http_conn(mut stream: TcpStream, enabled: &AtomicBool, on_change: &dyn
                 return;
             }
         };
+
+        // Apply the new filesystem boundary to extension tools, preserving legacy clients.
+        let is_character_call = |request: &Value| request.get("method").and_then(Value::as_str) == Some("tools/call")
+            && request.pointer("/params/name").and_then(Value::as_str).is_some_and(crate::character_import::is_tool);
+        let contains_character_call = parsed.as_array().map(|batch| batch.iter().any(is_character_call))
+            .unwrap_or_else(|| is_character_call(&parsed));
+        let port = match stream.local_addr() { Ok(addr) => addr.port(), Err(_) => return };
+        if contains_character_call && (origin_present || (host != format!("127.0.0.1:{port}") && host != format!("localhost:{port}"))) {
+            write_http_response(&mut stream, "403 Forbidden", "application/json", r#"{"error":"Character tools require a native loopback client without Origin"}"#);
+            return;
+        }
 
         if let Some(arr) = parsed.as_array() {
             let mut responses = Vec::new();

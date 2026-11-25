@@ -1,3 +1,5 @@
+import { CharacterLoader, type ActiveCharacter } from './characterLoader';
+import { BUILTIN_CHARACTER, CharacterStateReceiver } from './characterSync';
 import {
   DEFAULT_TAIL_KEY_IDS,
   KuroCatEngine,
@@ -13,6 +15,8 @@ type ObsRenderMode = '2d' | '3d';
 type ObsHeadphoneMode = 'auto' | 'on' | 'off';
 
 interface ObsAppSettings {
+  activeCharacterId?: string | null;
+  characterOutfits?: Record<string,string>;
   scale?: number;
   showKeyBubbles?: boolean;
   catBreed?: string;
@@ -39,6 +43,7 @@ interface ObsStateSnapshot {
   cats?: CatSkinConfig[];
   privacy?: boolean;
   gameActive?: boolean;
+  characterState?:unknown;
 }
 
 const canvas = document.getElementById('obs-canvas') as HTMLCanvasElement;
@@ -58,6 +63,8 @@ catAudio.setEnabled(false);
 // Optional query overrides for streamers (e.g. /obs?mode=3d&collar=red&scale=1.15&bubbles=0&breed=ragdoll&layout=108&orient=viewer)
 const params = new URLSearchParams(window.location.search);
 const overrideBreed = params.get('breed')?.trim() || null;
+const followDesktopCharacter=!overrideBreed;
+engine.setCharacterFollower(followDesktopCharacter);
 const overrideModeRaw = params.get('mode')?.trim().toLowerCase() || null;
 const overrideMode: ObsRenderMode | null =
   overrideModeRaw === '3d' || overrideModeRaw === '3d-flat'
@@ -102,6 +109,48 @@ let currentSettings: ObsAppSettings = {
   headphoneMode: 'off',
 };
 
+const characterStatus=document.getElementById('obs-character-status')!;
+const characterError=document.getElementById('obs-character-error')!;
+const characterRetry=document.getElementById('obs-character-retry') as HTMLButtonElement;
+async function requireCharacterResponse(response:Response,resource:string):Promise<Response> {
+  if(response.ok)return response;
+  const failure: {code?:unknown;message?:unknown}|null=await response.json().catch(()=>null);
+  const code=typeof failure?.code==='string'?failure.code:`HTTP_${response.status}`;
+  throw new Error(`${resource}（${code}）`);
+}
+const characterLoader = new CharacterLoader({
+  active: async()=> {
+    const id=currentSettings.activeCharacterId;if(!id)return null;
+    const response=await requireCharacterResponse(await fetch(`/characters/${encodeURIComponent(id)}/manifest`,{cache:'no-store'}),'人物配置不可用');
+    return response.json() as Promise<ActiveCharacter>;
+  },
+  asset: async(id,revision,path)=>{
+    const response=await requireCharacterResponse(await fetch(`/characters/${id}/${revision}/${path}`,{cache:'no-store'}),'人物素材不可用');
+    return response.arrayBuffer();
+  },
+},actor=>{
+  engine.setProceduralCharacter(actor);
+  if(!actor){const cat=catList.find(c=>c.id===currentSettings.catBreed)??catList[0];engine.setCatAppearance(cat?.id??'black',cat);}
+  engine.setKeyboardConfig(overrideLayout??(currentSettings.keyboardLayout==='108'?'108':'65'),overrideOrient??(currentSettings.keyboardOrientation==='viewer'?'viewer':'cat'));
+  characterStatus.hidden=true;characterError.textContent='';
+},error=>{
+  characterError.textContent=`人物加载失败，暂时显示备用猫咪。${String(error)}。可重试，或在桌面重新导入、选择人物。`;
+  characterStatus.hidden=false;
+});
+characterRetry.addEventListener('click',async()=>{
+  characterRetry.disabled=true;
+  try {await characterLoader.sync(followDesktopCharacter&&!!currentSettings.activeCharacterId);}
+  finally {characterRetry.disabled=false;}
+});
+const characterReceiver=new CharacterStateReceiver({
+  identity:()=>!followDesktopCharacter?null:currentSettings.activeCharacterId?characterLoader.identity
+    :currentSettings.catBreed==='dafeiyu'?BUILTIN_CHARACTER:null,
+  privacy:()=>privacyActive,
+  apply:(state,age)=>engine.applyCharacterState(state,age),
+  reset:()=>engine.resetCharacterInput(),
+});
+setInterval(()=>characterReceiver.tick(),100);
+
 function computeObsHeadphonesOn(activeCat: CatSkinConfig | undefined): boolean {
   if (activeCat?.id === 'dafeiyu') return false;
   const hm: ObsHeadphoneMode =
@@ -124,7 +173,7 @@ function syncObs3D(
   tailIds: string[],
   showBubbles: boolean,
 ): void {
-  const want3d = mode === '3d' && activeCat?.id !== 'dafeiyu' && !webglBlocked;
+  const want3d = !(followDesktopCharacter&&currentSettings.activeCharacterId) && mode === '3d' && activeCat?.id !== 'dafeiyu' && !webglBlocked;
   if (!want3d) {
     if (active3d) {
       engine3d?.stop();
@@ -204,10 +253,11 @@ function applyState(): void {
       : 'none');
 
   engine.showKeyBubbles = showBubbles;
-  engine.setCatAppearance(activeCat?.id || 'black', activeCat);
+  if (!(followDesktopCharacter&&currentSettings.activeCharacterId)) engine.setCatAppearance(activeCat?.id || 'black', activeCat);
+  void characterLoader.sync(followDesktopCharacter&&!!currentSettings.activeCharacterId);
   engine.setHeadphones(computeObsHeadphonesOn(activeCat));
   engine.setKeyboardConfig(layout, orient);
-  engine.setTailKeyConfig(tailMode, tailIds);
+  if (!(followDesktopCharacter&&currentSettings.activeCharacterId)) engine.setTailKeyConfig(tailMode, tailIds);
   engine.setRenderScale(overrideScale ?? 1.0);
   syncObs3D(activeCat, mode, collar, layout, orient, tailMode, tailIds, showBubbles);
 }
@@ -252,6 +302,14 @@ function handleInput(p: InputEvent): void {
 
 function connectStream(): void {
   const es = new EventSource('/obs/events');
+  es.addEventListener('open',()=>characterReceiver.reconnect());
+  es.addEventListener('error',()=>characterReceiver.disconnect());
+  es.addEventListener('characterReset',ev=>{
+    try{const value=JSON.parse((ev as MessageEvent).data);if(typeof value.epoch==='string')characterReceiver.invalidate(value.epoch);}catch{}
+  });
+  es.addEventListener('characterState',ev=>{
+    try{characterReceiver.receive(JSON.parse((ev as MessageEvent).data));}catch{}
+  });
 
   es.addEventListener('state', (ev) => {
     try {
@@ -271,6 +329,7 @@ function connectStream(): void {
         gameActive = snap.gameActive;
       }
       applyState();
+      if(snap.characterState)characterReceiver.receive(snap.characterState);
     } catch {}
   });
 

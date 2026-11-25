@@ -192,13 +192,17 @@ html.win7-ulw-mode #collar-row {
 
 .breed-pills {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 5px;
   max-height: 132px;
   overflow-y: auto;
 }
 
 .breed-pill {
+  min-width: 0;
+  box-sizing: border-box;
+  height: 26px;
+  line-height: 14px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(255, 255, 255, 0.05);
   color: #e5e7eb;
@@ -221,6 +225,19 @@ html.win7-ulw-mode #collar-row {
   color: #111214;
   border-color: var(--pill-accent, #c8f538);
   font-weight: 700;
+}
+
+.breed-pills::-webkit-scrollbar { width: 5px; }
+.breed-pills::-webkit-scrollbar-track { background: transparent; }
+.breed-pills::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.22);
+  border-radius: 5px;
+}
+.breed-pills::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.36); }
+.breed-pills::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.breed-pills::-webkit-scrollbar-corner { background: transparent; }
+@supports not selector(::-webkit-scrollbar) {
+  .breed-pills { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
 }
 
 .scale-header {
@@ -793,6 +810,13 @@ html.win7-ulw-mode .floating-side-menu {
 .menu-item.hidden {
   display: none;
 }
+
+.character-load-status { position:fixed; top:4px; left:4px; right:4px; z-index:9999; font-size:12px; color:#fff; background:#752b2b; border-radius:6px; pointer-events:none; }
+.character-load-status:empty { display:none; }
+
+.character-menu { font-size:12px; }
+.character-menu .breed-pills { max-height:120px; align-content:start; grid-auto-rows:max-content; }
+.character-menu-status { color:#f48383; overflow-wrap:anywhere; }
 
 /* Option B: Two-tab zero-scroll floating side menu */
 .floating-side-menu.tab-menu-layout {

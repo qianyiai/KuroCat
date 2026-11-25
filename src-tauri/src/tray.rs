@@ -19,6 +19,52 @@ fn default_tray_tooltip() -> &'static str {
     "KuroCat"
 }
 
+fn refresh_character_menu(app: &AppHandle, menu: &Submenu<tauri::Wry>) -> tauri::Result<()> {
+    while menu.remove_at(0)?.is_some() {}
+    let settings=app.state::<AppState>().settings.lock().unwrap().clone();
+    if let Ok(registry) = crate::characters::load_registry() {
+        for entry in registry.characters.values() {
+            let label=if registry.characters.values().filter(|other|other.name==entry.name).count()>1 {
+                format!("{} ({})",entry.name,entry.id)
+            }else{entry.name.clone()};
+            for outfit in &entry.playable_outfits {
+                let active=settings.active_character_id.as_deref()==Some(entry.id.as_str())
+                    &&settings.character_outfits.get(&entry.id)==Some(outfit);
+                let item = CheckMenuItem::with_id(app, format!("character:{}:{}", entry.id, outfit),
+                    format!("{} · {}", label, outfit), true, active, None::<&str>)?;
+                menu.append(&item)?;
+            }
+        }
+    }
+    if menu.items()?.is_empty() {
+        menu.append(&MenuItem::with_id(app,"character-empty","尚无可播放的人物包",false,None::<&str>)?)?;
+    }
+    Ok(())
+}
+
+// Presets are exact quarter steps, representable without floating-point rounding.
+// A custom value near a preset must still leave every preset unchecked.
+fn scale_is_selected(scale: f64, preset: f64) -> bool {
+    scale == preset
+}
+
+fn character_item_is_selected(item_id: &str, settings: &AppSettings) -> bool {
+    let Some((id, outfit)) = item_id.strip_prefix("character:").and_then(|choice| choice.split_once(':')) else {
+        return false;
+    };
+    settings.active_character_id.as_deref() == Some(id)
+        && settings.character_outfits.get(id).is_some_and(|selected| selected == outfit)
+}
+
+fn sync_character_checks(menu: &Submenu<tauri::Wry>, settings: &AppSettings) -> tauri::Result<()> {
+    for item in menu.items()? {
+        if let Some(item) = item.as_check_menuitem() {
+            item.set_checked(character_item_is_selected(item.id().as_ref(), settings))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
     #[cfg(windows)]
     let display_menu = crate::windows_display::create_menu(app)?;
@@ -136,13 +182,14 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         &[&obs_toggle, &obs_hide_pet, &obs_open_browser],
     )?;
 
-    let breed_black = MenuItem::with_id(app, "breed_black", "经典小黑猫", true, None::<&str>)?;
-    let breed_ragdoll = MenuItem::with_id(app, "breed_ragdoll", "暖奶茶布偶猫", true, None::<&str>)?;
-    let breed_orange = MenuItem::with_id(app, "breed_orange", "大橘猫（虎斑）", true, None::<&str>)?;
-    let breed_calico = MenuItem::with_id(app, "breed_calico", "三花猫", true, None::<&str>)?;
-    let breed_tuxedo = MenuItem::with_id(app, "breed_tuxedo", "奶牛猫", true, None::<&str>)?;
-    let breed_siamese = MenuItem::with_id(app, "breed_siamese", "暹罗猫", true, None::<&str>)?;
-    let breed_dafeiyu = MenuItem::with_id(app, "breed_dafeiyu", "🐳 大肥鱼（鲸鱼娘）", true, None::<&str>)?;
+    let cat_active = initial.active_character_id.is_none();
+    let breed_black = CheckMenuItem::with_id(app, "breed_black", "经典小黑猫", true, cat_active && initial.cat_breed == "black", None::<&str>)?;
+    let breed_ragdoll = CheckMenuItem::with_id(app, "breed_ragdoll", "暖奶茶布偶猫", true, cat_active && initial.cat_breed == "ragdoll", None::<&str>)?;
+    let breed_orange = CheckMenuItem::with_id(app, "breed_orange", "大橘猫（虎斑）", true, cat_active && initial.cat_breed == "orange-tabby", None::<&str>)?;
+    let breed_calico = CheckMenuItem::with_id(app, "breed_calico", "三花猫", true, cat_active && initial.cat_breed == "calico", None::<&str>)?;
+    let breed_tuxedo = CheckMenuItem::with_id(app, "breed_tuxedo", "奶牛猫", true, cat_active && initial.cat_breed == "tuxedo", None::<&str>)?;
+    let breed_siamese = CheckMenuItem::with_id(app, "breed_siamese", "暹罗猫", true, cat_active && initial.cat_breed == "siamese", None::<&str>)?;
+    let breed_dafeiyu = CheckMenuItem::with_id(app, "breed_dafeiyu", "🐳 大肥鱼（鲸鱼娘）", true, cat_active && initial.cat_breed == "dafeiyu", None::<&str>)?;
     let breed_menu = Submenu::with_items(
         app,
         "角色外观",
@@ -158,24 +205,24 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         ],
     )?;
 
-    let scale_25 = MenuItem::with_id(app, "scale_25", "25%（迷你）", true, None::<&str>)?;
-    let scale_50 = MenuItem::with_id(app, "scale_50", "50%（小巧）", true, None::<&str>)?;
-    let scale_75 = MenuItem::with_id(app, "scale_75", "75%（适中）", true, None::<&str>)?;
-    let scale_100 = MenuItem::with_id(app, "scale_100", "100%（默认）", true, None::<&str>)?;
-    let scale_125 = MenuItem::with_id(app, "scale_125", "125%（偏大）", true, None::<&str>)?;
-    let scale_150 = MenuItem::with_id(app, "scale_150", "150%（大号）", true, None::<&str>)?;
+    let scale_25 = CheckMenuItem::with_id(app, "scale_25", "25%（迷你）", true, scale_is_selected(initial.scale, 0.25), None::<&str>)?;
+    let scale_50 = CheckMenuItem::with_id(app, "scale_50", "50%（小巧）", true, scale_is_selected(initial.scale, 0.5), None::<&str>)?;
+    let scale_75 = CheckMenuItem::with_id(app, "scale_75", "75%（适中）", true, scale_is_selected(initial.scale, 0.75), None::<&str>)?;
+    let scale_100 = CheckMenuItem::with_id(app, "scale_100", "100%（默认）", true, scale_is_selected(initial.scale, 1.0), None::<&str>)?;
+    let scale_125 = CheckMenuItem::with_id(app, "scale_125", "125%（偏大）", true, scale_is_selected(initial.scale, 1.25), None::<&str>)?;
+    let scale_150 = CheckMenuItem::with_id(app, "scale_150", "150%（大号）", true, scale_is_selected(initial.scale, 1.5), None::<&str>)?;
     let scale_menu = Submenu::with_items(
         app,
-        "缩放大小",
+        format!("缩放大小（当前 {:.0}%）",initial.scale*100.0),
         true,
         &[&scale_25, &scale_50, &scale_75, &scale_100, &scale_125, &scale_150],
     )?;
 
-    let kb_65 = MenuItem::with_id(app, "kb_65", "65% 紧凑键盘", true, None::<&str>)?;
-    let kb_108 = MenuItem::with_id(app, "kb_108", "108 键全尺寸（含小键盘）", true, None::<&str>)?;
+    let kb_65 = CheckMenuItem::with_id(app, "kb_65", "65% 紧凑键盘", true, initial.keyboard_layout=="65", None::<&str>)?;
+    let kb_108 = CheckMenuItem::with_id(app, "kb_108", "108 键全尺寸（含小键盘）", true, initial.keyboard_layout=="108", None::<&str>)?;
     let kb_sep = PredefinedMenuItem::separator(app)?;
-    let kb_cat = MenuItem::with_id(app, "kb_cat", "面向猫咪（180° 真实视角）", true, None::<&str>)?;
-    let kb_viewer = MenuItem::with_id(app, "kb_viewer", "面向观众（正向字母易读）", true, None::<&str>)?;
+    let kb_cat = CheckMenuItem::with_id(app, "kb_cat", "面向猫咪（180° 真实视角）", true, initial.keyboard_orientation=="cat", None::<&str>)?;
+    let kb_viewer = CheckMenuItem::with_id(app, "kb_viewer", "面向观众（正向字母易读）", true, initial.keyboard_orientation=="viewer", None::<&str>)?;
     let kb_menu = Submenu::with_items(
         app,
         "键盘配列与方向",
@@ -183,16 +230,16 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         &[&kb_65, &kb_108, &kb_sep, &kb_cat, &kb_viewer],
     )?;
 
-    let tail_smart = MenuItem::with_id(app, "tail_smart", "智能第三只手（忙时出尾）", true, None::<&str>)?;
-    let tail_custom = MenuItem::with_id(app, "tail_custom", "自定义尾巴按键", true, None::<&str>)?;
-    let tail_edge = MenuItem::with_id(app, "tail_edge", "近尾边缘区（不拆 WASD）", true, None::<&str>)?;
-    let tail_off = MenuItem::with_id(app, "tail_off", "仅摆动不拍键", true, None::<&str>)?;
+    let tail_smart = CheckMenuItem::with_id(app, "tail_smart", "智能第三只手（忙时出尾）", true, cat_active && initial.tail_key_mode=="smart", None::<&str>)?;
+    let tail_custom = CheckMenuItem::with_id(app, "tail_custom", "自定义尾巴按键", true, cat_active && initial.tail_key_mode=="custom", None::<&str>)?;
+    let tail_edge = CheckMenuItem::with_id(app, "tail_edge", "近尾边缘区（不拆 WASD）", true, cat_active && initial.tail_key_mode=="edge", None::<&str>)?;
+    let tail_off = CheckMenuItem::with_id(app, "tail_off", "仅摆动不拍键", true, cat_active && initial.tail_key_mode=="off", None::<&str>)?;
     let tail_sep = PredefinedMenuItem::separator(app)?;
     let tail_pick = MenuItem::with_id(app, "tail_pick_keys", "🐾 在键盘上点选尾巴按键…", true, None::<&str>)?;
     let tail_menu = Submenu::with_items(
         app,
-        "尾巴拍键模式",
-        true,
+        if cat_active {"尾巴拍键模式"} else {"尾巴拍键模式（由人物包控制）"},
+        cat_active,
         &[
             &tail_smart,
             &tail_custom,
@@ -260,6 +307,9 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
     )?;
     let quit = MenuItem::with_id(app, "quit", "退出 KuroCat", true, None::<&str>)?;
 
+    let character_menu = Submenu::with_id(app,"character-menu","导入人物 · 2D",true)?;
+    refresh_character_menu(app,&character_menu)?;
+    let character_menu_for_click = character_menu.clone();
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
 
@@ -277,6 +327,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
             &sound_toggle,
             &always_on_top,
             &breed_menu,
+            &character_menu,
             &kb_menu,
             &tail_menu,
             &scale_menu,
@@ -305,6 +356,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
             &sound_toggle,
             &always_on_top,
             &breed_menu,
+            &character_menu,
             &kb_menu,
             &tail_menu,
             &scale_menu,
@@ -333,6 +385,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
             &sound_toggle,
             &always_on_top,
             &breed_menu,
+            &character_menu,
             &kb_menu,
             &tail_menu,
             &scale_menu,
@@ -360,8 +413,32 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         let ot = obs_toggle.clone();
         let oh = obs_hide_pet.clone();
         let mt = mcp_toggle.clone();
+        let breeds = [
+            (breed_black.clone(), "black"), (breed_ragdoll.clone(), "ragdoll"),
+            (breed_orange.clone(), "orange-tabby"), (breed_calico.clone(), "calico"),
+            (breed_tuxedo.clone(), "tuxedo"), (breed_siamese.clone(), "siamese"),
+            (breed_dafeiyu.clone(), "dafeiyu"),
+        ];
+        let layouts = [(kb_65.clone(), "65"), (kb_108.clone(), "108")];
+        let orientations = [(kb_cat.clone(), "cat"), (kb_viewer.clone(), "viewer")];
+        let tails = [(tail_smart.clone(), "smart"), (tail_custom.clone(), "custom"), (tail_edge.clone(), "edge"), (tail_off.clone(), "off")];
+        let scales = [(scale_25.clone(), 0.25), (scale_50.clone(), 0.5), (scale_75.clone(), 0.75), (scale_100.clone(), 1.0), (scale_125.clone(), 1.25), (scale_150.clone(), 1.5)];
+        let character_menu_state = character_menu.clone();
+        let scale_menu_state = scale_menu.clone();
+        let tail_menu_state = tail_menu.clone();
         app.listen("kuro-settings", move |ev| {
             if let Ok(s) = serde_json::from_str::<AppSettings>(ev.payload()) {
+                let _ = sync_character_checks(&character_menu_state, &s);
+                for (item, id) in &breeds {
+                    let _ = item.set_checked(s.active_character_id.is_none() && s.cat_breed == *id);
+                }
+                for (item, id) in &layouts { let _ = item.set_checked(s.keyboard_layout == *id); }
+                for (item, id) in &orientations { let _ = item.set_checked(s.keyboard_orientation == *id); }
+                for (item, id) in &tails { let _ = item.set_checked(s.active_character_id.is_none() && s.tail_key_mode == *id); }
+                for (item, value) in &scales { let _ = item.set_checked(scale_is_selected(s.scale, *value)); }
+                let _ = scale_menu_state.set_text(format!("缩放大小（当前 {:.0}%）",s.scale*100.0));
+                let _ = tail_menu_state.set_enabled(s.active_character_id.is_none());
+                let _ = tail_menu_state.set_text(if s.active_character_id.is_none() {"尾巴拍键模式"} else {"尾巴拍键模式（由人物包控制）"});
                 let _ = ct.set_checked(s.click_through_locked);
                 let _ = kb.set_checked(s.show_key_bubbles);
                 let _ = pg.set_checked(s.privacy_password_guard);
@@ -381,6 +458,9 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         .menu(&menu)
         .show_menu_on_left_click(cfg!(target_os = "macos"))
         .on_tray_icon_event(move |tray, event| {
+            if matches!(&event, TrayIconEvent::Click { .. }) {
+                let _ = refresh_character_menu(tray.app_handle(), &character_menu_for_click);
+            }
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,
@@ -404,6 +484,34 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
             }
         })
         .on_menu_event(move |app, event| {
+            if let Some(choice) = event.id().as_ref().strip_prefix("character:") {
+                if let Some((id,outfit)) = choice.split_once(':') {
+                    match crate::character_selection::choose(id,Some(outfit),true) {
+                        Ok(_) => {
+                            crate::reload_and_emit_all(app);
+                            let _ = app.emit("kuro-character-selection-error", "");
+                            if let Some(tray) = app.tray_by_id("kuro-tray") {
+                                let paused = app.state::<AppState>().paused_guard.load(std::sync::atomic::Ordering::SeqCst);
+                                let tooltip = if paused { "KuroCat（已暂停监听 · 反作弊护航中）" } else { default_tray_tooltip() };
+                                let _ = tray.set_tooltip(Some(tooltip));
+                            }
+                        }
+                        Err(error) => {
+                            let message = format!("人物切换失败（{}）：{}；保留原选择，请重试或重新导入。", error.code, error.message);
+                            eprintln!("{message}");
+                            let _ = app.emit("kuro-character-selection-error", &message);
+                            if let Some(tray) = app.tray_by_id("kuro-tray") {
+                                let _ = tray.set_tooltip(Some(&message));
+                            }
+                        }
+                    }
+                }
+                // Native check items toggle before dispatch, including when selection fails
+                // or the already-selected outfit is clicked again. Restore committed state.
+                let settings = app.state::<AppState>().settings.lock().unwrap().clone();
+                let _ = sync_character_checks(&character_menu, &settings);
+                return;
+            }
             let state = app.state::<AppState>();
             match event.id().as_ref() {
                 "toggle_show" => {
@@ -423,7 +531,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                             let mut s = state.settings.lock().unwrap();
                             if s.obs_hide_pet {
                                 s.obs_hide_pet = false;
-                                crate::config::save_settings(&s);
+                                crate::config::save_settings(&mut s,&["obsHidePet"]);
                                 let _ = obs_hide_pet.set_checked(false);
                                 let _ = app.emit("kuro-settings", s.clone());
                             }
@@ -459,32 +567,32 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                 "click_through" => {
                     let mut s = state.settings.lock().unwrap();
                     s.click_through_locked = !s.click_through_locked;
+                    crate::config::save_settings(&mut s,&["clickThroughLocked"]);
                     let locked = s.click_through_locked;
-                    crate::config::save_settings(&s);
                     let _ = click_through.set_checked(locked);
                     let _ = app.emit("kuro-settings", s.clone());
                 }
                 "key_bubbles" => {
                     let mut s = state.settings.lock().unwrap();
                     s.show_key_bubbles = !s.show_key_bubbles;
+                    crate::config::save_settings(&mut s,&["showKeyBubbles"]);
                     let enabled = s.show_key_bubbles;
-                    crate::config::save_settings(&s);
                     let _ = key_bubbles.set_checked(enabled);
                     let _ = app.emit("kuro-settings", s.clone());
                 }
                 "privacy_guard" => {
                     let mut s = state.settings.lock().unwrap();
                     s.privacy_password_guard = !s.privacy_password_guard;
+                    crate::config::save_settings(&mut s,&["privacyPasswordGuard"]);
                     let enabled = s.privacy_password_guard;
-                    crate::config::save_settings(&s);
                     let _ = privacy_guard.set_checked(enabled);
                     let _ = app.emit("kuro-settings", s.clone());
                 }
                 "sound_toggle" => {
                     let mut s = state.settings.lock().unwrap();
                     s.sound_enabled = !s.sound_enabled;
+                    crate::config::save_settings(&mut s,&["soundEnabled"]);
                     let enabled = s.sound_enabled;
-                    crate::config::save_settings(&s);
                     let _ = sound_toggle.set_checked(enabled);
                     let _ = app.emit("kuro-settings", s.clone());
                 }
@@ -492,8 +600,8 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                     let (on_top, updated) = {
                         let mut s = state.settings.lock().unwrap();
                         s.always_on_top = !s.always_on_top;
+                        crate::config::save_settings(&mut s,&["alwaysOnTop"]);
                         let on_top = s.always_on_top;
-                        crate::config::save_settings(&s);
                         (on_top, s.clone())
                     };
                     let _ = always_on_top.set_checked(on_top);
@@ -505,10 +613,11 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                     let next = !s.autostart;
                     if crate::config::set_windows_autostart(next).is_ok() {
                         s.autostart = next;
-                        crate::config::save_settings(&s);
-                        let _ = autostart.set_checked(next);
+                        crate::config::save_settings(&mut s,&["autostart"]);
                         let _ = app.emit("kuro-settings", s.clone());
                     }
+                    // A rejected system operation must undo the native auto-toggle too.
+                    let _ = autostart.set_checked(s.autostart);
                 }
                 "obs_toggle" => {
                     let (enabled, port, updated) = {
@@ -520,7 +629,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                         if s.obs_port == 0 {
                             s.obs_port = 27421;
                         }
-                        crate::config::save_settings(&s);
+                        crate::config::save_settings(&mut s,&["obsEnabled","obsHidePet","obsPort"]);
                         (s.obs_enabled, s.obs_port, s.clone())
                     };
                     crate::obs::sync_obs_server(app, enabled, port);
@@ -544,8 +653,8 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                             s.obs_port = 27421;
                         }
                         s.obs_hide_pet = next_hide;
-                        crate::config::save_settings(&s);
-                        (next_hide, s.obs_port, s.clone())
+                        crate::config::save_settings(&mut s,&["obsEnabled","obsHidePet","obsPort"]);
+                        (s.obs_enabled&&s.obs_hide_pet, s.obs_port, s.clone())
                     };
                     crate::obs::sync_obs_server(app, updated.obs_enabled, port);
                     let _ = obs_toggle.set_checked(updated.obs_enabled);
@@ -564,7 +673,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                         let changed = !s.obs_enabled;
                         if changed {
                             s.obs_enabled = true;
-                            crate::config::save_settings(&s);
+                            crate::config::save_settings(&mut s,&["obsEnabled","obsPort"]);
                         }
                         (s.obs_port, changed, s.clone())
                     };
@@ -578,11 +687,11 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                 "mcp_toggle" => {
                     let mut s = state.settings.lock().unwrap();
                     s.mcp_enabled = !s.mcp_enabled;
+                    crate::config::save_settings(&mut s,&["mcpEnabled"]);
                     let enabled = s.mcp_enabled;
                     state
                         .mcp_enabled
                         .store(enabled, std::sync::atomic::Ordering::Relaxed);
-                    crate::config::save_settings(&s);
                     let _ = mcp_toggle.set_checked(enabled);
                     let _ = app.emit("kuro-settings", s.clone());
                 }
@@ -685,4 +794,40 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         .build(app)?;
 
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scale_checks_require_an_exact_preset() {
+        let presets = [0.25, 0.5, 0.75, 1.0, 1.25, 1.5];
+        for selected in presets {
+            let checked: Vec<_> = presets.into_iter().filter(|preset| scale_is_selected(selected, *preset)).collect();
+            assert_eq!(checked, vec![selected]);
+        }
+        for custom in [0.2, 0.76, 0.749999, 0.750001, 1.000001, f64::NAN] {
+            assert!(presets.into_iter().all(|preset| !scale_is_selected(custom, preset)));
+        }
+    }
+
+    #[test]
+    fn character_checks_follow_identity_outfit_and_legacy_exit() {
+        let mut settings = AppSettings::default();
+        settings.character_outfits.insert("motion-fixture".into(), "primary".into());
+        settings.character_outfits.insert("native-race".into(), "alternate".into());
+        let choices = ["character:motion-fixture:primary", "character:motion-fixture:alternate", "character:native-race:alternate"];
+        let checked = |settings: &AppSettings| choices.into_iter().filter(|id| character_item_is_selected(id, settings)).collect::<Vec<_>>();
+        assert!(checked(&settings).is_empty());
+        settings.active_character_id = Some("motion-fixture".into());
+        assert_eq!(checked(&settings), vec![choices[0]]);
+        settings.character_outfits.insert("motion-fixture".into(), "alternate".into());
+        assert_eq!(checked(&settings), vec![choices[1]]);
+        settings.active_character_id = Some("native-race".into());
+        assert_eq!(checked(&settings), vec![choices[2]]);
+        settings.active_character_id = None;
+        assert!(checked(&settings).is_empty());
+    }
 }
