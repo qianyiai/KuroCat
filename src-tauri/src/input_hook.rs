@@ -1,10 +1,16 @@
+#[cfg(windows)]
+use crate::{config::AppSettings, AppState, TailPickerBounds};
 use serde::Serialize;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicI32, AtomicU32};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::OnceLock;
+#[cfg(windows)]
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+#[cfg(windows)]
+use tauri::Manager;
 use tauri::{AppHandle, Emitter};
 
 #[derive(Debug, Clone, Serialize)]
@@ -59,6 +65,8 @@ enum RawHookMsg {
     MouseDown(&'static str),
     MouseUp(&'static str),
     MouseWheel(i16),
+    #[cfg(windows)]
+    PetWheel(i16),
     MouseMove {
         x: i32,
         y: i32,
@@ -70,6 +78,29 @@ static KEY_EVENTS_RECEIVED: AtomicU64 = AtomicU64::new(0);
 static ALT_HELD: AtomicBool = AtomicBool::new(false);
 static HOOKS_PAUSED: AtomicBool = AtomicBool::new(false);
 static PASSWORD_PRIVACY_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+#[cfg(all(test, windows))]
+mod pet_wheel_tests {
+    use super::{scale_after_wheel, wheel_steps};
+
+    #[test]
+    fn wheel_accumulates_partial_notches_and_keeps_signed_steps() {
+        let mut remainder = 0;
+        assert_eq!(wheel_steps(&mut remainder, 60), 0);
+        assert_eq!(wheel_steps(&mut remainder, 60), 1);
+        assert_eq!(wheel_steps(&mut remainder, -300), -2);
+        assert_eq!(wheel_steps(&mut remainder, 60), 0);
+        assert_eq!(remainder, 0);
+    }
+
+    #[test]
+    fn wheel_changes_scale_by_five_percentage_points_within_limits() {
+        assert!((scale_after_wheel(1.07, 2) - 1.17).abs() < 1e-8);
+        assert!((scale_after_wheel(1.07, -1) - 1.02).abs() < 1e-8);
+        assert_eq!(scale_after_wheel(1.49, 1), 1.50);
+        assert_eq!(scale_after_wheel(0.21, -1), 0.20);
+    }
+}
 
 pub fn set_password_privacy_active(active: bool) {
     PASSWORD_PRIVACY_ACTIVE.store(active, Ordering::SeqCst);
@@ -357,6 +388,10 @@ pub fn linux_evdev_to_vk(code: u16) -> Option<u32> {
 pub fn start_global_hooks(app: AppHandle) {
     let (tx, rx) = mpsc::channel::<RawHookMsg>();
     let _ = HOOK_TX.set(tx);
+    #[cfg(windows)]
+    if let Some(target) = PetWheelTarget::new(&app) {
+        let _ = PET_WHEEL_TARGET.set(target);
+    }
 
     // Dispatcher thread: deduplicates held key repeats & dual-channel macOS events,
     // throttles mouse moves to ~60Hz, and reconciles lost KeyUp/MouseUp events (Fixes #3 & #4).
@@ -366,6 +401,8 @@ pub fn start_global_hooks(app: AppHandle) {
         let mut last_mouse_xy: Option<(i32, i32)> = None;
         let mut mouse_down = [false; 3]; // 0: left, 1: right, 2: middle
         let mut last_reconcile = Instant::now();
+        #[cfg(windows)]
+        let mut wheel_remainder = 0;
 
         let btn_index = |btn: &str| -> Option<usize> {
             match btn {
@@ -483,6 +520,10 @@ pub fn start_global_hooks(app: AppHandle) {
 
             if HOOKS_PAUSED.load(Ordering::Relaxed) {
                 release_all_held(&app, &mut dedup, &mut mouse_down);
+                #[cfg(windows)]
+                {
+                    wheel_remainder = 0;
+                }
                 continue;
             }
 
@@ -543,7 +584,30 @@ pub fn start_global_hooks(app: AppHandle) {
                         );
                     }
                     RawHookMsg::MouseWheel(delta) => {
+                        #[cfg(windows)]
+                        {
+                            wheel_remainder = 0;
+                        }
                         emit_input(&app, InputEvent::MouseWheel { delta });
+                    }
+                    #[cfg(windows)]
+                    RawHookMsg::PetWheel(delta) => {
+                        emit_input(&app, InputEvent::MouseWheel { delta });
+                        let steps = wheel_steps(&mut wheel_remainder, delta);
+                        if steps != 0 {
+                            let handle = app.clone();
+                            let _ = app.run_on_main_thread(move || {
+                                let (locked, scale) = {
+                                    let state = handle.state::<AppState>();
+                                    let settings = state.settings.lock().unwrap();
+                                    (settings.click_through_locked, settings.scale)
+                                };
+                                let next = scale_after_wheel(scale, steps);
+                                if !locked && (next - scale).abs() > 1e-8 {
+                                    crate::apply_scale_and_save(&handle, next);
+                                }
+                            });
+                        }
                     }
                     RawHookMsg::MouseMove { x, y } => {
                         // Drop synthetic 0px repeats and 1px optical sensor desk vibration so sleeping cats are never falsely woken!
@@ -693,6 +757,102 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: usize, lparam: i
 }
 
 #[cfg(windows)]
+fn wheel_steps(remainder: &mut i32, delta: i16) -> i32 {
+    use windows_sys::Win32::UI::WindowsAndMessaging::WHEEL_DELTA;
+
+    let total = *remainder + i32::from(delta);
+    *remainder = total % WHEEL_DELTA as i32;
+    total / WHEEL_DELTA as i32
+}
+
+#[cfg(windows)]
+fn scale_after_wheel(scale: f64, steps: i32) -> f64 {
+    (scale + f64::from(steps) * 0.05).clamp(0.20, 1.50)
+}
+
+#[cfg(windows)]
+static PET_WHEEL_TARGET: OnceLock<PetWheelTarget> = OnceLock::new();
+
+#[cfg(windows)]
+struct PetWheelTarget {
+    main_window: usize,
+    use_layered_window: bool,
+    settings: Arc<Mutex<AppSettings>>,
+    menu_open: Arc<AtomicBool>,
+    dragging: Arc<AtomicBool>,
+    picker: Arc<Mutex<Option<TailPickerBounds>>>,
+    update_banner_open: Arc<AtomicBool>,
+}
+
+#[cfg(windows)]
+impl PetWheelTarget {
+    fn new(app: &AppHandle) -> Option<Self> {
+        let main_window = app.get_webview_window("main")?.hwnd().ok()?.0 as usize;
+        let state = app.state::<AppState>();
+        Some(Self {
+            main_window,
+            use_layered_window: crate::win_needs_win7_ulw(),
+            settings: state.settings.clone(),
+            menu_open: state.menu_open.clone(),
+            dragging: state.dragging.clone(),
+            picker: state.tail_picker_bounds.clone(),
+            update_banner_open: state.update_banner_open.clone(),
+        })
+    }
+
+    fn hits_cat(&self, point: windows_sys::Win32::Foundation::POINT) -> bool {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{
+            GetAncestor, GetWindowRect, WindowFromPoint, GA_ROOT,
+        };
+
+        if self.menu_open.load(Ordering::Relaxed)
+            || self.dragging.load(Ordering::Relaxed)
+            || !self.picker.try_lock().is_ok_and(|picker| picker.is_none())
+        {
+            return false;
+        }
+        // The low-level hook must return promptly even while settings are being saved.
+        let (is_108, scale) = {
+            let Ok(settings) = self.settings.try_lock() else {
+                return false;
+            };
+            if settings.click_through_locked {
+                return false;
+            }
+            (settings.keyboard_layout == "108", settings.scale.clamp(0.20, 1.50))
+        };
+        let window = if self.use_layered_window {
+            let Some(window) = crate::win7_layered::hwnd() else {
+                return false;
+            };
+            window
+        } else {
+            self.main_window as windows_sys::Win32::Foundation::HWND
+        };
+        let hit = unsafe { WindowFromPoint(point) };
+        if hit != window && (hit.is_null() || unsafe { GetAncestor(hit, GA_ROOT) } != window) {
+            return false;
+        }
+
+        let mut rect = unsafe { std::mem::zeroed() };
+        if unsafe { GetWindowRect(window, &mut rect) } == 0 {
+            return false;
+        }
+        let rx = f64::from(point.x - rect.left) / f64::from((rect.right - rect.left).max(1));
+        let ry = f64::from(point.y - rect.top) / f64::from((rect.bottom - rect.top).max(1));
+        let layout = if is_108 { "108" } else { "65" };
+        let (width, height) = crate::window_dimensions(layout, scale);
+        if self.update_banner_open.load(Ordering::Relaxed)
+            && ry <= crate::banner_hit_ry_limit(height)
+        {
+            return false;
+        }
+        let (pet_rx, pet_ry) = crate::window_to_pet_position(rx, ry, width, height, layout, scale);
+        crate::is_over_interactive_silhouette(pet_rx, pet_ry, is_108).1
+    }
+}
+
+#[cfg(windows)]
 unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, MSLLHOOKSTRUCT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MBUTTONDOWN,
@@ -742,6 +902,13 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isiz
                 }
                 WM_MOUSEWHEEL => {
                     let delta = ((ms.mouseData >> 16) & 0xffff) as i16;
+                    if delta != 0
+                        && !HOOKS_PAUSED.load(Ordering::Relaxed)
+                        && PET_WHEEL_TARGET.get().is_some_and(|target| target.hits_cat(ms.pt))
+                        && tx.send(RawHookMsg::PetWheel(delta)).is_ok()
+                    {
+                        return 1;
+                    }
                     let _ = tx.send(RawHookMsg::MouseWheel(delta));
                 }
                 _ => {}

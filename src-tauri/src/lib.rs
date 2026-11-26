@@ -1828,6 +1828,39 @@ fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool) -> (bool, bool
     (over_cat || over_desk, over_cat)
 }
 
+fn window_to_pet_position(
+    rx: f64,
+    ry: f64,
+    window_width: f64,
+    window_height: f64,
+    layout: &str,
+    scale: f64,
+) -> (f64, f64) {
+    let (base_width, base_height) = base_dimensions(layout);
+    let width_fraction = ((base_width * scale) / window_width).clamp(0.05, 1.0);
+    let height_fraction = ((base_height * scale) / window_height).clamp(0.05, 1.0);
+    (
+        (rx - (1.0 - width_fraction)) / width_fraction,
+        (ry - (1.0 - height_fraction)) / height_fraction,
+    )
+}
+
+#[cfg(test)]
+#[test]
+fn scaled_window_hit_testing_distinguishes_cat_from_desk_and_padding() {
+    let (width, height, scale) = (260.0, 410.0, 0.2);
+    let (base_width, base_height) = base_dimensions("65");
+    let (pet_width, pet_height) = (base_width * scale, base_height * scale);
+    let hit = |x: f64, y: f64| {
+        let (pet_x, pet_y) =
+            window_to_pet_position(x / width, y / height, width, height, "65", scale);
+        is_over_interactive_silhouette(pet_x, pet_y, false)
+    };
+    assert_eq!(hit(width - pet_width * 0.52, height - pet_height * 0.51), (true, true));
+    assert_eq!(hit(width - pet_width * 0.65, height - pet_height * 0.14), (true, false));
+    assert_eq!(hit(10.0, 10.0), (false, false));
+}
+
 fn tail_picker_captures_cursor(
     bounds: Option<TailPickerBounds>,
     rx: f64,
@@ -2090,15 +2123,10 @@ fn start_hit_test_loop(
 
             // Map window-relative (rx, ry) into exact pet-local (pet_rx, pet_ry),
             // since at small scales (20%..90%) the pet is anchored bottom-right inside a min-safe menu window!
-            let (bw, bh) = base_dimensions(layout_str);
             let win_log_w = (w / sf).max(1.0);
             let win_log_h = (h / sf).max(1.0);
-            let pet_w_frac = ((bw * cur_scale) / win_log_w).clamp(0.05, 1.0);
-            let pet_h_frac = ((bh * cur_scale) / win_log_h).clamp(0.05, 1.0);
-            let pet_x0 = 1.0 - pet_w_frac;
-            let pet_y0 = 1.0 - pet_h_frac;
-            let pet_rx = (rx - pet_x0) / pet_w_frac;
-            let pet_ry = (ry - pet_y0) / pet_h_frac;
+            let (pet_rx, pet_ry) =
+                window_to_pet_position(rx, ry, win_log_w, win_log_h, layout_str, cur_scale);
             let inside_pet = pet_rx >= 0.0 && pet_rx <= 1.0 && pet_ry >= 0.0 && pet_ry <= 1.0;
 
             let (over_interactive, raw_over_cat) = if inside_pet {
