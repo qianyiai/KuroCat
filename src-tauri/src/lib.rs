@@ -195,6 +195,12 @@ pub fn set_pet_visible(app: &AppHandle, visible: bool) {
         .lock()
         .unwrap()
         .always_on_top;
+    #[cfg(target_os = "linux")]
+    let saved_position = {
+        let state = app.state::<AppState>();
+        let settings = state.settings.lock().unwrap();
+        settings.x.zip(settings.y)
+    };
 
     #[cfg(windows)]
     if win_needs_win7_ulw() {
@@ -218,11 +224,23 @@ pub fn set_pet_visible(app: &AppHandle, visible: bool) {
     if let Some(win) = app.get_webview_window("main") {
         if visible {
             let _ = win.show();
+            #[cfg(target_os = "linux")]
+            if let Some((x, y)) = saved_position {
+                let _ = win.set_position(PhysicalPosition::new(x, y));
+            }
             #[cfg(windows)]
             if on_top {
                 win_gentle_reassert_topmost(&win);
             }
         } else {
+            #[cfg(target_os = "linux")]
+            if let Ok(position) = win.outer_position() {
+                let state = app.state::<AppState>();
+                let mut settings = state.settings.lock().unwrap();
+                settings.x = Some(position.x);
+                settings.y = Some(position.y);
+                save_settings(&settings);
+            }
             let _ = win.hide();
         }
     }
