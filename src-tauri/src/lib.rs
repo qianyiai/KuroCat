@@ -2798,13 +2798,6 @@ pub fn run() {
             }
 
             if let Some(win) = app.get_webview_window("main") {
-                #[cfg(target_os = "linux")]
-                {
-                    // On X11, `resizable: false` in tauri.conf.json sets fixed min==max WM size hints,
-                    // causing programmatic `set_size()` calls (e.g. scale < 100%) to be silently ignored (#56).
-                    // Because the window is borderless/undecorated, enabling resizable on Linux adds no frame.
-                    let _ = win.set_resizable(true);
-                }
                 let (win_w, win_h) = window_dimensions(&s.keyboard_layout, s.scale);
                 let _ = win.set_size(Size::Logical(LogicalSize::new(win_w, win_h)));
                 #[cfg(not(target_os = "macos"))]
