@@ -981,11 +981,31 @@ html.win7-ulw-mode .floating-side-menu {
 }
 
 /* AI Coding Companion floating status pill (always pointer-events: none so click-through is never affected) */
-.agent-bubble {
+/* AI Coding Companion：多会话气泡栈（pointer-events: none，不影响点击穿透）
+   #agent-bubble 现在是容器，真正的气泡是它下面若干个 .agent-bubble 子元素，
+   按会话首次出现的顺序自上而下排列；任一会话在 working 时猫保持打字动画。 */
+.agent-bubble-stack {
   position: fixed;
   top: 6px;
   left: 50%;
   transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  max-width: calc(100vw - 24px);
+  pointer-events: none;
+  z-index: 45;
+}
+
+.agent-bubble-stack.hidden {
+  display: none;
+}
+
+.agent-bubble {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
   max-width: calc(100vw - 24px);
   padding: 4px 10px;
   border-radius: 999px;
@@ -1031,6 +1051,28 @@ html.win7-ulw-mode .floating-side-menu {
 .agent-bubble[data-tone='error'] {
   border-color: rgba(255, 102, 102, 0.8);
   color: #ffc5c5;
+}
+
+
+.agent-bubble-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-bubble.leaving {
+  animation: agentBubbleOut 0.18s ease-in forwards;
+}
+
+@keyframes agentBubbleOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.96);
+  }
 }
 
 @keyframes agentBubbleIn {
