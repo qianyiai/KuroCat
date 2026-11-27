@@ -1793,6 +1793,7 @@ name = "kuro-cat-pet"
 version = "5.1.2"
 dependencies = [
  "block2",
+ "gtk",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",
@@ -1801,6 +1802,7 @@ dependencies = [
  "serde_json",
  "tauri",
  "tauri-build",
+ "webkit2gtk",
  "windows 0.58.0",
  "windows-sys 0.59.0",
 ]

@@ -5,6 +5,8 @@ mod config;
 mod game_detect;
 mod i18n;
 mod input_hook;
+#[cfg(target_os = "linux")]
+mod linux_webview;
 #[cfg(target_os = "macos")]
 mod macos_window;
 mod mcp;
@@ -2816,6 +2818,8 @@ pub fn run() {
             }
 
             if let Some(win) = app.get_webview_window("main") {
+                #[cfg(target_os = "linux")]
+                linux_webview::configure_transparent_webview(&win)?;
                 let (win_w, win_h) = window_dimensions(&s.keyboard_layout, s.scale);
                 let _ = win.set_size(Size::Logical(LogicalSize::new(win_w, win_h)));
                 #[cfg(not(target_os = "macos"))]
