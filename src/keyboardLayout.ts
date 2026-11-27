@@ -25,6 +25,29 @@ export const VK_NUMPAD_ENTER = 0x10d;
 export const TOTAL_UNITS = 15;
 export const TOTAL_ROWS = 5;
 
+// Same rule as isMacPlatform() in i18n.ts (not imported: i18n.ts pulls in every locale bundle).
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
+
+// Space-row modifiers per platform. The native hooks report the same VKs everywhere
+// (Command = Win 0x5B/0x5C, Option = Alt 0xA4/0xA5); only the physical order and legends differ.
+const SPACE_ROW_65_WIN: KeySpec[] = [
+  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 4, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lwin', label: 'Win', bubble: 'Win', row: 4, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b, 0x5c] },
+  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'space', label: '␣', bubble: '␣', row: 4, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0xa5, 0xa3] },
+];
+
+// MacBook order ⌃ ⌥ ⌘ ␣ ⌘ ⌥: space gives up 1U for the right ⌘; a stray right Control lights ⌃.
+const SPACE_ROW_65_MAC: KeySpec[] = [
+  { id: 'lctrl', label: '⌃', bubble: 'control', row: 4, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11, 0xa3] },
+  { id: 'lalt', label: '⌥', bubble: 'option', row: 4, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'lwin', label: '⌘', bubble: 'command', row: 4, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'space', label: '␣', bubble: '␣', row: 4, uStart: 3.75, uWidth: 5.25, vkCodes: [0x20] },
+  { id: 'rwin', label: '⌘', bubble: 'command', row: 4, uStart: 9, uWidth: 1, accent: 'mod', vkCodes: [0x5c] },
+  { id: 'ralt', label: '⌥', bubble: 'option', row: 4, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0xa5] },
+];
+
 export const KEYBOARD_KEYS_65: KeySpec[] = [
   // Row 0: Orange Esc (rotates 180° to bottom-right corner facing cat!) + 1..0 + - + = + Backspace (15U total)
   { id: 'esc', label: 'ESC', bubble: 'Esc', row: 0, uStart: 0, uWidth: 1, accent: 'orange', vkCodes: [0x1b, 0xc0] },
@@ -87,12 +110,8 @@ export const KEYBOARD_KEYS_65: KeySpec[] = [
   { id: 'slash', label: '/', bubble: '/', row: 3, uStart: 11.25, uWidth: 1, vkCodes: [0xbf, 0x6f] },
   { id: 'rshift', label: '⇧', bubble: '⇧', row: 3, uStart: 12.25, uWidth: 2.75, accent: 'orange', vkCodes: [0xa1] },
 
-  // Row 4: Ctrl Win Alt Space Alt Left Down Up Right (rotates 180° to top row closest to cat!) (15U total)
-  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 4, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
-  { id: 'lwin', label: 'Win', bubble: 'Win', row: 4, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b, 0x5c] },
-  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
-  { id: 'space', label: '␣', bubble: '␣', row: 4, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
-  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0xa5, 0xa3] },
+  // Row 4: space-row modifiers (per platform) + Left Down Up Right (rotates 180° to top row closest to cat!) (15U total)
+  ...(IS_MAC ? SPACE_ROW_65_MAC : SPACE_ROW_65_WIN),
   { id: 'left', label: '←', bubble: '←', row: 4, uStart: 11, uWidth: 1, accent: 'mod', vkCodes: [0x25, 0x23] },
   { id: 'down', label: '↓', bubble: '↓', row: 4, uStart: 12, uWidth: 1, accent: 'mod', vkCodes: [0x28, 0x22] },
   { id: 'up', label: '↑', bubble: '↑', row: 4, uStart: 13, uWidth: 1, accent: 'mod', vkCodes: [0x26, 0x21] },
@@ -102,6 +121,29 @@ export const KEYBOARD_KEYS_65: KeySpec[] = [
 // Authentic full-size 108-key ANSI mechanical keyboard (22.7U x 6.25 rows; 20 + 21 + 21 + 16 + 17 + 13 = 108 keys!)
 const NAV_X = 15.35;
 const NUM_X = 18.7;
+
+const SPACE_ROW_108_WIN: KeySpec[] = [
+  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 10, uWidth: 1.25, accent: 'mod', vkCodes: [0xa5] },
+  { id: 'rwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 11.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5c] },
+  { id: 'menu', label: '▤', bubble: 'Menu', row: 5, rowY: 5.25, uStart: 12.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5d] },
+  { id: 'rctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 13.75, uWidth: 1.25, accent: 'mod', vkCodes: [0xa3] },
+];
+
+// Apple full-size order ⌃ ⌥ ⌘ ␣ ⌘ ⌥ ▤ ⌃ (▤ kept so the 108-key count and widths stay identical).
+const SPACE_ROW_108_MAC: KeySpec[] = [
+  { id: 'lctrl', label: '⌃', bubble: 'control', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lalt', label: '⌥', bubble: 'option', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'lwin', label: '⌘', bubble: 'command', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'rwin', label: '⌘', bubble: 'command', row: 5, rowY: 5.25, uStart: 10, uWidth: 1.25, accent: 'mod', vkCodes: [0x5c] },
+  { id: 'ralt', label: '⌥', bubble: 'option', row: 5, rowY: 5.25, uStart: 11.25, uWidth: 1.25, accent: 'mod', vkCodes: [0xa5] },
+  { id: 'menu', label: '▤', bubble: 'Menu', row: 5, rowY: 5.25, uStart: 12.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5d] },
+  { id: 'rctrl', label: '⌃', bubble: 'control', row: 5, rowY: 5.25, uStart: 13.75, uWidth: 1.25, accent: 'mod', vkCodes: [0xa3] },
+];
 
 export const KEYBOARD_KEYS_108: KeySpec[] = [
   // Row 0 (rowY=0): Esc + F1..F12 + Prt/Scr/Pau + 4 signature 108-key media/utility keys above Numpad (20 keys)
@@ -209,15 +251,8 @@ export const KEYBOARD_KEYS_108: KeySpec[] = [
   { id: 'np_3', label: '3', bubble: 'Num3', row: 4, rowY: 4.25, uStart: NUM_X + 2, uWidth: 1, vkCodes: [0x63] },
   { id: 'np_ent', label: '↵', bubble: 'Num↵', row: 4, rowY: 4.25, rowSpan: 2, uStart: NUM_X + 3, uWidth: 1, accent: 'orange', vkCodes: [VK_NUMPAD_ENTER] },
 
-  // Row 5 (rowY=5.25): Ctrl Win Alt Space Alt Win Menu Ctrl | Left Down Right | 0(2U) . (13 keys)
-  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
-  { id: 'lwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
-  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
-  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
-  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 10, uWidth: 1.25, accent: 'mod', vkCodes: [0xa5] },
-  { id: 'rwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 11.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5c] },
-  { id: 'menu', label: '▤', bubble: 'Menu', row: 5, rowY: 5.25, uStart: 12.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5d] },
-  { id: 'rctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 13.75, uWidth: 1.25, accent: 'mod', vkCodes: [0xa3] },
+  // Row 5 (rowY=5.25): space-row modifiers (per platform) | Left Down Right | 0(2U) . (13 keys)
+  ...(IS_MAC ? SPACE_ROW_108_MAC : SPACE_ROW_108_WIN),
   { id: 'left', label: '←', bubble: '←', row: 5, rowY: 5.25, uStart: NAV_X, uWidth: 1, accent: 'mod', vkCodes: [0x25] },
   { id: 'down', label: '↓', bubble: '↓', row: 5, rowY: 5.25, uStart: NAV_X + 1, uWidth: 1, accent: 'mod', vkCodes: [0x28] },
   { id: 'right', label: '→', bubble: '→', row: 5, rowY: 5.25, uStart: NAV_X + 2, uWidth: 1, accent: 'mod', vkCodes: [0x27] },
