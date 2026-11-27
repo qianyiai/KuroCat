@@ -389,6 +389,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: '三花猫',
       tuxedo: '奶牛猫',
       siamese: '暹罗猫',
+      persian: '波斯猫',
       dafeiyu: '大肥鱼',
     },
     tailModeShort: {
@@ -719,6 +720,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: 'Calico',
       tuxedo: 'Tuxedo',
       siamese: 'Siamese',
+      persian: 'Persian',
       dafeiyu: 'BigFish',
     },
     tailModeShort: {
@@ -1049,6 +1051,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: '三毛猫',
       tuxedo: 'ハチワレ',
       siamese: 'シャム猫',
+      persian: 'ペルシャ猫',
       dafeiyu: 'クジラ娘',
     },
     tailModeShort: {
@@ -1379,6 +1382,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: '삼색이',
       tuxedo: '턱시도',
       siamese: '샴 고양이',
+      persian: '페르시안',
       dafeiyu: '고래소녀',
     },
     tailModeShort: {
@@ -1709,6 +1713,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: 'Calicó',
       tuxedo: 'Esmoquin',
       siamese: 'Siamés',
+      persian: 'Persa',
       dafeiyu: 'BigFish',
     },
     tailModeShort: {
@@ -2039,6 +2044,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: 'Tricolor',
       tuxedo: 'Frajola',
       siamese: 'Siamês',
+      persian: 'Persa',
       dafeiyu: 'BigFish',
     },
     tailModeShort: {
@@ -2369,6 +2375,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: 'Трёхцветная',
       tuxedo: 'Смокинг',
       siamese: 'Сиамский',
+      persian: 'Персидский',
       dafeiyu: 'BigFish',
     },
     tailModeShort: {
@@ -2699,6 +2706,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       calico: 'Glückskatze',
       tuxedo: 'Tuxedo',
       siamese: 'Siamkatze',
+      persian: 'Perserkatze',
       dafeiyu: 'BigFish',
     },
     tailModeShort: {
