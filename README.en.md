@@ -48,6 +48,10 @@
 
 <br />
 
+## Optional passive work companion (draft)
+
+Enable Work companion in settings to observe local DSH/Codex sessions read-only, with titles, public progress and rotating combined/stacked/minimal bubbles. No host plugin or hook changes are required. It is off by default; see [usage, privacy and draft limitations](docs/WORK-COMPANION.md) and the [adapter guide](docs/CONTRIBUTING-ADAPTERS.md).
+
 ## 🎬 Live Demos
 
 <table>

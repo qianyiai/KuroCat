@@ -1,3 +1,4 @@
+import { mountCompanionSettings } from './companionUi';
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -70,7 +71,7 @@ interface AdminStatus {
   macInputDiag?: boolean;
 }
 
-type MenuTabId = 'appearance' | 'interact' | 'system';
+type MenuTabId = 'appearance' | 'interact' | 'system' | 'work';
 
 let settings: AppSettings = {
   x: null,
@@ -111,7 +112,7 @@ let opacitySliderDragging = false;
 let currentAppVersion = '5.1.3';
 let cachedUpdateInfo: UpdateInfo | null = null;
 let updateBusy = false;
-let activeTab: MenuTabId = 'appearance';
+let activeTab: MenuTabId = new URLSearchParams(location.search).get('tab') === 'work' ? 'work' : 'appearance';
 let settingsPatchSeq = 0;
 let adminStatus: AdminStatus = { supported: false, elevated: false, macInputDiag: false };
 
@@ -618,7 +619,7 @@ async function bootstrap(): Promise<void> {
     const tabBtn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
     if (tabBtn) {
       const next = tabBtn.dataset.tab;
-      if (next === 'appearance' || next === 'interact' || next === 'system') {
+      if (next === 'appearance' || next === 'interact' || next === 'system' || next === 'work') {
         switchTab(next);
       }
       return;
@@ -843,7 +844,7 @@ async function bootstrap(): Promise<void> {
     const qBreed = params.get('breed');
     if (qBreed) settings.catBreed = qBreed;
     const qTab = params.get('tab');
-    if (qTab === 'appearance' || qTab === 'interact' || qTab === 'system') activeTab = qTab;
+    if (qTab === 'appearance' || qTab === 'interact' || qTab === 'system' || qTab === 'work') activeTab = qTab;
     // Populate all 7 built-in cats for realistic layout verification outside Tauri
     catList = [
       ...DEFAULT_BUILTIN_CATS.slice(0, 2),
@@ -855,6 +856,8 @@ async function bootstrap(): Promise<void> {
     ];
   }
   syncUI();
+  const workHost = document.getElementById('kuro-work-settings');
+  if (workHost) await mountCompanionSettings(workHost);
   renderFooterUpdateState();
   switchTab(activeTab);
   resolveInitReady();

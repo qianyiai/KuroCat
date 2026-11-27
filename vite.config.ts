@@ -10,6 +10,7 @@ export default defineConfig({
       input: {
         main: path.resolve(__dirname, 'index.html'),
         menu: path.resolve(__dirname, 'menu.html'),
+        companion: path.resolve(__dirname, 'companion.html'),
         obs: path.resolve(__dirname, 'obs.html'),
       },
     },

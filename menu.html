@@ -62,7 +62,7 @@
       </div>
 
       <!-- 3-Tab Segmented Bar -->
-      <div class="menu-tabs menu-tabs-3" role="tablist" aria-label="Settings">
+      <div class="menu-tabs menu-tabs-4" role="tablist" aria-label="Settings">
         <button class="menu-tab-btn active" data-tab="appearance" type="button" role="tab" aria-selected="true">
           <svg width="12.5" height="12.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M12 3l1.9 4.6L19 9.5l-4.2 3.1L16 17.8 12 15l-4 2.8 1.2-5.2L5 9.5l5.1-1.9L12 3z"></path>
@@ -85,9 +85,11 @@
           </svg>
           <span data-i18n="menu.tab_sys">系统</span>
         </button>
+        <button class="menu-tab-btn" data-tab="work" type="button" role="tab" aria-selected="false"><span data-i18n="companion.title">工作陪伴</span></button>
       </div>
 
       <div class="tab-body" id="menu-tab-body">
+        <div class="tab-panel hidden" data-tab-panel="work"><div id="kuro-work-settings"></div></div>
         <!-- Tab 1: Appearance (Looks, Scale, Style) -->
         <div class="tab-panel" data-tab-panel="appearance">
           <!-- Card 1: Breeds -->

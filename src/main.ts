@@ -1,3 +1,4 @@
+import { motorStatus, type CompanionSnapshot } from './companionModel';
 import './style.css';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
@@ -1440,7 +1441,28 @@ async function bootstrap(): Promise<void> {
     agentCompanion.setPrivacyMode(privacyActive);
   });
 
+  let legacyUntil = 0;
+  let passiveStatus = '';
+  let passiveRefresh = 0;
+  let workMood = 0;
+  const applyCompanion = (snapshot: CompanionSnapshot) => {
+    if (!snapshot.settings.enabled) {
+      agentCompanion.clearPassiveStatus();
+      passiveStatus = ''; workMood = 0;
+      return;
+    }
+    if (Date.now() < legacyUntil) return;
+    const status = motorStatus(snapshot);
+    if (status !== passiveStatus || Date.now() - passiveRefresh > 3000) {
+      agentCompanion.setPassiveStatus(status); passiveStatus = status; passiveRefresh = Date.now();
+    }
+    if (snapshot.moodLevel > workMood) agentCompanion.showWorkMood(snapshot.moodLevel);
+    workMood = snapshot.moodLevel;
+  };
+  await listen<CompanionSnapshot>('kuro-work-companion', ev => applyCompanion(ev.payload));
+  void invoke<CompanionSnapshot>('get_companion_snapshot').then(applyCompanion).catch(() => {});
   await listen<AgentCompanionEvent>('kuro-agent-event', (ev) => {
+    legacyUntil = Date.now() + 10000;
     agentCompanion.handleEvent(ev.payload);
   });
 
