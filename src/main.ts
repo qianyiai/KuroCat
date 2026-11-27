@@ -14,6 +14,7 @@ import { AgentCompanionController, type AgentCompanionEvent } from './agentCompa
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import {
   getKeyboardLayout,
+  normalizeKeyboardLayoutId,
   resolveKeyByVk,
   type KeyboardLayoutDef,
   type KeyboardLayoutId,
@@ -338,7 +339,7 @@ function wants3DNow(): boolean {
 function syncEngine3DState(): void {
   if (!engine3d) return;
   const activeCat = catList.find((c) => c.id === settings.catBreed) ?? catList[0];
-  const kbLayout: KeyboardLayoutId = settings.keyboardLayout === '108' ? '108' : '65';
+  const kbLayout: KeyboardLayoutId = normalizeKeyboardLayoutId(settings.keyboardLayout);
   const kbOrient: KeyboardOrientation = settings.keyboardOrientation === 'viewer' ? 'viewer' : 'cat';
   const tailMode: TailKeyMode =
     settings.tailKeyMode === 'custom' ||
@@ -555,7 +556,7 @@ function syncMenuUI(): void {
     applyPetOpacity(settings.opacity);
   }
 
-  const kbLayout: KeyboardLayoutId = settings.keyboardLayout === '108' ? '108' : '65';
+  const kbLayout: KeyboardLayoutId = normalizeKeyboardLayoutId(settings.keyboardLayout);
   const kbOrient: KeyboardOrientation = settings.keyboardOrientation === 'viewer' ? 'viewer' : 'cat';
   const tailMode: TailKeyMode =
     settings.tailKeyMode === 'custom' ||
@@ -1351,7 +1352,7 @@ async function bootstrap(): Promise<void> {
   let cancelPendingTapVsDrag: (() => void) | null = null;
 
   const computeKeySoundPan = (vk: number): number => {
-    const kbLayout: KeyboardLayoutId = settings.keyboardLayout === '108' ? '108' : '65';
+    const kbLayout: KeyboardLayoutId = normalizeKeyboardLayoutId(settings.keyboardLayout);
     const spec = resolveKeyByVk(vk, kbLayout);
     if (!spec) return 0;
     const layout = getKeyboardLayout(kbLayout);
@@ -1818,7 +1819,7 @@ async function bootstrap(): Promise<void> {
     }
 
     const kbLayoutAttr = target.dataset.kblayout;
-    if (kbLayoutAttr === '65' || kbLayoutAttr === '108') {
+    if (kbLayoutAttr === '65' || kbLayoutAttr === '87' || kbLayoutAttr === '108') {
       void applySettingsPatch({ keyboardLayout: kbLayoutAttr });
       closeContextMenu();
       return;

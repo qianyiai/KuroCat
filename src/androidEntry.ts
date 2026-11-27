@@ -8,6 +8,7 @@ import { BUILTIN_WEB_CATS } from '../website/src/builtinCats';
 import { catAudio } from './audio';
 import {
   getKeyboardLayout,
+  normalizeKeyboardLayoutId,
   resolveKeyByVk,
   type KeyboardLayoutId,
 } from './keyboardLayout';
@@ -48,7 +49,7 @@ let currentTailKeyMode: TailKeyMode = 'smart';
 let currentHeadphones = false;
 
 function computeKeySoundPan(vk: number): number {
-  const kbLayout: KeyboardLayoutId = engine.keyboardLayout === '108' ? '108' : '65';
+  const kbLayout: KeyboardLayoutId = normalizeKeyboardLayoutId(engine.keyboardLayout);
   const spec = resolveKeyByVk(vk, kbLayout);
   if (!spec) return 0;
   const layout = getKeyboardLayout(kbLayout);
@@ -85,11 +86,9 @@ function applySettings(payload: AndroidSettingsPayload): void {
   }
 
   const layout: KeyboardLayoutId =
-    payload.keyboardLayout === '108'
-      ? '108'
-      : payload.keyboardLayout === '65'
-        ? '65'
-        : (lastLayout ?? '65');
+    payload.keyboardLayout === '108' || payload.keyboardLayout === '87' || payload.keyboardLayout === '65'
+      ? payload.keyboardLayout
+      : (lastLayout ?? '65');
   const orient: KeyboardOrientation =
     payload.keyboardOrientation === 'viewer'
       ? 'viewer'

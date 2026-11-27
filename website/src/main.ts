@@ -6,7 +6,7 @@ import {
   type TailKeyMode,
 } from '../../src/catEngine';
 import { catAudio } from '../../src/audio';
-import { resolveKeyByVk, type KeyboardLayoutId } from '../../src/keyboardLayout';
+import { normalizeKeyboardLayoutId, resolveKeyByVk, type KeyboardLayoutId } from '../../src/keyboardLayout';
 import { BUILTIN_WEB_CATS } from './builtinCats';
 import {
   KUROCAT_I18N,
@@ -758,7 +758,7 @@ function initPlayground(): void {
 
   document.querySelectorAll('[data-layout]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const val = (btn as HTMLElement).dataset.layout === '108' ? '108' : '65';
+      const val = normalizeKeyboardLayoutId((btn as HTMLElement).dataset.layout);
       setLayout(val);
     });
   });

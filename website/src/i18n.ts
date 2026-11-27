@@ -161,6 +161,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': '清空',
       'pg.lblSkin': '切换皮肤',
       'pg.layout65': '65% 紧凑',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 全尺寸',
       'pg.orientCat': '面向猫咪',
       'pg.orientViewer': '面向观众',
@@ -291,15 +292,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         '免费开源的透明置顶桌面键鼠伴侣，支持 <strong>3D 手办 / 2D 经典</strong> 一键切换，超低占用不卡游戏。内置 <strong>6 款猫咪 + 大肥鱼</strong>，支持摸头呼噜、输密码自动闭眼、OBS 直播与 <strong>AI 捏猫</strong>。',
       'dl.sub':
-        '所有安装包均内置 <strong>20%–150% 无级缩放</strong>、<strong>65% / 108 键随时切换</strong>、<strong>自定义尾巴拍键</strong> 与 <strong>App 内自动更新</strong>。<br />默认提供 <code>kurocat.org</code> 官方高速直链，同时保留 GitHub Releases 官方原链与 SHA-256 校验。',
+        '所有安装包均内置 <strong>20%–150% 无级缩放</strong>、<strong>65% / 87 TKL / 108 键随时切换</strong>、<strong>自定义尾巴拍键</strong> 与 <strong>App 内自动更新</strong>。<br />默认提供 <code>kurocat.org</code> 官方高速直链，同时保留 GitHub Releases 官方原链与 SHA-256 校验。',
       'quark.heroDesc':
         '<strong>「KuroCat 谦一_官方」</strong>高速直取 · 点开获取即免费支持开源维护',
       'quark.dlBody':
         '官方同步更新 Win / Mac / 安卓安装包，国内直连不限速且支持一键转存防丢；点击打开获取也是对 KuroCat 开源维护的免费支持。打开「夸克网盘 APP」也可复制口令 <code>/~f3813cZv6O~:/</code> 直达。',
       'dl.winDesc':
-        '开箱即 65% 紧凑机械键盘，自动创建桌面 <code>KuroCat</code> 图标、开始菜单与系统卸载入口；右键随时可一键切换 <strong>108 键全尺寸小键盘</strong>、<strong>自定义尾巴按键</strong> 与内置自更新。',
+        '开箱即 65% 紧凑机械键盘，自动创建桌面 <code>KuroCat</code> 图标、开始菜单与系统卸载入口；右键随时可一键切换 <strong>87 TKL / 108 键全尺寸小键盘</strong>、<strong>自定义尾巴按键</strong> 与内置自更新。',
       'dl.macDesc':
-        '原生编译 ARM64 + x86_64 通用镜像，兼容 M1/M2/M3/M4 与老款 Intel Mac（macOS 10.15 Catalina 及以上），内置 65% / 108 键、6 款猫咪与大肥鱼皮肤。打开 <code>.dmg</code> 拖入「应用程序」即可运行。',
+        '原生编译 ARM64 + x86_64 通用镜像，兼容 M1/M2/M3/M4 与老款 Intel Mac（macOS 10.15 Catalina 及以上），内置 65% / 87 TKL / 108 键、6 款猫咪与大肥鱼皮肤。打开 <code>.dmg</code> 拖入「应用程序」即可运行。',
             'dl.androidDesc':
         '原生悬浮置顶桌宠，同步 <strong>6 款猫咪 + 大肥鱼</strong>、<strong>20%–100% 不透明度</strong>、真猫呼噜与打字键鼠音效，支持摸头/点鼻/挠下巴/揪尾巴/拎后颈摇晃、横竖屏自适应与支付键盘自动闭眼防偷窥。',
       'dl.tipWinBody':
@@ -319,9 +320,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': '新皮肤「大肥鱼」登场<br />鲸尾拍键 · 脸红大笑 · 密码捂眼',
       'feat.whaleBody':
         '内置全新 <strong>🐳 大肥鱼（鲸鱼娘）</strong> 桌宠皮肤：支持<strong>左手点鼠标 + 右手敲键盘 + 大鲸尾甩拍自定义按键</strong>三线同时开工；打字手速越快越害羞脸红，飙到高能连打直接笑开花；检测到系统密码输入框时自动<strong>乖巧闭眼、双手捂眼</strong>并隐藏所有键帽与气泡。',
-      'feat.kbHeadline': '65% 紧凑或 108 键全尺寸<br />正反双视角，随手切换',
+      'feat.kbHeadline': '65% 紧凑 / 87 TKL / 108 键全尺寸<br />正反双视角，随手切换',
       'feat.kbBody':
-        '无论你习惯极简 65% 小键盘，还是财务/工程必备的 108 键完整小键盘，右键一秒切换并自动锚定右下角平滑调整窗口宽度。支持<strong>「面向猫咪（180° 真实视角）」</strong>与<strong>「面向观众（正向字母易读视角）」</strong>双透视重投影，鼠标左右键也同步自动翻转。',
+        '无论你习惯极简 65%、经典 87 TKL，还是财务/工程必备的 108 键完整小键盘，右键一秒切换并自动锚定右下角平滑调整窗口宽度。支持<strong>「面向猫咪（180° 真实视角）」</strong>与<strong>「面向观众（正向字母易读视角）」</strong>双透视重投影，鼠标左右键也同步自动翻转。',
       'feat.mouseHeadline': '左右键独立分色按压<br />还有无感自升级',
       'feat.mouseBody':
         '鼠标左键（<code>L</code>）、右键（<code>R</code>）与中键滚轮彻底独立分区：左键亮起猫咪主强调色，右键呈现高对比珊瑚橙或天蓝色，带 3D 按下内阴影与 <code>LMB</code>/<code>RMB</code> 迷你气泡，支持双键同时按住！内置<strong>国内高速直连优先</strong>的自动更新检测（失败自动回退 GitHub），发现新版本时在猫头上方弹出小巧可关闭的更新胶囊（点 <code>×</code> 永久忽略当前版，下次发版自动再弹），一键完成 SHA-256 校验与静默升级。',
@@ -431,7 +432,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return '已识别当前设备：<strong>iOS / iPadOS</strong> · 暂仅支持电脑端与 Android，请在电脑或安卓手机下载';
         return '已识别当前系统：<strong>Windows 10 / 11 (x64)</strong> · 同样提供 macOS / Linux / Android 版';
       },
-      layout: (id) => (id === '108' ? '108 全尺寸' : '65% 紧凑'),
+      layout: (id) => (id === '108' ? '108 全尺寸' : id === '87' ? '87 TKL' : '65% 紧凑'),
       orient: (o) => (o === 'viewer' ? '面向观众' : '面向猫咪'),
       tailPickerBtn: (open, count) =>
         open ? `✓ 正在点选（已选 ${count} 键）` : `🐾 点选尾巴按键（${count}）`,
@@ -491,6 +492,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': 'Clear',
       'pg.lblSkin': 'Skin',
       'pg.layout65': '65% Compact',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 Full-Size',
       'pg.orientCat': 'Cat View',
       'pg.orientViewer': 'Viewer View',
@@ -621,15 +623,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         'A free, open-source transparent desktop typing companion with instant <strong>3D / 2D</strong> switching and ultra-low GPU overhead. Includes <strong>6 cats + BigFish</strong>, head-pat purring, password privacy guard, OBS overlay, and <strong>AI cat studio</strong>.',
       'dl.sub':
-        'Every build includes <strong>20%–150% smooth scaling</strong>, <strong>65% / 108-key switching</strong>, <strong>customizable tail keys</strong>, and <strong>in-app auto-updates</strong>.<br />Fast official CDN mirrors on <code>kurocat.org</code> alongside official GitHub Releases with SHA-256 verification.',
+        'Every build includes <strong>20%–150% smooth scaling</strong>, <strong>65% / 87 TKL / 108-key switching</strong>, <strong>customizable tail keys</strong>, and <strong>in-app auto-updates</strong>.<br />Fast official CDN mirrors on <code>kurocat.org</code> alongside official GitHub Releases with SHA-256 verification.',
       'quark.heroDesc':
         '<strong>"KuroCat 谦一_官方"</strong> China fast cloud pack · Opening supports free open-source development',
       'quark.dlBody':
         'Official folder synced with Windows, macOS &amp; Android builds — fast direct access in China, and opening via Quark Drive also supports free open-source maintenance. In Quark Drive App, copy code <code>/~f3813cZv6O~:/</code>.',
       'dl.winDesc':
-        'Starts with the 65% compact layout and adds Desktop, Start Menu & Uninstaller shortcuts. Right-click anytime for <strong>108-key full-size</strong>, <strong>custom tail keys</strong>, OBS source & one-click updates.',
+        'Starts with the 65% compact layout and adds Desktop, Start Menu & Uninstaller shortcuts. Right-click anytime for <strong>87 TKL / 108-key full-size</strong>, <strong>custom tail keys</strong>, OBS source & one-click updates.',
       'dl.macDesc':
-        'Native ARM64 + x86_64 Universal DMG supporting Apple Silicon M1–M4 and Intel Macs (macOS 10.15 Catalina+). Includes 65%/108-key layouts, all 6 cats & BigFish. Open <code>.dmg</code> and drag to Applications.',
+        'Native ARM64 + x86_64 Universal DMG supporting Apple Silicon M1–M4 and Intel Macs (macOS 10.15 Catalina+). Includes 65%/87 TKL/108-key layouts, all 6 cats & BigFish. Open <code>.dmg</code> and drag to Applications.',
             'dl.androidDesc':
         'Always-on-top Android floating companion with <strong>6 cats + BigFish</strong>, <strong>20%–100% opacity</strong>, real cat purring &amp; typing audio, head-pat / chin-scratch / scruff-lift interactions, auto rotation, and payment-keyboard privacy guard.',
       'dl.tipWinBody':
@@ -649,9 +651,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': 'Meet "BigFish" Whale-Girl<br />Tail Slaps · Speed Blush · Privacy Shield',
       'feat.whaleBody':
         'Our built-in <strong>🐳 BigFish (whale-girl)</strong> skin supports simultaneous <strong>left-hand mouse + right-hand typing + splashing whale-tail key slaps</strong>. Type faster to make her blush and burst into a happy smile; focus any password field and she covers her eyes with both hands while hiding every keycap.',
-      'feat.kbHeadline': '65% Compact or 108 Full-Size<br />Dual Perspectives, Instant Switch',
+      'feat.kbHeadline': '65% Compact / 87 TKL / 108 Full-Size<br />Dual Perspectives, Instant Switch',
       'feat.kbBody':
-        'Switch in one click between minimal 65% and full 108-key ANSI (complete F-row &amp; numpad) with smooth bottom-right anchored resizing. Flip between <strong>Cat-Facing (180°)</strong> and <strong>Viewer-Facing (upright legends)</strong> with synchronized mouse button orientation.',
+        'Switch in one click between minimal 65%, classic 87 TKL and full 108-key ANSI (complete F-row &amp; numpad) with smooth bottom-right anchored resizing. Flip between <strong>Cat-Facing (180°)</strong> and <strong>Viewer-Facing (upright legends)</strong> with synchronized mouse button orientation.',
       'feat.mouseHeadline': 'Independent L / R Click Colors<br />&amp; Seamless In-App Auto-Updater',
       'feat.mouseBody':
         'Left (<code>L</code>), Right (<code>R</code>), and scroll/middle clicks glow independently with contrasting accent colors, 3D pressed shadows, and mini <code>LMB</code>/<code>RMB</code> badges—supporting dual-button holds. Fast CDN-first update checks (with GitHub fallback) pop a compact dismissible update pill above the pet for SHA-256 verified one-click upgrades.',
@@ -761,7 +763,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return 'Detected your device: <strong>iOS / iPadOS</strong> · Available for Windows, macOS, Linux &amp; Android below';
         return 'Detected your OS: <strong>Windows 10 / 11 (x64)</strong> · Also available for macOS / Linux / Android';
       },
-      layout: (id) => (id === '108' ? '108 Full-Size' : '65% Compact'),
+      layout: (id) => (id === '108' ? '108 Full-Size' : id === '87' ? '87 TKL' : '65% Compact'),
       orient: (o) => (o === 'viewer' ? 'Viewer View' : 'Cat View'),
       tailPickerBtn: (open, count) =>
         open ? `✓ Picking (${count} selected)` : `🐾 Pick Tail Keys (${count})`,
@@ -821,6 +823,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': 'クリア',
       'pg.lblSkin': 'スキン',
       'pg.layout65': '65% コンパクト',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 フルサイズ',
       'pg.orientCat': '猫目線',
       'pg.orientViewer': '視聴者目線',
@@ -951,15 +954,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         '無料・オープンソースの透過デスクトップ相棒。<strong>3D / 2D</strong> をワンクリックで切替でき、ゲーム中も超低負荷で動作します。<strong>猫 6 種 + クジラ娘</strong>、なでなでゴロゴロ、パスワード自動保護、OBS 透過配信、<strong>AI カスタム猫</strong> に対応。',
       'dl.sub':
-        '全パッケージに <strong>20%–150% 無段階ズーム</strong>・<strong>65% / 108 キー切替</strong>・<strong>しっぽキー選択</strong>・<strong>アプリ内自動更新</strong> を内蔵。<br /><code>kurocat.org</code> 公式高速ミラーと GitHub Releases 公式リンク（SHA-256 検証対応）を用意しています。',
+        '全パッケージに <strong>20%–150% 無段階ズーム</strong>・<strong>65% / 87 TKL / 108 キー切替</strong>・<strong>しっぽキー選択</strong>・<strong>アプリ内自動更新</strong> を内蔵。<br /><code>kurocat.org</code> 公式高速ミラーと GitHub Releases 公式リンク（SHA-256 検証対応）を用意しています。',
       'quark.heroDesc':
         '<strong>「KuroCat 谦一_官方」</strong>公式クラウドフォルダ · 開くだけで無料開発の応援になります',
       'quark.dlBody':
         'Windows・macOS・Android 最新パッケージを公式同期中。リンクを開くだけで無料オープンソース開発の応援になります。Quark アプリではコード <code>/~f3813cZv6O~:/</code> をコピーして開けます。',
       'dl.winDesc':
-        '初期配列は 65% コンパクト。デスクトップアイコンやアンインストーラーを自動作成し、右クリックから <strong>108 フルサイズ</strong>・<strong>しっぽキー指定</strong>・OBS 透過ソース・自動更新へいつでも切替できます。',
+        '初期配列は 65% コンパクト。デスクトップアイコンやアンインストーラーを自動作成し、右クリックから <strong>87 TKL / 108 フルサイズ</strong>・<strong>しっぽキー指定</strong>・OBS 透過ソース・自動更新へいつでも切替できます。',
       'dl.macDesc':
-        'Apple Silicon (M1–M4) と Intel Mac（macOS 10.15 Catalina 以降）両対応の Universal DMG。65%/108 キーと全 7 スキンを内蔵。<code>.dmg</code> を開いて「アプリケーション」へドラッグするだけです。',
+        'Apple Silicon (M1–M4) と Intel Mac（macOS 10.15 Catalina 以降）両対応の Universal DMG。65%/87 TKL/108 キーと全 7 スキンを内蔵。<code>.dmg</code> を開いて「アプリケーション」へドラッグするだけです。',
             'dl.androidDesc':
         'スマホ・タブレット対応の常駐デスクトップペット。<strong>猫 6 種 + クジラ娘</strong>、<strong>20%–100% 不透明度</strong>、本物のゴロゴロ音＆打鍵音、なでなで・首根っこ持ち上げ、縦横画面切替、決済キーボード自動目隠しに対応。',
       'dl.tipWinBody':
@@ -979,9 +982,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': '新スキン「クジラ娘」登場<br />クジラ尾打鍵・照れ笑顔・パスワード目隠し',
       'feat.whaleBody':
         '標準搭載の <strong>🐳 クジラ娘（BigFish）</strong> は <strong>左手マウス + 右手タイピング + 水しぶき付きクジラ尾打鍵</strong> の 3 系統同時動作に対応。高速タイピングで頬が染まり満面の笑顔に、パスワード入力時は両手で目を覆って入力を隠します。',
-      'feat.kbHeadline': '65% コンパクト / 108 フルサイズ<br />2 視点をワンクリック切替',
+      'feat.kbHeadline': '65% コンパクト / 87 TKL / 108 フルサイズ<br />2 視点をワンクリック切替',
       'feat.kbBody':
-        '省スペースな 65% もテンキー完備の 108 キーも右クリック 1 秒で切替でき、右下基準でウィンドウ幅を自動調整。<strong>猫目線（180°）</strong> と <strong>視聴者目線（正立印字）</strong> に合わせてマウス左右ボタンも自動反転します。',
+        '省スペースな 65%・定番 87 TKL・テンキー完備の 108 キーも右クリック 1 秒で切替でき、右下基準でウィンドウ幅を自動調整。<strong>猫目線（180°）</strong> と <strong>視聴者目線（正立印字）</strong> に合わせてマウス左右ボタンも自動反転します。',
       'feat.mouseHeadline': '左右クリックを別カラーで発光<br />アプリ内ワンクリック自動更新',
       'feat.mouseBody':
         '左（<code>L</code>）・右（<code>R</code>）・中/ホイールをコントラスト配色と 3D 影、ミニ <code>LMB</code>/<code>RMB</code> バッジで明確に識別（同時押し対応）。高速 CDN 優先（GitHub フォールバック）の自動更新チェックにより、新バージョン配信時はペット頭上に閉じられる小型更新ピルを表示し、SHA-256 検証付きでシームレスに更新できます。',
@@ -1091,7 +1094,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return '端末を自動検出：<strong>iOS / iPadOS</strong> · 現在は PC（Win/Mac/Linux）と Android 向けを提供中';
         return 'OS を自動検出：<strong>Windows 10 / 11 (x64)</strong> · macOS / Linux / Android 版もあり';
       },
-      layout: (id) => (id === '108' ? '108 フルサイズ' : '65% コンパクト'),
+      layout: (id) => (id === '108' ? '108 フルサイズ' : id === '87' ? '87 TKL' : '65% コンパクト'),
       orient: (o) => (o === 'viewer' ? '視聴者目線' : '猫目線'),
       tailPickerBtn: (open, count) =>
         open ? `✓ 選択中（${count} キー）` : `🐾 しっぽキー選択（${count}）`,
@@ -1151,6 +1154,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': '초기화',
       'pg.lblSkin': '스킨',
       'pg.layout65': '65% 콤팩트',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 풀배열',
       'pg.orientCat': '고양이 시점',
       'pg.orientViewer': '시청자 시점',
@@ -1281,15 +1285,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         '무료 오픈소스 투명 바탕화면 키보드·마우스 펫. <strong>3D 피규어 / 2D 클래식</strong> 원클릭 전환과 초저사양 GPU 최적화로 게임 중에도 가볍게 동작합니다. <strong>고양이 6종 + 고래소녀</strong>, 쓰다듬기 골골송, 비밀번호 눈 가리기, OBS 투명 방송, <strong>AI 펫 커스텀</strong>을 지원합니다.',
       'dl.sub':
-        '모든 패키지에 <strong>20%–150% 자유 크기 조절</strong>, <strong>65% / 108키 즉시 전환</strong>, <strong>커스텀 꼬리 타건</strong>, <strong>앱 내 자동 업데이트</strong>가 기본 포함됩니다.<br /><code>kurocat.org</code> 공식 고속 CDN 미러와 SHA-256 검증을 지원하는 GitHub Releases 공식 링크를 함께 제공합니다.',
+        '모든 패키지에 <strong>20%–150% 자유 크기 조절</strong>, <strong>65% / 87 TKL / 108키 즉시 전환</strong>, <strong>커스텀 꼬리 타건</strong>, <strong>앱 내 자동 업데이트</strong>가 기본 포함됩니다.<br /><code>kurocat.org</code> 공식 고속 CDN 미러와 SHA-256 검증을 지원하는 GitHub Releases 공식 링크를 함께 제공합니다.',
       'quark.heroDesc':
         '<strong>「KuroCat 谦一_官方」</strong>공식 클라우드 폴더 · 열어 주시면 무료 오픈소스 유지에 힘이 됩니다',
       'quark.dlBody':
         'Windows, macOS, Android 최신 설치 파일이 공식 동기화되어 있습니다. Quark 클라우드로 열면 무료 오픈소스 유지보수에도 도움이 됩니다. 앱에서는 코드 <code>/~f3813cZv6O~:/</code>를 복사해 바로 열 수 있습니다.',
       'dl.winDesc':
-        '기본 65% 콤팩트 배열로 시작하며 바탕화면·시작 메뉴·제거 항목을 자동 생성합니다. 우클릭 메뉴에서 <strong>108 풀배열</strong>, <strong>커스텀 꼬리 키</strong>, OBS 투명 소스, 원클릭 업데이트를 언제든 사용할 수 있습니다.',
+        '기본 65% 콤팩트 배열로 시작하며 바탕화면·시작 메뉴·제거 항목을 자동 생성합니다. 우클릭 메뉴에서 <strong>87 TKL / 108 풀배열</strong>, <strong>커스텀 꼬리 키</strong>, OBS 투명 소스, 원클릭 업데이트를 언제든 사용할 수 있습니다.',
       'dl.macDesc':
-        'Apple Silicon(M1–M4)과 Intel Mac(macOS 10.15 Catalina 이상)을 모두 지원하는 네이티브 Universal DMG. 65%/108키와 고양이 6종 및 고래소녀 스킨이 모두 포함됩니다. <code>.dmg</code>를 열어 「응용 프로그램」에 드래그하세요.',
+        'Apple Silicon(M1–M4)과 Intel Mac(macOS 10.15 Catalina 이상)을 모두 지원하는 네이티브 Universal DMG. 65%/87 TKL/108키와 고양이 6종 및 고래소녀 스킨이 모두 포함됩니다. <code>.dmg</code>를 열어 「응용 프로그램」에 드래그하세요.',
             'dl.androidDesc':
         '스마트폰·태블릿용 플로팅 데스크톱 펫. <strong>고양이 6종 + 고래소녀</strong>, <strong>20%–100% 투명도 조절</strong>, 실제 고양이 골골송과 타건음, 쓰다듬기·목덜미 들어올리기, 가로/세로 자동 대응, 보안 키보드 자동 눈 가리기를 지원합니다.',
       'dl.tipWinBody':
@@ -1309,9 +1313,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': '신규 스킨 「고래소녀」 등장<br />고래꼬리 타건 · 발그레 웃음 · 비밀번호 가리기',
       'feat.whaleBody':
         '기본 탑재된 <strong>🐳 고래소녀(BigFish)</strong> 스킨은 <strong>왼손 마우스 + 오른손 타이핑 + 물보라 고래꼬리 키 타건</strong> 3부위 동시 동작을 지원합니다. 빠르게 타이핑할수록 수줍게 볼이 붉어지다 환하게 웃고, 비밀번호 입력창에서는 두 손으로 눈을 가리며 모든 키캡을 숨깁니다.',
-      'feat.kbHeadline': '65% 콤팩트 &amp; 108 풀배열<br />양방향 시점을 원클릭으로',
+      'feat.kbHeadline': '65% 콤팩트 / 87 TKL / 108 풀배열<br />양방향 시점을 원클릭으로',
       'feat.kbBody':
-        '미니멀한 65% 배열과 숫자 키패드가 완비된 108 풀배열을 우클릭 한 번으로 전환하며 우측 하단 기준으로 창 너비를 부드럽게 조절합니다. <strong>고양이 시점(180°)</strong>과 <strong>시청자 시점(정방향 각인)</strong> 전환 시 마우스 좌우 버튼 방향도 자동 동기화됩니다.',
+        '미니멀한 65% 배열, 정석 87 TKL, 숫자 키패드가 완비된 108 풀배열을 우클릭 한 번으로 전환하며 우측 하단 기준으로 창 너비를 부드럽게 조절합니다. <strong>고양이 시점(180°)</strong>과 <strong>시청자 시점(정방향 각인)</strong> 전환 시 마우스 좌우 버튼 방향도 자동 동기화됩니다.',
       'feat.mouseHeadline': '좌/우 클릭 독립 컬러 발광<br />&amp; 원클릭 앱 내 자동 업데이트',
       'feat.mouseBody':
         '좌클릭(<code>L</code>), 우클릭(<code>R</code>), 휠/중간 클릭을 선명한 대비 색상과 3D 눌림 음영, <code>LMB</code>/<code>RMB</code> 미니 말풍선으로 완벽히 구분합니다(동시 누름 지원). 고속 CDN 우선(GitHub 폴백) 업데이트 감지로 새 버전이 출시되면 펫 머리 위에 닫을 수 있는 알림 바가 뜨며 SHA-256 검증 후 원클릭 업그레이드를 지원합니다.',
@@ -1421,7 +1425,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return '기기 자동 감지: <strong>iOS / iPadOS</strong> · 현재 PC(Win/Mac/Linux)와 Android 버전을 제공합니다';
         return 'OS 자동 감지: <strong>Windows 10 / 11 (x64)</strong> · macOS / Linux / Android 버전도 제공';
       },
-      layout: (id) => (id === '108' ? '108 풀배열' : '65% 콤팩트'),
+      layout: (id) => (id === '108' ? '108 풀배열' : id === '87' ? '87 TKL' : '65% 콤팩트'),
       orient: (o) => (o === 'viewer' ? '시청자 시점' : '고양이 시점'),
       tailPickerBtn: (open, count) =>
         open ? `✓ 선택 중 (${count}개)` : `🐾 꼬리 키 선택 (${count})`,
@@ -1481,6 +1485,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': 'Limpiar',
       'pg.lblSkin': 'Skin',
       'pg.layout65': '65% Compacto',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 Completo',
       'pg.orientCat': 'Vista gato',
       'pg.orientViewer': 'Vista espectador',
@@ -1611,15 +1616,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         'Compañero de teclado y ratón transparente, gratuito y de código abierto con cambio instantáneo <strong>3D / 2D</strong> y consumo mínimo de GPU. Incluye <strong>6 gatos + BigFish</strong>, ronroneo al acariciarlo, escudo de contraseñas, overlay para OBS y <strong>estudio IA de gatos</strong>.',
       'dl.sub':
-        'Cada compilación incluye <strong>escala fluida 20%–150%</strong>, <strong>cambio 65% / 108 teclas</strong>, <strong>teclas de cola personalizables</strong> y <strong>actualización automática integrada</strong>.<br />Espejos CDN oficiales y rápidos en <code>kurocat.org</code> junto con GitHub Releases oficiales y verificación SHA-256.',
+        'Cada compilación incluye <strong>escala fluida 20%–150%</strong>, <strong>cambio 65% / 87 TKL / 108 teclas</strong>, <strong>teclas de cola personalizables</strong> y <strong>actualización automática integrada</strong>.<br />Espejos CDN oficiales y rápidos en <code>kurocat.org</code> junto con GitHub Releases oficiales y verificación SHA-256.',
       'quark.heroDesc':
         '<strong>«KuroCat 谦一_官方»</strong> paquete en la nube · Abrir apoya gratis el proyecto open source',
       'quark.dlBody':
         'Carpeta oficial sincronizada con instaladores de Windows, macOS y Android; abrir desde Quark Drive también apoya gratuitamente el mantenimiento open source. En la app Quark usa el código <code>/~f3813cZv6O~:/</code>.',
       'dl.winDesc':
-        'Inicia con teclado compacto 65% y crea accesos directos en Escritorio, Menú Inicio y desinstalador. Haz clic derecho cuando quieras para <strong>108 teclas completo</strong>, <strong>teclas de cola personalizadas</strong>, fuente OBS y actualización en un clic.',
+        'Inicia con teclado compacto 65% y crea accesos directos en Escritorio, Menú Inicio y desinstalador. Haz clic derecho cuando quieras para <strong>87 TKL / 108 teclas completo</strong>, <strong>teclas de cola personalizadas</strong>, fuente OBS y actualización en un clic.',
       'dl.macDesc':
-        'DMG Universal nativo ARM64 + x86_64 compatible con Apple Silicon M1–M4 y Mac Intel (macOS 10.15 Catalina o superior). Incluye distribuciones 65%/108 teclas, los 6 gatos y BigFish. Abre el <code>.dmg</code> y arrástralo a Aplicaciones.',
+        'DMG Universal nativo ARM64 + x86_64 compatible con Apple Silicon M1–M4 y Mac Intel (macOS 10.15 Catalina o superior). Incluye distribuciones 65%/87 TKL/108 teclas, los 6 gatos y BigFish. Abre el <code>.dmg</code> y arrástralo a Aplicaciones.',
             'dl.androidDesc':
         'Mascota flotante para móvil y tablet con <strong>6 gatos + BigFish</strong>, <strong>opacidad 20%–100%</strong>, ronroneo real y sonido al teclear, gestos de acariciar o levantar del cuello, giro automático y privacidad ante teclados de pago.',
       'dl.tipWinBody':
@@ -1639,9 +1644,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': 'Conoce a «BigFish» (Chica Ballena)<br />Golpes de cola · Rubor veloz · Escudo de privacidad',
       'feat.whaleBody':
         'Nuestra skin integrada <strong>🐳 BigFish (chica ballena)</strong> admite en simultáneo <strong>ratón con mano izquierda + teclado con mano derecha + golpes de cola de ballena con salpicadura</strong>. Teclea más rápido para hacerla sonrojar y reír alegremente; al enfocar cualquier campo de contraseña se tapa los ojos con ambas manos y oculta todas las teclas.',
-      'feat.kbHeadline': '65% Compacto o 108 Completo<br />Doble perspectiva, cambio al instante',
+      'feat.kbHeadline': '65% Compacto / 87 TKL / 108 Completo<br />Doble perspectiva, cambio al instante',
       'feat.kbBody':
-        'Cambia en un clic entre el compacto 65% y el teclado ANSI completo de 108 teclas (fila F completa y teclado numérico) con redimensionado suave anclado abajo a la derecha. Alterna entre <strong>Vista gato (180°)</strong> y <strong>Vista espectador (leyendas derechas)</strong> con inversión sincronizada de los botones del ratón.',
+        'Cambia en un clic entre el compacto 65%, el clásico 87 TKL y el teclado ANSI completo de 108 teclas (fila F completa y teclado numérico) con redimensionado suave anclado abajo a la derecha. Alterna entre <strong>Vista gato (180°)</strong> y <strong>Vista espectador (leyendas derechas)</strong> con inversión sincronizada de los botones del ratón.',
       'feat.mouseHeadline': 'Colores independientes izq. / der.<br />y actualización automática integrada',
       'feat.mouseBody':
         'Clic izquierdo (<code>L</code>), derecho (<code>R</code>) y rueda/central se iluminan por separado con colores de acento en contraste, sombras 3D al pulsar y mini burbujas <code>LMB</code>/<code>RMB</code>, admitiendo pulsación simultánea. Comprobación rápida con prioridad CDN (y respaldo en GitHub) que muestra una cápsula discreta sobre la mascota para actualizar en un clic con verificación SHA-256.',
@@ -1751,7 +1756,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return 'Dispositivo detectado: <strong>iOS / iPadOS</strong> · Disponible para Windows, macOS, Linux y Android abajo';
         return 'Sistema detectado: <strong>Windows 10 / 11 (x64)</strong> · También para macOS / Linux / Android';
       },
-      layout: (id) => (id === '108' ? '108 Completo' : '65% Compacto'),
+      layout: (id) => (id === '108' ? '108 Completo' : id === '87' ? '87 TKL' : '65% Compacto'),
       orient: (o) => (o === 'viewer' ? 'Vista espectador' : 'Vista gato'),
       tailPickerBtn: (open, count) =>
         open ? `✓ Eligiendo (${count} selec.)` : `🐾 Elegir teclas cola (${count})`,
@@ -1811,6 +1816,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': 'Limpar',
       'pg.lblSkin': 'Skin',
       'pg.layout65': '65% Compacto',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 Completo',
       'pg.orientCat': 'Visão do gato',
       'pg.orientViewer': 'Visão do público',
@@ -1941,15 +1947,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         'Companheiro de teclado e mouse transparente, gratuito e open-source com troca instantânea <strong>3D / 2D</strong> e uso mínimo de GPU. Inclui <strong>6 gatos + BigFish</strong>, ronronado ao fazer carinho, proteção de senhas, overlay para OBS e <strong>estúdio IA de gatos</strong>.',
       'dl.sub':
-        'Todas as versões incluem <strong>escala suave 20%–150%</strong>, <strong>troca 65% / 108 teclas</strong>, <strong>teclas de cauda personalizáveis</strong> e <strong>atualização automática no app</strong>.<br />Espelhos CDN oficiais rápidos em <code>kurocat.org</code> junto aos GitHub Releases oficiais com verificação SHA-256.',
+        'Todas as versões incluem <strong>escala suave 20%–150%</strong>, <strong>troca 65% / 87 TKL / 108 teclas</strong>, <strong>teclas de cauda personalizáveis</strong> e <strong>atualização automática no app</strong>.<br />Espelhos CDN oficiais rápidos em <code>kurocat.org</code> junto aos GitHub Releases oficiais com verificação SHA-256.',
       'quark.heroDesc':
         '<strong>«KuroCat 谦一_官方»</strong> pacote oficial na nuvem · Abrir apoia grátis o projeto open source',
       'quark.dlBody':
         'Pasta oficial sincronizada com instaladores de Windows, macOS e Android; abrir pelo Quark Drive também apoia gratuitamente a manutenção open source. No app Quark use o código <code>/~f3813cZv6O~:/</code>.',
       'dl.winDesc':
-        'Começa com o layout compacto 65% e cria atalhos na Área de Trabalho, Menu Iniciar e desinstalador. Clique com o botão direito quando quiser para <strong>108 teclas completo</strong>, <strong>teclas de cauda</strong>, fonte OBS e atualização em um clique.',
+        'Começa com o layout compacto 65% e cria atalhos na Área de Trabalho, Menu Iniciar e desinstalador. Clique com o botão direito quando quiser para <strong>87 TKL / 108 teclas completo</strong>, <strong>teclas de cauda</strong>, fonte OBS e atualização em um clique.',
       'dl.macDesc':
-        'DMG Universal nativo ARM64 + x86_64 compatível com Apple Silicon M1–M4 e Macs Intel (macOS 10.15 Catalina+). Inclui layouts 65%/108 teclas, os 6 gatos e BigFish. Abra o <code>.dmg</code> e arraste para Aplicativos.',
+        'DMG Universal nativo ARM64 + x86_64 compatível com Apple Silicon M1–M4 e Macs Intel (macOS 10.15 Catalina+). Inclui layouts 65%/87 TKL/108 teclas, os 6 gatos e BigFish. Abra o <code>.dmg</code> e arraste para Aplicativos.',
             'dl.androidDesc':
         'Pet flutuante sempre no topo para celular e tablet com <strong>6 gatos + BigFish</strong>, <strong>opacidade 20%–100%</strong>, ronronado real e som de teclado, carinho/segurar pela nuca, rotação automática e proteção em teclados de banco.',
       'dl.tipWinBody':
@@ -1969,9 +1975,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': 'Conheça a «BigFish» (Garota-Baleia)<br />Cauda nas teclas · Rubor veloz · Escudo de privacidade',
       'feat.whaleBody':
         'Nossa skin integrada <strong>🐳 BigFish (garota-baleia)</strong> faz tudo ao mesmo tempo: <strong>mouse na mão esquerda + digitação na direita + batidas de cauda com respingo</strong>. Digite mais rápido para deixá-la corada e sorrindo de orelha a orelha; ao focar qualquer campo de senha, ela cobre os olhos com as duas mãos e oculta todas as teclas.',
-      'feat.kbHeadline': '65% Compacto ou 108 Completo<br />Dupla perspectiva, troca instantânea',
+      'feat.kbHeadline': '65% Compacto / 87 TKL / 108 Completo<br />Dupla perspectiva, troca instantânea',
       'feat.kbBody':
-        'Alterne com um clique entre o compacto 65% e o teclado ANSI completo de 108 teclas (fileira F e teclado numérico) com redimensionamento suave ancorado no canto inferior direito. Alterne entre <strong>Visão do gato (180°)</strong> e <strong>Visão do público (legendas de frente)</strong> com inversão sincronizada dos botões do mouse.',
+        'Alterne com um clique entre o compacto 65%, o clássico 87 TKL e o teclado ANSI completo de 108 teclas (fileira F e teclado numérico) com redimensionamento suave ancorado no canto inferior direito. Alterne entre <strong>Visão do gato (180°)</strong> e <strong>Visão do público (legendas de frente)</strong> com inversão sincronizada dos botões do mouse.',
       'feat.mouseHeadline': 'Cores independentes nos cliques E / D<br />e atualização automática no app',
       'feat.mouseBody':
         'Clique esquerdo (<code>L</code>), direito (<code>R</code>) e scroll/meio acendem de forma independente com cores de contraste, sombras 3D ao pressionar e mini balões <code>LMB</code>/<code>RMB</code> — suportando cliques simultâneos. Checagem rápida priorizando CDN (com fallback no GitHub) exibe um selo discreto acima do pet para atualizar em um clique com verificação SHA-256.',
@@ -2081,7 +2087,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return 'Dispositivo detectado: <strong>iOS / iPadOS</strong> · Disponível para Windows, macOS, Linux e Android abaixo';
         return 'Sistema detectado: <strong>Windows 10 / 11 (x64)</strong> · Também para macOS / Linux / Android';
       },
-      layout: (id) => (id === '108' ? '108 Completo' : '65% Compacto'),
+      layout: (id) => (id === '108' ? '108 Completo' : id === '87' ? '87 TKL' : '65% Compacto'),
       orient: (o) => (o === 'viewer' ? 'Visão do público' : 'Visão do gato'),
       tailPickerBtn: (open, count) =>
         open ? `✓ Escolhendo (${count} selec.)` : `🐾 Escolher teclas cauda (${count})`,
@@ -2141,6 +2147,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': 'Очистить',
       'pg.lblSkin': 'Скин',
       'pg.layout65': '65% компакт',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 полная',
       'pg.orientCat': 'От кота',
       'pg.orientViewer': 'Для зрителя',
@@ -2271,15 +2278,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         'Бесплатный прозрачный десктоп-компаньон с открытым кодом, мгновенным переключением <strong>3D / 2D</strong> и минимальной нагрузкой на GPU. В комплекте <strong>6 котов + BigFish</strong>, мурчание при поглаживании, защита паролей, оверлей для OBS и <strong>ИИ-студия скинов</strong>.',
       'dl.sub':
-        'Каждая сборка включает <strong>плавный масштаб 20%–150%</strong>, <strong>переключение 65% / 108 клавиш</strong>, <strong>настройку клавиш для хвоста</strong> и <strong>автообновление внутри приложения</strong>.<br />Быстрые официальные CDN-зеркала на <code>kurocat.org</code> вместе с официальными GitHub Releases и проверкой SHA-256.',
+        'Каждая сборка включает <strong>плавный масштаб 20%–150%</strong>, <strong>переключение 65% / 87 TKL / 108 клавиш</strong>, <strong>настройку клавиш для хвоста</strong> и <strong>автообновление внутри приложения</strong>.<br />Быстрые официальные CDN-зеркала на <code>kurocat.org</code> вместе с официальными GitHub Releases и проверкой SHA-256.',
       'quark.heroDesc':
         '<strong>«KuroCat 谦一_官方»</strong> официальная папка · Переход бесплатно поддерживает проект',
       'quark.dlBody':
         'Официальная папка со сборками для Windows, macOS и Android — переход через Quark Drive также бесплатно поддерживает разработку KuroCat. В приложении Quark используйте код <code>/~f3813cZv6O~:/</code>.',
       'dl.winDesc':
-        'По умолчанию запускается компактная 65%-клавиатура, создаются ярлыки на рабочем столе, в меню «Пуск» и деинсталлятор. По правому клику доступны <strong>полные 108 клавиш</strong>, <strong>свои клавиши хвоста</strong>, источник OBS и обновление в один клик.',
+        'По умолчанию запускается компактная 65%-клавиатура, создаются ярлыки на рабочем столе, в меню «Пуск» и деинсталлятор. По правому клику доступны <strong>87 TKL / полные 108 клавиш</strong>, <strong>свои клавиши хвоста</strong>, источник OBS и обновление в один клик.',
       'dl.macDesc':
-        'Нативный универсальный DMG (ARM64 + x86_64) для Apple Silicon M1–M4 и Intel Mac (macOS 10.15 Catalina+). Включает раскладки 65%/108 клавиш, всех 6 котов и BigFish. Откройте <code>.dmg</code> и перетащите в «Программы».',
+        'Нативный универсальный DMG (ARM64 + x86_64) для Apple Silicon M1–M4 и Intel Mac (macOS 10.15 Catalina+). Включает раскладки 65%/87 TKL/108 клавиш, всех 6 котов и BigFish. Откройте <code>.dmg</code> и перетащите в «Программы».',
             'dl.androidDesc':
         'Плавающий питомец для Android-смартфонов и планшетов: <strong>6 котов + BigFish</strong>, <strong>прозрачность 20%–100%</strong>, живое мурлыканье и звуки клавиш, поглаживания и поднятие за шкирку, поворот экрана и защита паролей.',
       'dl.tipWinBody':
@@ -2299,9 +2306,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': 'Знакомьтесь: «BigFish» (девушка-кит)<br />Удары хвостом · Румянец · Защита паролей',
       'feat.whaleBody':
         'Встроенный скин <strong>🐳 BigFish (девушка-кит)</strong> одновременно управляет <strong>мышью левой рукой + клавиатурой правой рукой + брызгами ударов китового хвоста</strong>. Печатайте быстрее — она смущённо краснеет и радостно смеётся; при фокусе в поле пароля закрывает глаза обеими руками и прячет все клавиши.',
-      'feat.kbHeadline': 'Компактные 65% или полные 108 клавиш<br />Два ракурса, мгновенное переключение',
+      'feat.kbHeadline': 'Компактные 65%, классические 87 TKL или полные 108 клавиш<br />Два ракурса, мгновенное переключение',
       'feat.kbBody':
-        'Переключайтесь в один клик между компактной 65% и полноразмерной 108-клавишной ANSI-клавиатурой (с F-рядом и NumPad) с плавным изменением ширины от правого нижнего угла. Меняйте <strong>ракурс от кота (180°)</strong> на <strong>ракурс для зрителя (прямые подписи)</strong> с синхронным отражением кнопок мыши.',
+        'Переключайтесь в один клик между компактной 65%, классической 87 TKL и полноразмерной 108-клавишной ANSI-клавиатурой (с F-рядом и NumPad) с плавным изменением ширины от правого нижнего угла. Меняйте <strong>ракурс от кота (180°)</strong> на <strong>ракурс для зрителя (прямые подписи)</strong> с синхронным отражением кнопок мыши.',
       'feat.mouseHeadline': 'Раздельная подсветка ЛКМ / ПКМ<br />и бесшовное автообновление',
       'feat.mouseBody':
         'Левая (<code>L</code>), правая (<code>R</code>) кнопки и колесо/СКМ подсвечиваются независимо контрастными цветами, с 3D-тенью нажатия и мини-бейджами <code>LMB</code>/<code>RMB</code> — поддерживается одновременное удержание. Быстрая проверка через CDN (с резервом GitHub) показывает компактную плашку над питомцем для обновления в один клик с проверкой SHA-256.',
@@ -2411,7 +2418,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return 'Определено устройство: <strong>iOS / iPadOS</strong> · Доступно для Windows, macOS, Linux и Android ниже';
         return 'Определена система: <strong>Windows 10 / 11 (x64)</strong> · Также есть macOS / Linux / Android';
       },
-      layout: (id) => (id === '108' ? '108 полная' : '65% компакт'),
+      layout: (id) => (id === '108' ? '108 полная' : id === '87' ? '87 TKL' : '65% компакт'),
       orient: (o) => (o === 'viewer' ? 'Для зрителя' : 'От кота'),
       tailPickerBtn: (open, count) =>
         open ? `✓ Выбор (${count} выбр.)` : `🐾 Клавиши хвоста (${count})`,
@@ -2471,6 +2478,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'pg.presetClear': 'Leeren',
       'pg.lblSkin': 'Skin',
       'pg.layout65': '65% Kompakt',
+      'pg.layout87': '87 TKL',
       'pg.layout108': '108 Vollformat',
       'pg.orientCat': 'Katzensicht',
       'pg.orientViewer': 'Zuschauersicht',
@@ -2601,15 +2609,15 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'hero.sub':
         'Kostenloser, quelloffener Desktop-Tastatur- &amp; Maus-Begleiter mit transparentem Overlay, blitzschnellem <strong>3D / 2D</strong>-Wechsel und minimaler GPU-Last. Enthält <strong>6 Katzen + BigFish</strong>, Streichel-Schnurren, Passwort-Sichtschutz, OBS-Overlay und <strong>KI-Katzenstudio</strong>.',
       'dl.sub':
-        'Jeder Build enthält <strong>stufenlose 20%–150%-Skalierung</strong>, <strong>65% / 108-Tasten-Wechsel</strong>, <strong>frei wählbare Schwanztasten</strong> und <strong>In-App-Auto-Updates</strong>.<br />Schnelle offizielle CDN-Mirrors auf <code>kurocat.org</code> neben offiziellen GitHub Releases mit SHA-256-Prüfsumme.',
+        'Jeder Build enthält <strong>stufenlose 20%–150%-Skalierung</strong>, <strong>65% / 87 TKL / 108-Tasten-Wechsel</strong>, <strong>frei wählbare Schwanztasten</strong> und <strong>In-App-Auto-Updates</strong>.<br />Schnelle offizielle CDN-Mirrors auf <code>kurocat.org</code> neben offiziellen GitHub Releases mit SHA-256-Prüfsumme.',
       'quark.heroDesc':
         '<strong>„KuroCat 谦一_官方“</strong> offizieller Cloud-Ordner · Öffnen unterstützt kostenlos die Pflege',
       'quark.dlBody':
         'Offizieller Ordner mit Windows-, macOS- &amp; Android-Installern — das Öffnen über Quark Drive unterstützt kostenlos die Open-Source-Pflege. In der Quark-App einfach Code <code>/~f3813cZv6O~:/</code> nutzen.',
       'dl.winDesc':
-        'Startet im kompakten 65%-Layout und erstellt Verknüpfungen für Desktop, Startmenü &amp; Deinstallation. Per Rechtsklick jederzeit umschaltbar auf <strong>108-Tasten-Vollformat</strong>, <strong>eigene Schwanztasten</strong>, OBS-Quelle &amp; 1-Klick-Update.',
+        'Startet im kompakten 65%-Layout und erstellt Verknüpfungen für Desktop, Startmenü &amp; Deinstallation. Per Rechtsklick jederzeit umschaltbar auf <strong>87 TKL / 108-Tasten-Vollformat</strong>, <strong>eigene Schwanztasten</strong>, OBS-Quelle &amp; 1-Klick-Update.',
       'dl.macDesc':
-        'Natives Universal-DMG (ARM64 + x86_64) für Apple Silicon M1–M4 und Intel-Macs (macOS 10.15 Catalina+). Enthält 65%-/108-Tasten-Layouts, alle 6 Katzen &amp; BigFish. Einfach <code>.dmg</code> öffnen und in „Programme“ ziehen.',
+        'Natives Universal-DMG (ARM64 + x86_64) für Apple Silicon M1–M4 und Intel-Macs (macOS 10.15 Catalina+). Enthält 65%-/87-TKL-/108-Tasten-Layouts, alle 6 Katzen &amp; BigFish. Einfach <code>.dmg</code> öffnen und in „Programme“ ziehen.',
             'dl.androidDesc':
         'Schwebender Android-Begleiter für Smartphone &amp; Tablet mit <strong>6 Katzen + BigFish</strong>, <strong>20%–100% Deckkraft</strong>, echtem Schnurren &amp; Tipp-Sounds, Streicheln/Nackengriff, Auto-Drehung und Sichtschutz bei Zahlungstastaturen.',
       'dl.tipWinBody':
@@ -2629,9 +2637,9 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
       'feat.whaleHeadline': 'Lerne „BigFish“ (Wal-Mädchen) kennen<br />Flossenschlag · Tempo-Erröten · Sichtschutz',
       'feat.whaleBody':
         'Unser integrierter Skin <strong>🐳 BigFish (Wal-Mädchen)</strong> beherrscht gleichzeitig <strong>Maus links + Tippen rechts + spritzige Walflossen-Tastenschläge</strong>. Tippe schneller, damit sie verlegen errötet und fröhlich lacht; sobald du in ein Passwortfeld klickst, hält sie sich beide Hände vor die Augen und blendet alle Tasten aus.',
-      'feat.kbHeadline': '65% Kompakt oder 108 Vollformat<br />Zwei Perspektiven, sofort umschaltbar',
+      'feat.kbHeadline': '65% Kompakt / 87 TKL / 108 Vollformat<br />Zwei Perspektiven, sofort umschaltbar',
       'feat.kbBody':
-        'Wechsle mit einem Klick zwischen minimalistischem 65%-Layout und vollem 108-Tasten-ANSI-Board (F-Reihe &amp; Numpad) mit sauberer Ausrichtung an der unteren rechten Ecke. Schalte zwischen <strong>Katzensicht (180°)</strong> und <strong>Zuschauersicht (aufrechte Beschriftung)</strong> um – die Maustasten spiegeln sich automatisch mit.',
+        'Wechsle mit einem Klick zwischen minimalistischem 65%-Layout, klassischem 87-TKL-Board und vollem 108-Tasten-ANSI-Board (F-Reihe &amp; Numpad) mit sauberer Ausrichtung an der unteren rechten Ecke. Schalte zwischen <strong>Katzensicht (180°)</strong> und <strong>Zuschauersicht (aufrechte Beschriftung)</strong> um – die Maustasten spiegeln sich automatisch mit.',
       'feat.mouseHeadline': 'Getrennte Farben für Links- &amp; Rechtsklick<br />&amp; nahtlose In-App-Auto-Updates',
       'feat.mouseBody':
         'Linksklick (<code>L</code>), Rechtsklick (<code>R</code>) und Mittelklick/Scrollrad leuchten getrennt in klaren Kontrastfarben samt 3D-Druckschatten und Mini-<code>LMB</code>/<code>RMB</code>-Badges – auch bei gleichzeitigem Halten. Schnelle CDN-Update-Prüfung (mit GitHub-Fallback) zeigt bei neuen Versionen eine wegklickbare Pille über dem Pet für SHA-256-geprüfte 1-Klick-Upgrades.',
@@ -2741,7 +2749,7 @@ export const KUROCAT_I18N: Record<Locale, KuroCatI18nBundle> = {
         if (os === 'ios') return 'Gerät erkannt: <strong>iOS / iPadOS</strong> · Verfügbar für Windows, macOS, Linux &amp; Android unten';
         return 'System erkannt: <strong>Windows 10 / 11 (x64)</strong> · Auch für macOS / Linux / Android';
       },
-      layout: (id) => (id === '108' ? '108 Vollformat' : '65% Kompakt'),
+      layout: (id) => (id === '108' ? '108 Vollformat' : id === '87' ? '87 TKL' : '65% Kompakt'),
       orient: (o) => (o === 'viewer' ? 'Zuschauersicht' : 'Katzensicht'),
       tailPickerBtn: (open, count) =>
         open ? `✓ Auswahl (${count} gewählt)` : `🐾 Schwanztasten (${count})`,

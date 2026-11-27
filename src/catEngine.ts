@@ -2,6 +2,7 @@ import {
   KEYBOARD_KEYS_65,
   KEYBOARD_KEYS_108,
   getKeyboardLayout,
+  normalizeKeyboardLayoutId,
   type KeySpec,
   type KeyboardLayoutId,
   formatBubbleForVk,
@@ -487,10 +488,9 @@ export class KuroCatEngine {
 
     const layout = getKeyboardLayout(this.keyboardLayout);
     const isCatFacing = this.keyboardOrientation === 'cat';
-    const is108 = this.keyboardLayout === '108';
     const rowH = innerH / layout.totalRows;
     const unitW = innerW / layout.totalUnits;
-    const gap = is108 ? 0.85 : 0.9;
+    const gap = this.keyboardLayout === '65' ? 0.9 : 0.85;
     const hitPad = 0.75;
 
     for (const key of layout.keys) {
@@ -592,7 +592,7 @@ export class KuroCatEngine {
     const p = Math.max(0, Math.min(1, this.peekAmount));
     const isDafeiyu = this.catBreed === 'dafeiyu';
     const headY = this.catTopY + 0.24 * this.catHeight;
-    const pivotX = isDafeiyu ? (this.keyboardLayout === '108' ? 268 : 192) : this.catCenterX;
+    const pivotX = isDafeiyu ? this.dafeiyuCharX() : this.catCenterX;
     const pivotY = isDafeiyu ? 176 : headY;
     if (p <= 0.001) {
       return { tx: 0, ty: 0, rot: 0, pivotX, pivotY };
@@ -663,7 +663,7 @@ export class KuroCatEngine {
     tailPts: Vec2[];
   } {
     if (this.catBreed === 'dafeiyu') {
-      const pivotX = this.keyboardLayout === '108' ? 268 : 192;
+      const pivotX = this.dafeiyuCharX();
       return {
         nose: { x: pivotX, y: 204, rx: 18, ry: 15 },
         chin: { x: pivotX, y: 232, rx: 32, ry: 18 },
@@ -697,7 +697,7 @@ export class KuroCatEngine {
   public hitTestCatZoneLogical(lx: number, ly: number): CatHitZone {
     if (this.catBreed === 'dafeiyu') {
       if (this.peekAmount > 0.35) {
-        const pivotX = this.keyboardLayout === '108' ? 268 : 192;
+        const pivotX = this.dafeiyuCharX();
         const pivotY = 176;
         const dx = (lx - pivotX) / 94;
         const dy = (ly - pivotY) / 104;
@@ -852,10 +852,10 @@ export class KuroCatEngine {
     }
     if (this.tailKeyMode === 'edge') {
       if (EDGE_PROTECTED_WASD_IDS.has(spec.id)) return false;
-      const edgeThresholdX =
-        this.keyboardLayout === '108'
-          ? this.kbCenterX + this.kbWidth * 0.22
-          : this.kbCenterX + this.kbWidth * 0.34;
+      // Keep the tail's right-edge trigger zone ~5 keys wide on every layout
+      // (65: 0.34×15U ≈ 5.1U, 87: 0.27×18.35U ≈ 5U, 108: 0.22×22.7U ≈ 5U).
+      const edgeRatio = this.keyboardLayout === '108' ? 0.22 : this.keyboardLayout === '87' ? 0.27 : 0.34;
+      const edgeThresholdX = this.kbCenterX + this.kbWidth * edgeRatio;
       return targetPoint.x >= edgeThresholdX;
     }
 
@@ -894,6 +894,10 @@ export class KuroCatEngine {
     return false;
   }
 
+  private dafeiyuCharX(): number {
+    return this.keyboardLayout === '108' ? 268 : this.keyboardLayout === '87' ? 226 : 192;
+  }
+
   private syncLayoutPositions(): void {
     const isBigFish = this.catBreed === 'dafeiyu';
     if (this.keyboardLayout === '108') {
@@ -909,6 +913,19 @@ export class KuroCatEngine {
       this.kbTiltRad = (2.4 * Math.PI) / 180;
       this.mouseBaseX = isBigFish ? 54 : 46;
       this.mouseBaseY = isBigFish ? 332 : 342;
+    } else if (this.keyboardLayout === '87') {
+      this.logicalW = 470;
+      this.logicalH = 456;
+      this.catCenterX = 236;
+      this.catTopY = 66;
+      this.catBaseY = 292;
+      this.kbCenterX = isBigFish ? 262 : 248;
+      this.kbCenterY = 356;
+      this.kbWidth = 322;
+      this.kbHeight = 96;
+      this.kbTiltRad = (2.8 * Math.PI) / 180;
+      this.mouseBaseX = isBigFish ? 64 : 50;
+      this.mouseBaseY = isBigFish ? 330 : 342;
     } else {
       this.logicalW = 420;
       this.logicalH = 440;
@@ -960,7 +977,7 @@ export class KuroCatEngine {
   }
 
   public setKeyboardConfig(layout: KeyboardLayoutId, orientation: KeyboardOrientation): void {
-    const nextLayout: KeyboardLayoutId = layout === '108' ? '108' : '65';
+    const nextLayout: KeyboardLayoutId = normalizeKeyboardLayoutId(layout);
     const nextOrientation: KeyboardOrientation = orientation === 'viewer' ? 'viewer' : 'cat';
     const layoutChanged = this.keyboardLayout !== nextLayout;
     this.keyboardLayout = nextLayout;
@@ -1025,7 +1042,7 @@ export class KuroCatEngine {
       petEnergy: this.petEnergy,
       privacyMode: this.privacyMode,
       privacyTypingAt: this.privacyTypingAt,
-      is108: this.keyboardLayout === '108',
+      layoutId: this.keyboardLayout,
       peekAmount: Math.max(0, Math.min(1, this.peekAmount)),
     };
   }
@@ -1844,7 +1861,7 @@ export class KuroCatEngine {
     const u = Math.max(0, Math.min(1, 1 - t)); // 0 at hips, 1 at head
     const shearCurve = u * u * (3 - 2 * u); // smoothstep from hips up to head!
     // Measured mouse-lean shift (-46px at head) + lively typing left-right body/head sway (+-25px)!
-    const leanAmp = this.keyboardLayout === '108' ? 76 : 46;
+    const leanAmp = this.keyboardLayout === '108' ? 76 : this.keyboardLayout === '87' ? 60 : 46;
     const scruffSwingX = this.scruffAmount * this.scruffSwing * 30 * Math.pow(Math.max(0, t - 0.14), 1.3);
     const peekCalm = 1 - Math.max(0, Math.min(1, this.peekAmount));
     const leanX =
@@ -2031,7 +2048,11 @@ export class KuroCatEngine {
         ? isCatFacing
           ? 12.2
           : 8.4
-        : 7.5;
+        : this.keyboardLayout === '87'
+          ? isCatFacing
+            ? 9.95
+            : 8.4
+          : 7.5;
 
     if (spec.id === 'space') {
       if (activelyMousing) {
@@ -2495,7 +2516,7 @@ export class KuroCatEngine {
     if (this.bubbles.length >= 6) {
       this.bubbles.shift();
     }
-    const minX = this.keyboardLayout === '108' ? 145 : 125;
+    const minX = this.keyboardLayout === '108' ? 145 : this.keyboardLayout === '87' ? 135 : 125;
     const maxX = this.logicalW - 105;
     const baseX = Math.max(minX, Math.min(maxX, keyX * 0.45 + this.kbCenterX * 0.55));
     const staggerY = 258 + ((this.nextBubbleId % 3) - 1) * 10 + (Math.random() - 0.5) * 6;
@@ -2522,7 +2543,7 @@ export class KuroCatEngine {
     const gap = 3.5;
     const totalW = widths.reduce((a, b) => a + b, 0) + gap * (count - 1);
     const anchor = this.kbCenterX + 12;
-    const leftBound = this.keyboardLayout === '108' ? 140 : 126;
+    const leftBound = this.keyboardLayout === '108' ? 140 : this.keyboardLayout === '87' ? 132 : 126;
     const rightBound = this.logicalW - 82;
     let cursor = Math.max(leftBound, Math.min(rightBound - totalW, anchor - totalW * 0.5));
 
@@ -5128,7 +5149,8 @@ export class KuroCatEngine {
   private drawKeyboard(ctx: CanvasRenderingContext2D): void {
     const layout = getKeyboardLayout(this.keyboardLayout);
     const isCatFacing = this.keyboardOrientation === 'cat';
-    const is108 = this.keyboardLayout === '108';
+    // 87/108 share the tighter keycap metrics (6.25 rows, smaller U) -> one compact-keys tier
+    const isCompactKeys = this.keyboardLayout !== '65';
     const padX = 7;
     const padY = 6;
     const innerW = this.kbWidth - padX * 2;
@@ -5145,7 +5167,7 @@ export class KuroCatEngine {
     const halfH = this.kbHeight / 2;
     const rowH = innerH / layout.totalRows;
     const unitW = innerW / layout.totalUnits;
-    const gap = is108 ? 0.85 : 0.9;
+    const gap = isCompactKeys ? 0.85 : 0.9;
 
     const drawSingleKey = (
       targetCtx: CanvasRenderingContext2D,
@@ -5234,7 +5256,7 @@ export class KuroCatEngine {
       const legend = key.id === 'space' ? (isTailSelected ? '␣' : '') : key.id === 'esc' ? 'Esc' : key.label;
       if (legend) {
         const isWideWord = legend.length >= 3;
-        const fontSize = is108
+        const fontSize = isCompactKeys
           ? isWideWord
             ? 5.0
             : legend.length === 2

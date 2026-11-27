@@ -280,6 +280,7 @@ fn build_tray_menu(
     )?;
 
     let kb_65 = MenuItem::with_id(app, "kb_65", t(lang, "tray.kb_65"), true, None::<&str>)?;
+    let kb_87 = MenuItem::with_id(app, "kb_87", t(lang, "tray.kb_87"), true, None::<&str>)?;
     let kb_108 = MenuItem::with_id(app, "kb_108", t(lang, "tray.kb_108"), true, None::<&str>)?;
     let kb_sep = PredefinedMenuItem::separator(app)?;
     let kb_cat = MenuItem::with_id(app, "kb_cat", t(lang, "tray.kb_cat"), true, None::<&str>)?;
@@ -288,7 +289,7 @@ fn build_tray_menu(
         app,
         t(lang, "tray.kb_menu"),
         true,
-        &[&kb_65, &kb_108, &kb_sep, &kb_cat, &kb_viewer],
+        &[&kb_65, &kb_87, &kb_108, &kb_sep, &kb_cat, &kb_viewer],
     )?;
 
     let tail_smart = MenuItem::with_id(app, "tail_smart", t(lang, "tray.tail_smart"), true, None::<&str>)?;
@@ -946,6 +947,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                 "scale_125" => apply_scale_and_save(app, 1.25),
                 "scale_150" => apply_scale_and_save(app, 1.5),
                 "kb_65" => apply_keyboard_layout_and_save(app, "65"),
+                "kb_87" => apply_keyboard_layout_and_save(app, "87"),
                 "kb_108" => apply_keyboard_layout_and_save(app, "108"),
                 "kb_cat" => apply_keyboard_orientation_and_save(app, "cat"),
                 "kb_viewer" => apply_keyboard_orientation_and_save(app, "viewer"),

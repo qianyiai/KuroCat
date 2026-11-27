@@ -265,9 +265,9 @@ class KuroOverlayService : Service(), KuroPetListener {
     private fun computeOverlaySizePx(): Pair<Int, Int> {
         val density = resources.displayMetrics.density
         val scale = KuroPrefs.getScale(this)
-        val is108 = KuroPrefs.getLayout(this) == "108"
-        val baseWdp = if (is108) 270f else 210f
-        val baseHdp = if (is108) 228f else 220f
+        val layoutId = KuroPrefs.getLayout(this)
+        val baseWdp = if (layoutId == "108") 270f else if (layoutId == "87") 235f else 210f
+        val baseHdp = if (layoutId == "65") 220f else 228f
         val w = (baseWdp * scale * density).roundToInt().coerceAtLeast((90 * density).roundToInt())
         val h = (baseHdp * scale * density).roundToInt().coerceAtLeast((95 * density).roundToInt())
         return w to h
