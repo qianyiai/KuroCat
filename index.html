@@ -45,6 +45,13 @@
     <div id="context-menu" class="context-menu hidden">
       <div class="menu-header" id="menu-header">🐈‍⬛ KuroCat 小黑猫</div>
       <div class="menu-scale-row">
+        <span class="menu-scale-label" data-i18n="menu.size_label">猫咪大小</span>
+        <div class="size-presets" role="group" aria-label="猫咪大小">
+          <button class="scale-pill" type="button" data-scale="0.5" data-i18n="menu.scale_small" aria-pressed="false">小号 · 50%</button>
+          <button class="scale-pill" type="button" data-scale="1" data-i18n="menu.scale_large" aria-pressed="false">大号 · 100%</button>
+        </div>
+      </div>
+      <div class="menu-scale-row">
         <span class="menu-scale-label" data-i18n="menu.breed_label">角色外观（支持 MCP 定制）</span>
         <div class="breed-pills" id="breed-pills">
           <button class="breed-pill active" data-breed="black">🐈‍⬛ 小黑猫</button>

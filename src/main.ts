@@ -479,6 +479,11 @@ function renderBreedPills(): void {
 }
 
 function updateScaleSliderVisual(scaleVal: number): void {
+  document.querySelectorAll<HTMLButtonElement>('.size-presets [data-scale]').forEach((btn) => {
+    const selected = Math.abs(scaleVal - Number(btn.dataset.scale)) < 0.0001;
+    btn.classList.toggle('active', selected);
+    btn.setAttribute('aria-pressed', String(selected));
+  });
   const pctNum = Math.round(Math.max(20, Math.min(150, scaleVal * 100)));
   if (scaleSliderEl) {
     scaleSliderEl.value = String(pctNum);

@@ -602,6 +602,15 @@ html.win7-ulw-mode #collar-row {
   }
 }
 
+.size-presets {
+  display: flex;
+  gap: 6px;
+}
+
+.size-presets .scale-pill {
+  flex: 1;
+}
+
 .scale-pill {
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: rgba(255, 255, 255, 0.05);
