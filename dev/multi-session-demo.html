@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>KuroCat · 多会话气泡测试</title>
+    <link rel="stylesheet" href="/src/style.css" />
+    <style>
+      body {
+        background: #12151c;
+        color: #e8ecf4;
+        font-family: 'Segoe UI', 'PingFang SC', system-ui, sans-serif;
+        margin: 0;
+        padding: 24px;
+      }
+      h1 { font-size: 16px; margin: 0 0 6px; }
+      .hint { color: #8d97a8; font-size: 12px; margin-bottom: 18px; }
+      .stage { position: relative; height: 220px; border: 1px dashed #2c3342; border-radius: 12px; }
+      .stat { font-size: 12px; color: #9ad0ff; margin-top: 14px; white-space: pre-line; }
+      #log { font-size: 11px; color: #7f8a9c; margin-top: 10px; max-height: 160px; overflow: auto; }
+    </style>
+  </head>
+  <body>
+    <h1>多会话气泡测试</h1>
+    <div class="hint">
+      两个会话先后开始工作 → 上下两个气泡；A 完成后 A 的气泡变 ✅ 并淡出；B 完成同理。
+      下方计数验证「任一在 working 就打字」的或逻辑。
+    </div>
+    <div class="stage"><div id="agent-bubble" class="agent-bubble-stack hidden" role="status" aria-live="polite"></div></div>
+    <div class="stat" id="stat">sessions: 0 · typing: idle</div>
+    <div id="log"></div>
+    <script type="module" src="/dev/multi-session-demo.ts"></script>
+  </body>
+</html>
