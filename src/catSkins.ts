@@ -11,7 +11,11 @@ export interface CatSpot {
 
 export type CatPattern = 'solid' | 'bicolor' | 'tuxedo' | 'tabby' | 'calico' | 'siamese';
 export type CatFaceShape = 'round' | 'square' | 'wide' | 'fox' | 'oval';
-export type CatEarShape = 'cat' | 'round' | 'tall' | 'small' | 'wide';
+export type CatEarShape = 'cat' | 'round' | 'tall' | 'small' | 'wide' | 'folded' | 'floppy';
+export type CatPupilShape = 'oval' | 'round' | 'slit' | 'dot' | 'star';
+export type CatNoseShape = 'cat' | 'round' | 'wide' | 'small' | 'none';
+export type CatMouthShape = 'w' | 'smile' | 'flat' | 'open' | 'blep' | 'none';
+export type CatEyebrowStyle = 'none' | 'soft' | 'thick' | 'angry' | 'worried';
 
 export interface CatContourResolved {
   faceShape: CatFaceShape;
@@ -19,7 +23,26 @@ export interface CatContourResolved {
   jawSquareness: number;
   earShape: CatEarShape;
   earScale: number;
+  earSpacing: number;
+  earTilt: number;
   eyeSquint: number;
+  eyeScale: number;
+  eyeAspect: number;
+  eyeSpacing: number;
+  eyeOffsetY: number;
+  eyeTilt: number;
+  pupilShape: CatPupilShape;
+  pupilScale: number;
+  noseShape: CatNoseShape;
+  noseScale: number;
+  noseOffsetY: number;
+  mouthShape: CatMouthShape;
+  mouthScale: number;
+  mouthOffsetY: number;
+  whiskerLength: number;
+  eyebrowStyle: CatEyebrowStyle;
+  blushAlways: boolean;
+  blushScale: number;
   bodyChubbiness: number;
 }
 
@@ -72,13 +95,35 @@ export interface CatSkinConfig {
   accentColor?: string;
   accentSideColor?: string;
 
-  // Optional contour & facial silhouette overrides (v5.1.3+)
+  // Optional contour & full facial sculpting overrides (v5.1.3+)
   faceShape?: CatFaceShape;
   headWidth?: number;
   jawSquareness?: number;
   earShape?: CatEarShape;
   earScale?: number;
+  earSpacing?: number;
+  earTilt?: number;
   eyeSquint?: number;
+  eyeScale?: number;
+  eyeAspect?: number;
+  eyeSpacing?: number;
+  eyeOffsetY?: number;
+  eyeTilt?: number;
+  pupilShape?: CatPupilShape;
+  pupilScale?: number;
+  rightEyeColorTop?: string;
+  rightEyeColorBottom?: string;
+  noseShape?: CatNoseShape;
+  noseScale?: number;
+  noseOffsetY?: number;
+  mouthShape?: CatMouthShape;
+  mouthScale?: number;
+  mouthOffsetY?: number;
+  whiskerLength?: number;
+  eyebrowStyle?: CatEyebrowStyle;
+  eyebrowColor?: string;
+  blushAlways?: boolean;
+  blushScale?: number;
   bodyChubbiness?: number;
 
   spots?: CatSpot[];
@@ -109,6 +154,8 @@ export interface ResolvedSkin {
   tailStripes: boolean;
   eyeColorTop: string;
   eyeColorBottom: string;
+  rightEyeColorTop: string;
+  rightEyeColorBottom: string;
   pupilColor: string;
   eyeCatchlight: boolean;
   eyeRimColor: string | null;
@@ -118,6 +165,7 @@ export interface ResolvedSkin {
   mouthColor: string | null;
   blushColor: string | null;
   whiskerColor: string;
+  eyebrowColor: string;
   armColor: string;
   pawColor: string;
   pawOutlineColor: string | null;
@@ -141,9 +189,41 @@ export function resolveCatContour(raw?: Partial<CatSkinConfig> | null): CatConto
 
   const esRaw = (raw?.earShape || 'cat').toLowerCase();
   const earShape: CatEarShape =
-    esRaw === 'round' || esRaw === 'tall' || esRaw === 'small' || esRaw === 'wide'
+    esRaw === 'round' ||
+    esRaw === 'tall' ||
+    esRaw === 'small' ||
+    esRaw === 'wide' ||
+    esRaw === 'folded' ||
+    esRaw === 'floppy'
       ? esRaw
       : 'cat';
+
+  const psRaw = (raw?.pupilShape || 'oval').toLowerCase();
+  const pupilShape: CatPupilShape =
+    psRaw === 'round' || psRaw === 'slit' || psRaw === 'dot' || psRaw === 'star'
+      ? psRaw
+      : 'oval';
+
+  const nsRaw = (raw?.noseShape || 'cat').toLowerCase();
+  const noseShape: CatNoseShape =
+    nsRaw === 'round' || nsRaw === 'wide' || nsRaw === 'small' || nsRaw === 'none'
+      ? nsRaw
+      : 'cat';
+
+  const msRaw = (raw?.mouthShape || 'w').toLowerCase();
+  const mouthShape: CatMouthShape =
+    msRaw === 'smile' || msRaw === 'flat' || msRaw === 'open' || msRaw === 'blep' || msRaw === 'none'
+      ? msRaw
+      : 'w';
+
+  const ebRaw = (raw?.eyebrowStyle || 'none').toLowerCase();
+  const eyebrowStyle: CatEyebrowStyle =
+    ebRaw === 'soft' || ebRaw === 'thick' || ebRaw === 'angry' || ebRaw === 'worried'
+      ? ebRaw
+      : 'none';
+
+  const numOr = (val: number | undefined, lo: number, hi: number, fallback: number): number =>
+    typeof val === 'number' && Number.isFinite(val) ? clampNum(val, lo, hi) : fallback;
 
   const defaultHeadWidth =
     faceShape === 'square'
@@ -159,35 +239,33 @@ export function resolveCatContour(raw?: Partial<CatSkinConfig> | null): CatConto
   const defaultJawSquareness =
     faceShape === 'square' ? 0.88 : faceShape === 'wide' ? 0.36 : 0.0;
 
-  const headWidth =
-    typeof raw?.headWidth === 'number' && Number.isFinite(raw.headWidth)
-      ? clampNum(raw.headWidth, 0.78, 1.32)
-      : defaultHeadWidth;
-  const jawSquareness =
-    typeof raw?.jawSquareness === 'number' && Number.isFinite(raw.jawSquareness)
-      ? clampNum(raw.jawSquareness, 0.0, 1.0)
-      : defaultJawSquareness;
-  const earScale =
-    typeof raw?.earScale === 'number' && Number.isFinite(raw.earScale)
-      ? clampNum(raw.earScale, 0.55, 1.55)
-      : 1.0;
-  const eyeSquint =
-    typeof raw?.eyeSquint === 'number' && Number.isFinite(raw.eyeSquint)
-      ? clampNum(raw.eyeSquint, 0.0, 0.75)
-      : 0.0;
-  const bodyChubbiness =
-    typeof raw?.bodyChubbiness === 'number' && Number.isFinite(raw.bodyChubbiness)
-      ? clampNum(raw.bodyChubbiness, 0.80, 1.25)
-      : 1.0;
-
   return {
     faceShape,
-    headWidth,
-    jawSquareness,
+    headWidth: numOr(raw?.headWidth, 0.78, 1.32, defaultHeadWidth),
+    jawSquareness: numOr(raw?.jawSquareness, 0.0, 1.0, defaultJawSquareness),
     earShape,
-    earScale,
-    eyeSquint,
-    bodyChubbiness,
+    earScale: numOr(raw?.earScale, 0.55, 1.55, 1.0),
+    earSpacing: numOr(raw?.earSpacing, 0.70, 1.35, 1.0),
+    earTilt: numOr(raw?.earTilt, -0.45, 0.65, 0.0),
+    eyeSquint: numOr(raw?.eyeSquint, 0.0, 0.75, 0.0),
+    eyeScale: numOr(raw?.eyeScale, 0.55, 1.45, 1.0),
+    eyeAspect: numOr(raw?.eyeAspect, 0.60, 1.40, 1.0),
+    eyeSpacing: numOr(raw?.eyeSpacing, 0.72, 1.35, 1.0),
+    eyeOffsetY: numOr(raw?.eyeOffsetY, -1.0, 1.0, 0.0),
+    eyeTilt: numOr(raw?.eyeTilt, -0.50, 0.50, 0.0),
+    pupilShape,
+    pupilScale: numOr(raw?.pupilScale, 0.40, 1.45, 1.0),
+    noseShape,
+    noseScale: numOr(raw?.noseScale, 0.50, 1.80, 1.0),
+    noseOffsetY: numOr(raw?.noseOffsetY, -1.0, 1.0, 0.0),
+    mouthShape,
+    mouthScale: numOr(raw?.mouthScale, 0.55, 1.70, 1.0),
+    mouthOffsetY: numOr(raw?.mouthOffsetY, -1.0, 1.0, 0.0),
+    whiskerLength: numOr(raw?.whiskerLength, 0.0, 1.60, 1.0),
+    eyebrowStyle,
+    blushAlways: Boolean(raw?.blushAlways),
+    blushScale: numOr(raw?.blushScale, 0.50, 1.60, 1.0),
+    bodyChubbiness: numOr(raw?.bodyChubbiness, 0.80, 1.25, 1.0),
   };
 }
 
@@ -245,6 +323,13 @@ export function resolveCustomSkin(raw: CatSkinConfig): ResolvedSkin {
     tailStripes: Boolean(raw.tailStripes || pattern === 'tabby'),
     eyeColorTop: raw.eyeColorTop || '#5a94d6',
     eyeColorBottom: raw.eyeColorBottom || raw.eyeColorTop || '#a3d2f2',
+    rightEyeColorTop: raw.rightEyeColorTop || raw.eyeColorTop || '#5a94d6',
+    rightEyeColorBottom:
+      raw.rightEyeColorBottom ||
+      raw.rightEyeColorTop ||
+      raw.eyeColorBottom ||
+      raw.eyeColorTop ||
+      '#a3d2f2',
     pupilColor: raw.pupilColor || '#10141e',
     eyeCatchlight: raw.eyeCatchlight ?? !darkBase,
     eyeRimColor: raw.eyeRimColor || (darkBase ? null : 'rgba(42, 46, 58, 0.78)'),
@@ -255,6 +340,7 @@ export function resolveCustomSkin(raw: CatSkinConfig): ResolvedSkin {
     blushColor: raw.blushColor || (darkBase ? null : '#f492a6'),
     whiskerColor:
       raw.whiskerColor || (darkBase ? 'rgba(210, 214, 220, 0.56)' : 'rgba(84, 76, 70, 0.56)'),
+    eyebrowColor: raw.eyebrowColor || (darkBase ? '#e8e2d4' : outlineColor || '#4a3d35'),
     armColor,
     pawColor,
     pawOutlineColor:

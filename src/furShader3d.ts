@@ -67,8 +67,11 @@ export interface FurPalette3D {
   whiskerOpacity: number;
   nose: string | null;
   mouth: string | null;
+  eyebrow?: string;
   eyeTop: string;
   eyeBottom: string;
+  rightEyeTop?: string;
+  rightEyeBottom?: string;
   pupil: string;
   lid: string;
   squintLine: string;
@@ -398,8 +401,15 @@ export function resolveFurPalette3D(skin: CatSkinConfig, style: RenderStyle3D): 
         whiskerOpacity: whiskerParsed.opacity ?? 0.6,
         nose: skin.noseColor ? parseRgbOrHexColor(skin.noseColor, '#ee8e9e').hex : (isDark ? null : '#ee8e9e'),
         mouth: skin.mouthColor ? parseRgbOrHexColor(skin.mouthColor, '#5e5550').hex : (isDark ? null : '#5e5550'),
+        eyebrow: parseRgbOrHexColor(skin.eyebrowColor, isDark ? '#e8e2d4' : (skin.outlineColor || '#4a3d35')).hex,
         eyeTop: parseRgbOrHexColor(skin.eyeColorTop, '#4a88d8').hex,
         eyeBottom: parseRgbOrHexColor(skin.eyeColorBottom || skin.eyeColorTop, '#a3d2f2').hex,
+        rightEyeTop: skin.rightEyeColorTop
+          ? parseRgbOrHexColor(skin.rightEyeColorTop, '#4a88d8').hex
+          : undefined,
+        rightEyeBottom: skin.rightEyeColorBottom || skin.rightEyeColorTop
+          ? parseRgbOrHexColor(skin.rightEyeColorBottom || skin.rightEyeColorTop, '#a3d2f2').hex
+          : undefined,
         pupil: parseRgbOrHexColor(skin.pupilColor, '#10141c').hex,
         lid: parseRgbOrHexColor(skin.squintColor, '#282c36').hex,
         squintLine: parseRgbOrHexColor(skin.squintColor, '#282c36').hex,

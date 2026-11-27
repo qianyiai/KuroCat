@@ -31,6 +31,34 @@ fn default_obs_hide_pet() -> bool {
     false
 }
 
+pub fn default_opacity() -> f64 {
+    1.0
+}
+
+pub fn normalize_opacity(raw: f64) -> f64 {
+    if !raw.is_finite() {
+        return default_opacity();
+    }
+    let normalized = if raw >= 10.0 && raw <= 100.0 {
+        raw / 100.0
+    } else {
+        raw
+    };
+    normalized.clamp(0.20, 1.0)
+}
+
+fn default_live_chroma_color() -> String {
+    "blue".to_string()
+}
+
+pub fn normalize_live_chroma_color(raw: &str) -> String {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "green" => "green".to_string(),
+        "magenta" => "magenta".to_string(),
+        _ => "blue".to_string(),
+    }
+}
+
 pub fn default_render_mode() -> String {
     "3d".to_string()
 }
@@ -170,10 +198,14 @@ pub struct AppSettings {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub windows_display_id: Option<String>,
     pub scale: f64,
+    #[serde(default = "default_opacity")]
+    pub opacity: f64,
     pub always_on_top: bool,
     pub click_through_locked: bool,
     pub show_key_bubbles: bool,
     pub sound_enabled: bool,
+    #[serde(default)]
+    pub typing_sound_enabled: bool,
     pub autostart: bool,
     #[serde(default = "default_cat_breed")]
     pub cat_breed: String,
@@ -197,6 +229,12 @@ pub struct AppSettings {
     pub obs_port: u16,
     #[serde(default = "default_obs_hide_pet")]
     pub obs_hide_pet: bool,
+    #[serde(default)]
+    pub live_capture_enabled: bool,
+    #[serde(default = "default_live_chroma_color")]
+    pub live_chroma_color: String,
+    #[serde(default)]
+    pub live_hide_pet: bool,
     #[serde(default = "default_render_mode")]
     pub render_mode: String,
     #[serde(default = "default_collar_color")]
@@ -219,10 +257,12 @@ impl Default for AppSettings {
             #[cfg(windows)]
             windows_display_id: None,
             scale: 1.0,
+            opacity: default_opacity(),
             always_on_top: true,
             click_through_locked: false,
             show_key_bubbles: true,
             sound_enabled: true,
+            typing_sound_enabled: false,
             autostart: false,
             cat_breed: default_cat_breed(),
             mcp_enabled: default_mcp_enabled(),
@@ -235,6 +275,9 @@ impl Default for AppSettings {
             obs_enabled: default_obs_enabled(),
             obs_port: default_obs_port(),
             obs_hide_pet: default_obs_hide_pet(),
+            live_capture_enabled: false,
+            live_chroma_color: default_live_chroma_color(),
+            live_hide_pet: false,
             render_mode: default_render_mode(),
             collar_color: default_collar_color(),
             headphone_mode: default_headphone_mode(),
@@ -279,9 +322,11 @@ pub fn load_settings() -> AppSettings {
     if let Ok(content) = fs::read_to_string(&path) {
         if let Ok(mut parsed) = serde_json::from_str::<AppSettings>(&content) {
             parsed.scale = parsed.scale.clamp(0.20, 1.50);
+            parsed.opacity = normalize_opacity(parsed.opacity);
             parsed.tail_key_mode = normalize_tail_key_mode(&parsed.tail_key_mode);
             parsed.tail_key_ids = normalize_tail_key_ids(&parsed.tail_key_ids);
             parsed.render_mode = normalize_render_mode(&parsed.render_mode);
+            parsed.live_chroma_color = normalize_live_chroma_color(&parsed.live_chroma_color);
             parsed.collar_color = normalize_collar_color(&parsed.collar_color);
             parsed.headphone_mode = normalize_headphone_mode(&parsed.headphone_mode);
             parsed.fps_cap = normalize_fps_cap(parsed.fps_cap);
@@ -553,5 +598,112 @@ mod tests {
         let parsed: AppSettings = serde_json::from_str(legacy).expect("legacy json should parse");
         assert_eq!(parsed.tail_key_mode, "smart");
         assert_eq!(parsed.tail_key_ids, default_tail_key_ids());
+        assert!(!parsed.typing_sound_enabled);
+    }
+
+    #[test]
+    fn typing_sound_enabled_round_trips_camel_case() {
+        let raw = r#"{
+            "x": null,
+            "y": null,
+            "scale": 1.0,
+            "alwaysOnTop": true,
+            "clickThroughLocked": false,
+            "showKeyBubbles": true,
+            "soundEnabled": true,
+            "typingSoundEnabled": true,
+            "autostart": false
+        }"#;
+        let parsed: AppSettings = serde_json::from_str(raw).expect("settings with typingSoundEnabled should parse");
+        assert!(parsed.typing_sound_enabled);
+
+        let serialized = serde_json::to_value(&parsed).expect("settings should serialize");
+        assert_eq!(serialized.get("typingSoundEnabled").and_then(|v| v.as_bool()), Some(true));
+
+        let round_tripped: AppSettings = serde_json::from_value(serialized).expect("round-trip should parse");
+        assert!(round_tripped.typing_sound_enabled);
+    }
+
+    #[test]
+    fn live_capture_defaults_normalize_and_round_trip() {
+        // Legacy JSON missing liveCapture* fields deserializes with safe defaults
+        let legacy = r#"{
+            "x": null,
+            "y": null,
+            "scale": 1.0,
+            "alwaysOnTop": true,
+            "clickThroughLocked": false,
+            "showKeyBubbles": true,
+            "soundEnabled": true,
+            "autostart": false
+        }"#;
+        let parsed: AppSettings = serde_json::from_str(legacy).expect("legacy json should parse");
+        assert!(!parsed.live_capture_enabled);
+        assert_eq!(parsed.live_chroma_color, "blue");
+        assert!(!parsed.live_hide_pet);
+
+        // Normalization accepts blue / green / magenta case-insensitively and defaults to blue
+        assert_eq!(normalize_live_chroma_color("blue"), "blue");
+        assert_eq!(normalize_live_chroma_color(" GREEN "), "green");
+        assert_eq!(normalize_live_chroma_color("MaGeNtA"), "magenta");
+        assert_eq!(normalize_live_chroma_color("red"), "blue");
+        assert_eq!(normalize_live_chroma_color(""), "blue");
+
+        // CamelCase round-trip
+        let mut s = AppSettings::default();
+        s.live_capture_enabled = true;
+        s.live_chroma_color = normalize_live_chroma_color("MAGENTA");
+        s.live_hide_pet = true;
+
+        let serialized = serde_json::to_value(&s).expect("settings should serialize");
+        assert_eq!(
+            serialized.get("liveCaptureEnabled").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            serialized.get("liveChromaColor").and_then(|v| v.as_str()),
+            Some("magenta")
+        );
+        assert_eq!(
+            serialized.get("liveHidePet").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+
+        let round_tripped: AppSettings =
+            serde_json::from_value(serialized).expect("round-trip should parse");
+        assert!(round_tripped.live_capture_enabled);
+        assert_eq!(round_tripped.live_chroma_color, "magenta");
+        assert!(round_tripped.live_hide_pet);
+    }
+
+    #[test]
+    fn opacity_defaults_normalize_and_round_trip() {
+        let legacy = r#"{
+            "x": null,
+            "y": null,
+            "scale": 1.0,
+            "alwaysOnTop": true,
+            "clickThroughLocked": false,
+            "showKeyBubbles": true,
+            "soundEnabled": true,
+            "autostart": false
+        }"#;
+        let parsed: AppSettings = serde_json::from_str(legacy).expect("legacy json should parse");
+        assert!((parsed.opacity - 1.0).abs() < 1e-6);
+
+        assert!((normalize_opacity(0.65) - 0.65).abs() < 1e-6);
+        assert!((normalize_opacity(65.0) - 0.65).abs() < 1e-6);
+        assert!((normalize_opacity(0.05) - 0.20).abs() < 1e-6);
+        assert!((normalize_opacity(1.8) - 1.0).abs() < 1e-6);
+        assert!((normalize_opacity(150.0) - 1.0).abs() < 1e-6);
+        assert!((normalize_opacity(f64::NAN) - 1.0).abs() < 1e-6);
+
+        let mut s = AppSettings::default();
+        s.opacity = normalize_opacity(0.55);
+        let serialized = serde_json::to_value(&s).expect("settings should serialize");
+        assert_eq!(serialized.get("opacity").and_then(|v| v.as_f64()), Some(0.55));
+        let round_tripped: AppSettings =
+            serde_json::from_value(serialized).expect("round-trip should parse");
+        assert!((round_tripped.opacity - 0.55).abs() < 1e-6);
     }
 }

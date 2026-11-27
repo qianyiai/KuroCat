@@ -17,10 +17,12 @@ interface AppSettings {
   x: number | null;
   y: number | null;
   scale: number;
+  opacity?: number;
   alwaysOnTop: boolean;
   clickThroughLocked: boolean;
   showKeyBubbles: boolean;
   soundEnabled: boolean;
+  typingSoundEnabled?: boolean;
   autostart: boolean;
   catBreed: string;
   mcpEnabled: boolean;
@@ -33,6 +35,9 @@ interface AppSettings {
   obsEnabled: boolean;
   obsPort: number;
   obsHidePet: boolean;
+  liveCaptureEnabled?: boolean;
+  liveChromaColor?: 'blue' | 'green' | 'magenta';
+  liveHidePet?: boolean;
   renderMode?: '2d' | '3d';
   collarColor?: 'none' | 'red' | 'blue' | 'pink' | 'green';
   headphoneMode?: 'auto' | 'on' | 'off';
@@ -59,16 +64,24 @@ interface UpdateProgressEvent {
   info?: UpdateInfo | null;
 }
 
-type MenuTabId = 'appearance' | 'system';
+interface AdminStatus {
+  supported: boolean;
+  elevated: boolean;
+  macInputDiag?: boolean;
+}
+
+type MenuTabId = 'appearance' | 'interact' | 'system';
 
 let settings: AppSettings = {
   x: null,
   y: null,
   scale: 1,
+  opacity: 1,
   alwaysOnTop: true,
   clickThroughLocked: false,
   showKeyBubbles: true,
   soundEnabled: true,
+  typingSoundEnabled: false,
   autostart: false,
   catBreed: 'black',
   mcpEnabled: true,
@@ -81,6 +94,9 @@ let settings: AppSettings = {
   obsEnabled: false,
   obsPort: 27421,
   obsHidePet: false,
+  liveCaptureEnabled: false,
+  liveChromaColor: 'blue',
+  liveHidePet: false,
   renderMode: '3d',
   collarColor: 'none',
   headphoneMode: 'off',
@@ -91,21 +107,37 @@ let settings: AppSettings = {
 let catList: CatSkinConfig[] = [...DEFAULT_BUILTIN_CATS];
 let resolvedBackendLocale: string | null = null;
 let sliderDragging = false;
-let currentAppVersion = '5.1.2';
+let opacitySliderDragging = false;
+let currentAppVersion = '5.1.3';
 let cachedUpdateInfo: UpdateInfo | null = null;
 let updateBusy = false;
 let activeTab: MenuTabId = 'appearance';
 let settingsPatchSeq = 0;
+let adminStatus: AdminStatus = { supported: false, elevated: false, macInputDiag: false };
 
 const menuEl = document.getElementById('context-menu') as HTMLDivElement;
 const tabBodyEl = document.getElementById('menu-tab-body') as HTMLDivElement | null;
 const breedPillsEl = document.getElementById('breed-pills') as HTMLDivElement;
 const scaleSliderEl = document.getElementById('scale-slider') as HTMLInputElement;
 const scaleValueEl = document.getElementById('scale-value') as HTMLButtonElement;
+const opacitySliderEl = document.getElementById('opacity-slider') as HTMLInputElement | null;
+const opacityValueEl = document.getElementById('opacity-value') as HTMLButtonElement | null;
 const tailModeBadgeEl = document.getElementById('tail-mode-badge') as HTMLSpanElement;
 const tailKeysCountEl = document.getElementById('tail-keys-count') as HTMLSpanElement;
-const btnObsHideEl = document.getElementById('btn-obs-hide') as HTMLButtonElement;
+const btnOpenTailPickerEl = document.getElementById('btn-open-tail-picker') as HTMLButtonElement | null;
+const langSelectEl = document.getElementById('lang-select') as HTMLSelectElement | null;
+const btnHeaderAdminEl = document.getElementById('btn-header-admin') as HTMLButtonElement | null;
+const btnRestartAdminEl = document.getElementById('btn-restart-admin') as HTMLButtonElement | null;
+const adminRestartLabelEl = document.getElementById('admin-restart-label') as HTMLSpanElement | null;
+const btnMacInputDiagEl = document.getElementById('btn-mac-input-diag') as HTMLButtonElement | null;
+const macInputDiagLabelEl = document.getElementById('mac-input-diag-label') as HTMLSpanElement | null;
+const btnHeaderLockEl = document.getElementById('btn-header-lock') as HTMLButtonElement | null;
+const mcpCardBodyEl = document.getElementById('mcp-card-body') as HTMLDivElement | null;
+const obsCardBodyEl = document.getElementById('obs-card-body') as HTMLDivElement | null;
+const obsPortPillEl = document.getElementById('obs-port-pill') as HTMLSpanElement | null;
+const liveCardBodyEl = document.getElementById('live-card-body') as HTMLDivElement | null;
 const btnCheckUpdateEl = document.getElementById('btn-check-update') as HTMLButtonElement | null;
+const lockKbdEl = document.getElementById('lock-kbd') as HTMLElement | null;
 
 function formatBreedPillLabel(cat: CatSkinConfig): string {
   const displayName = localizeBreedName(cat.id, cat.name, cat.builtin);
@@ -122,7 +154,7 @@ function formatHeaderCatName(cat: CatSkinConfig): string {
     cat.emoji && displayName.startsWith(cat.emoji)
       ? displayName.slice(cat.emoji.length).trimStart()
       : displayName;
-  return `${emoji} KuroCat ${bareName}`;
+  return `${emoji} KuroCat · ${bareName}`;
 }
 
 function switchTab(nextTab: MenuTabId): void {
@@ -172,6 +204,24 @@ function updateScaleSliderVisual(scaleVal: number): void {
   }
 }
 
+function normalizeOpacity(opacityVal: number | undefined): number {
+  if (typeof opacityVal !== 'number' || !Number.isFinite(opacityVal)) return 1;
+  const normalized = opacityVal >= 10 && opacityVal <= 100 ? opacityVal / 100 : opacityVal;
+  return Math.max(0.2, Math.min(1, normalized));
+}
+
+function updateOpacitySliderVisual(opacityVal: number | undefined): void {
+  const pctNum = Math.round(normalizeOpacity(opacityVal) * 100);
+  if (opacitySliderEl) {
+    opacitySliderEl.value = String(pctNum);
+    const fillPct = ((pctNum - 20) / (100 - 20)) * 100;
+    opacitySliderEl.style.setProperty('--pct', `${fillPct.toFixed(1)}%`);
+  }
+  if (opacityValueEl) {
+    opacityValueEl.textContent = `${pctNum}%`;
+  }
+}
+
 function renderBreedPills(): void {
   if (!breedPillsEl) return;
   breedPillsEl.innerHTML = '';
@@ -190,31 +240,93 @@ function renderBreedPills(): void {
   }
 }
 
+function setToggleSwitch(id: string, on: boolean): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.toggle('is-on', on);
+  el.setAttribute('aria-checked', on ? 'true' : 'false');
+}
+
 function syncUI(): void {
   setActiveLocale(settings.language, resolvedBackendLocale);
   applyDomTranslations();
 
-  const setCheck = (id: string, on: boolean) => {
-    const el = document.getElementById(id);
-    if (el) el.textContent = on ? '✓' : '';
-  };
-
-  setCheck('chk-privacy', settings.privacyPasswordGuard !== false);
-  setCheck('chk-bubbles', settings.showKeyBubbles);
-  setCheck('chk-lock', settings.clickThroughLocked);
-  setCheck('chk-sound', settings.soundEnabled);
-  setCheck('chk-top', settings.alwaysOnTop);
-  setCheck('chk-autostart', settings.autostart);
-  setCheck('chk-mcp', settings.mcpEnabled);
-  setCheck('chk-obs', Boolean(settings.obsEnabled));
-  setCheck('chk-obs-hide', Boolean(settings.obsEnabled && settings.obsHidePet));
-
-  if (btnObsHideEl) {
-    btnObsHideEl.classList.toggle('hidden', !settings.obsEnabled);
+  if (lockKbdEl) {
+    lockKbdEl.textContent = isMacPlatform() ? 'Option' : 'Alt';
   }
+
+  setToggleSwitch('sw-privacy', settings.privacyPasswordGuard !== false);
+  setToggleSwitch('sw-bubbles', settings.showKeyBubbles);
+  setToggleSwitch('sw-lock', settings.clickThroughLocked);
+  setToggleSwitch('sw-sound', settings.soundEnabled);
+  setToggleSwitch('sw-typing-sound', Boolean(settings.typingSoundEnabled));
+  setToggleSwitch('sw-top', settings.alwaysOnTop);
+  setToggleSwitch('sw-autostart', settings.autostart);
+  setToggleSwitch('sw-mcp', settings.mcpEnabled);
+  setToggleSwitch('sw-obs', Boolean(settings.obsEnabled));
+  setToggleSwitch('sw-obs-hide', Boolean(settings.obsEnabled && settings.obsHidePet));
+  setToggleSwitch('sw-live', Boolean(settings.liveCaptureEnabled));
+  setToggleSwitch('sw-live-hide', Boolean(settings.liveCaptureEnabled && settings.liveHidePet));
+
+  if (btnHeaderLockEl) {
+    btnHeaderLockEl.classList.toggle('is-locked', settings.clickThroughLocked);
+    btnHeaderLockEl.setAttribute('aria-pressed', settings.clickThroughLocked ? 'true' : 'false');
+  }
+
+  const adminText = t(adminStatus.elevated ? 'menu.admin_ready' : 'menu.admin_restart');
+  const macDiagText = t('menu.mac_input_diag');
+  const showHeaderShield = adminStatus.supported || Boolean(adminStatus.macInputDiag);
+  if (btnHeaderAdminEl) {
+    btnHeaderAdminEl.classList.toggle('hidden', !showHeaderShield);
+    btnHeaderAdminEl.classList.toggle('is-elevated', adminStatus.supported && adminStatus.elevated);
+    btnHeaderAdminEl.disabled = adminStatus.supported && adminStatus.elevated;
+    btnHeaderAdminEl.dataset.action = adminStatus.supported ? 'restart-admin' : 'mac-input-diag';
+    const headerTip = adminStatus.supported ? adminText : macDiagText;
+    btnHeaderAdminEl.title = headerTip;
+    btnHeaderAdminEl.setAttribute('aria-label', headerTip);
+  }
+  if (btnRestartAdminEl) {
+    btnRestartAdminEl.classList.toggle('hidden', !adminStatus.supported);
+    btnRestartAdminEl.classList.toggle('is-elevated', adminStatus.elevated);
+    btnRestartAdminEl.disabled = adminStatus.elevated;
+    btnRestartAdminEl.title = adminText;
+  }
+  if (adminRestartLabelEl) {
+    adminRestartLabelEl.textContent = adminText;
+  }
+  if (btnMacInputDiagEl) {
+    btnMacInputDiagEl.classList.toggle('hidden', !adminStatus.macInputDiag);
+    btnMacInputDiagEl.title = macDiagText;
+  }
+  if (macInputDiagLabelEl) {
+    macInputDiagLabelEl.textContent = macDiagText;
+  }
+
+  // Conditionally reveal MCP, OBS & Live Capture bodies only when enabled
+  if (mcpCardBodyEl) {
+    mcpCardBodyEl.classList.toggle('hidden', !settings.mcpEnabled);
+  }
+  if (obsCardBodyEl) {
+    obsCardBodyEl.classList.toggle('hidden', !settings.obsEnabled);
+  }
+  if (obsPortPillEl) {
+    obsPortPillEl.textContent = `:${settings.obsPort || 27421}`;
+    obsPortPillEl.classList.toggle('hidden', !settings.obsEnabled);
+  }
+  if (liveCardBodyEl) {
+    liveCardBodyEl.classList.toggle('hidden', !settings.liveCaptureEnabled);
+  }
+  const liveChromaColor =
+    settings.liveChromaColor === 'green' || settings.liveChromaColor === 'magenta'
+      ? settings.liveChromaColor
+      : 'blue';
+  document.querySelectorAll<HTMLButtonElement>('[data-livechroma]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.livechroma === liveChromaColor);
+  });
+
   const obsHint = document.getElementById('obs-copy-hint');
   if (obsHint && !obsHint.classList.contains('copied')) {
-    obsHint.textContent = settings.obsEnabled ? `:${settings.obsPort || 27421}` : t('menu.obs_hint');
+    obsHint.textContent = t('menu.obs_hint');
   }
   const mcpHint = document.getElementById('mcp-copy-hint');
   if (mcpHint && !mcpHint.classList.contains('copied')) {
@@ -224,9 +336,16 @@ function syncUI(): void {
   if (hooksHint && !hooksHint.classList.contains('copied')) {
     hooksHint.textContent = t('menu.copy_hooks');
   }
+  const shortcutHint = document.getElementById('shortcut-hint');
+  if (shortcutHint && !shortcutHint.classList.contains('copied')) {
+    shortcutHint.textContent = t('menu.desktop_shortcut_short');
+  }
 
   if (!sliderDragging) {
     updateScaleSliderVisual(settings.scale);
+  }
+  if (!opacitySliderDragging) {
+    updateOpacitySliderVisual(settings.opacity);
   }
 
   const kbLayout: KeyboardLayoutId = settings.keyboardLayout === '108' ? '108' : '65';
@@ -244,9 +363,9 @@ function syncUI(): void {
   });
 
   const langSetting = normalizeLanguageSetting(settings.language);
-  document.querySelectorAll<HTMLButtonElement>('[data-lang]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.lang === langSetting);
-  });
+  if (langSelectEl) {
+    langSelectEl.value = langSetting;
+  }
 
   const tailMode: TailKeyMode =
     settings.tailKeyMode === 'custom' ||
@@ -264,6 +383,9 @@ function syncUI(): void {
   if (tailKeysCountEl) {
     tailKeysCountEl.textContent = t('menu.tail_keys_count', { count: tailIds.length });
   }
+  if (btnOpenTailPickerEl) {
+    btnOpenTailPickerEl.classList.toggle('hidden', tailMode !== 'custom');
+  }
 
   const activeCat = catList.find((c) => c.id === settings.catBreed) ?? catList[0];
   renderBreedPills();
@@ -280,15 +402,23 @@ function syncUI(): void {
     btn.classList.toggle('active', btn.dataset.rendermode === renderMode);
   });
   document.querySelectorAll<HTMLButtonElement>('[data-collar]').forEach((btn) => {
-    btn.classList.toggle('active', btn.dataset.collar === collarColor);
+    const isActive = btn.dataset.collar === collarColor;
+    btn.classList.toggle('active', isActive);
+    btn.setAttribute('aria-checked', isActive ? 'true' : 'false');
   });
+
+  const isDafeiyu = settings.catBreed === 'dafeiyu';
+  const styleCardEl = document.getElementById('style-card');
+  if (styleCardEl) {
+    styleCardEl.classList.toggle('hidden', isDafeiyu);
+  }
   const renderModeRowEl = document.getElementById('render-mode-row');
   if (renderModeRowEl) {
-    renderModeRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+    renderModeRowEl.classList.toggle('hidden', isDafeiyu);
   }
   const collarRowEl = document.getElementById('collar-row');
   if (collarRowEl) {
-    collarRowEl.classList.toggle('hidden', renderMode === '2d' || settings.catBreed === 'dafeiyu');
+    collarRowEl.classList.toggle('hidden', renderMode === '2d' || isDafeiyu);
   }
 
   const headphoneMode =
@@ -300,7 +430,7 @@ function syncUI(): void {
   });
   const headphoneRowEl = document.getElementById('headphone-row');
   if (headphoneRowEl) {
-    headphoneRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+    headphoneRowEl.classList.toggle('hidden', isDafeiyu);
   }
 
   const headerEl = document.getElementById('menu-header');
@@ -392,7 +522,7 @@ async function copyObsUrl(): Promise<void> {
       hint.classList.add('copied');
       setTimeout(() => {
         hint.classList.remove('copied');
-        hint.textContent = settings.obsEnabled ? `:${settings.obsPort || 27421}` : t('menu.obs_hint');
+        hint.textContent = t('menu.obs_hint');
       }, 2000);
     }
   } catch (err) {
@@ -408,7 +538,7 @@ async function createDesktopShortcut(): Promise<void> {
       hint.textContent = t('menu.created_hint');
       hint.classList.add('copied');
       setTimeout(() => {
-        hint.textContent = 'KuroCat';
+        hint.textContent = t('menu.desktop_shortcut_short');
         hint.classList.remove('copied');
       }, 1800);
     }
@@ -417,7 +547,7 @@ async function createDesktopShortcut(): Promise<void> {
     if (hint) {
       hint.textContent = '✕';
       setTimeout(() => {
-        hint.textContent = 'KuroCat';
+        hint.textContent = t('menu.desktop_shortcut_short');
       }, 1800);
     }
   }
@@ -473,6 +603,8 @@ async function bootstrap(): Promise<void> {
   if (isMacPlatform()) {
     const shortcutBtn = document.getElementById('btn-desktop-shortcut');
     if (shortcutBtn) shortcutBtn.classList.add('hidden');
+    const actionRow = document.getElementById('sys-action-row');
+    if (actionRow) actionRow.classList.add('single-action');
   }
 
   let resolveInitReady!: () => void;
@@ -486,27 +618,27 @@ async function bootstrap(): Promise<void> {
     const tabBtn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
     if (tabBtn) {
       const next = tabBtn.dataset.tab;
-      if (next === 'appearance' || next === 'system') {
+      if (next === 'appearance' || next === 'interact' || next === 'system') {
         switchTab(next);
       }
       return;
     }
 
     const target = (e.target as HTMLElement).closest<HTMLElement>(
-      '[data-action], [data-breed], [data-rendermode], [data-collar], [data-headphonemode], [data-kblayout], [data-kborient], [data-tailmode], [data-fpscap], [data-lang]',
+      '[data-action], [data-breed], [data-rendermode], [data-collar], [data-headphonemode], [data-kblayout], [data-kborient], [data-tailmode], [data-fpscap], [data-livechroma]',
     );
     if (!target) return;
 
     void initReadyPromise.then(() => {
-      const fpsAttr = target.dataset.fpscap;
-      if (fpsAttr === '0' || fpsAttr === '30') {
-        void applySettingsPatch({ fpsCap: fpsAttr === '30' ? 30 : 0 });
+      const liveChromaAttr = target.dataset.livechroma;
+      if (liveChromaAttr === 'blue' || liveChromaAttr === 'green' || liveChromaAttr === 'magenta') {
+        void applySettingsPatch({ liveChromaColor: liveChromaAttr });
         return;
       }
 
-      const langAttr = target.dataset.lang;
-      if (langAttr) {
-        void applySettingsPatch({ language: normalizeLanguageSetting(langAttr) });
+      const fpsAttr = target.dataset.fpscap;
+      if (fpsAttr === '0' || fpsAttr === '30') {
+        void applySettingsPatch({ fpsCap: fpsAttr === '30' ? 30 : 0 });
         return;
       }
 
@@ -577,6 +709,9 @@ async function bootstrap(): Promise<void> {
         case 'toggle-sound':
           void applySettingsPatch({ soundEnabled: !settings.soundEnabled });
           break;
+        case 'toggle-typing-sound':
+          void applySettingsPatch({ typingSoundEnabled: !settings.typingSoundEnabled });
+          break;
         case 'toggle-top':
           void applySettingsPatch({ alwaysOnTop: !settings.alwaysOnTop });
           break;
@@ -594,12 +729,30 @@ async function bootstrap(): Promise<void> {
         case 'copy-obs':
           void copyObsUrl();
           break;
-        case 'toggle-obs-hide':
-          void applySettingsPatch({ obsHidePet: !settings.obsHidePet });
-          if (!settings.obsHidePet) {
+        case 'toggle-obs-hide': {
+          const nextHide = !settings.obsHidePet;
+          void applySettingsPatch({ obsHidePet: nextHide });
+          if (nextHide) {
             closeMenu();
           }
           break;
+        }
+        case 'toggle-live-capture': {
+          const nextLive = !settings.liveCaptureEnabled;
+          void applySettingsPatch({
+            liveCaptureEnabled: nextLive,
+            liveHidePet: nextLive ? Boolean(settings.liveHidePet) : false,
+          });
+          break;
+        }
+        case 'toggle-live-hide': {
+          const nextHide = !settings.liveHidePet;
+          void applySettingsPatch({ liveHidePet: nextHide });
+          if (nextHide) {
+            closeMenu();
+          }
+          break;
+        }
         case 'toggle-mcp':
           void applySettingsPatch({ mcpEnabled: !settings.mcpEnabled });
           break;
@@ -611,6 +764,18 @@ async function bootstrap(): Promise<void> {
           break;
         case 'open-tail-picker':
           void invoke('open_tail_picker_from_menu');
+          break;
+        case 'restart-admin':
+          if (adminStatus.supported && !adminStatus.elevated) {
+            closeMenu();
+            void invoke('restart_as_admin').catch(() => {});
+          }
+          break;
+        case 'mac-input-diag':
+          if (adminStatus.macInputDiag) {
+            closeMenu();
+            void invoke('diagnose_macos_input').catch(() => {});
+          }
           break;
         case 'desktop-shortcut':
           void createDesktopShortcut();
@@ -629,16 +794,26 @@ async function bootstrap(): Promise<void> {
     });
   });
 
+  if (langSelectEl) {
+    langSelectEl.addEventListener('change', () => {
+      void initReadyPromise.then(() => {
+        void applySettingsPatch({ language: normalizeLanguageSetting(langSelectEl.value) });
+      });
+    });
+  }
+
   let inTauri = true;
   try {
-    const [loadedSettings, loadedCats, ver, cachedUpd, resolvedLoc] = await Promise.all([
+    const [loadedSettings, loadedCats, ver, cachedUpd, resolvedLoc, loadedAdmin] = await Promise.all([
       invoke<AppSettings>('get_settings'),
       invoke<CatSkinConfig[]>('get_cats'),
       invoke<string>('get_app_version'),
       invoke<UpdateInfo | null>('get_cached_update_info').catch(() => null),
       invoke<string>('get_resolved_locale').catch(() => ''),
+      invoke<AdminStatus>('get_admin_status').catch(() => ({ supported: false, elevated: false })),
     ]);
     settings = loadedSettings;
+    adminStatus = loadedAdmin;
     if (Array.isArray(loadedCats) && loadedCats.length > 0) {
       catList = loadedCats;
     }
@@ -654,13 +829,21 @@ async function bootstrap(): Promise<void> {
   } catch (err) {
     inTauri = false;
     console.warn('Running menu outside Tauri IPC:', err);
-    // Allow static browser layout verification via ?lang=en-US&tab=system&obs=1
+    // Allow static browser layout verification via ?lang=en-US&tab=system&obs=1&tail=custom
     const params = new URLSearchParams(window.location.search);
     const qLang = params.get('lang');
     if (qLang) settings.language = qLang;
     if (params.get('obs') === '1') settings.obsEnabled = true;
+    if (params.get('live') === '1') settings.liveCaptureEnabled = true;
+    if (params.get('mcp') === '0') settings.mcpEnabled = false;
+    const qTail = params.get('tail');
+    if (qTail === 'smart' || qTail === 'custom' || qTail === 'edge' || qTail === 'off') {
+      settings.tailKeyMode = qTail;
+    }
+    const qBreed = params.get('breed');
+    if (qBreed) settings.catBreed = qBreed;
     const qTab = params.get('tab');
-    if (qTab === 'appearance' || qTab === 'system') activeTab = qTab;
+    if (qTab === 'appearance' || qTab === 'interact' || qTab === 'system') activeTab = qTab;
     // Populate all 7 built-in cats for realistic layout verification outside Tauri
     catList = [
       ...DEFAULT_BUILTIN_CATS.slice(0, 2),
@@ -716,6 +899,37 @@ async function bootstrap(): Promise<void> {
       sliderDragging = false;
       updateScaleSliderVisual(1.0);
       void applySettingsPatch({ scale: 1.0 });
+    });
+  }
+
+  if (opacitySliderEl) {
+    opacitySliderEl.addEventListener('pointerdown', () => {
+      opacitySliderDragging = true;
+    });
+    opacitySliderEl.addEventListener('input', () => {
+      opacitySliderDragging = true;
+      const nextOpacity = Math.max(0.2, Math.min(1.0, Number(opacitySliderEl.value) / 100));
+      updateOpacitySliderVisual(nextOpacity);
+      void invoke('preview_opacity', { opacity: nextOpacity }).catch(() => {});
+    });
+    const commitSliderOpacity = () => {
+      opacitySliderDragging = false;
+      const nextOpacity = Math.max(0.2, Math.min(1.0, Number(opacitySliderEl.value) / 100));
+      void applySettingsPatch({ opacity: nextOpacity });
+    };
+    opacitySliderEl.addEventListener('change', commitSliderOpacity);
+    opacitySliderEl.addEventListener('pointerup', () => {
+      opacitySliderDragging = false;
+    });
+  }
+
+  if (opacityValueEl) {
+    opacityValueEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      opacitySliderDragging = false;
+      updateOpacitySliderVisual(1.0);
+      void invoke('preview_opacity', { opacity: 1.0 }).catch(() => {});
+      void applySettingsPatch({ opacity: 1.0 });
     });
   }
 

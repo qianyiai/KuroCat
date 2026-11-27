@@ -38,6 +38,10 @@ object KuroPrefs {
     fun setScale(ctx: Context, v: Float) =
         sp(ctx).edit().putFloat("scale", v.coerceIn(0.35f, 1.40f)).apply()
 
+    fun getOpacity(ctx: Context): Float = sp(ctx).getFloat("opacity", 1.0f).coerceIn(0.20f, 1.0f)
+    fun setOpacity(ctx: Context, v: Float) =
+        sp(ctx).edit().putFloat("opacity", v.coerceIn(0.20f, 1.0f)).apply()
+
     fun isShowKeyBubbles(ctx: Context): Boolean = sp(ctx).getBoolean("show_bubbles", true)
     fun setShowKeyBubbles(ctx: Context, v: Boolean) =
         sp(ctx).edit().putBoolean("show_bubbles", v).apply()
@@ -45,6 +49,10 @@ object KuroPrefs {
     fun isSoundEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("sound_enabled", true)
     fun setSoundEnabled(ctx: Context, v: Boolean) =
         sp(ctx).edit().putBoolean("sound_enabled", v).apply()
+
+    fun isTypingSoundEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("typing_sound_enabled", false)
+    fun setTypingSoundEnabled(ctx: Context, v: Boolean) =
+        sp(ctx).edit().putBoolean("typing_sound_enabled", v).apply()
 
     fun isPrivacyGuardEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("privacy_guard", true)
     fun setPrivacyGuardEnabled(ctx: Context, v: Boolean) =
@@ -54,10 +62,34 @@ object KuroPrefs {
     fun setTouchThroughLocked(ctx: Context, v: Boolean) =
         sp(ctx).edit().putBoolean("touch_through", v).apply()
 
+    fun isHeadphonesEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("headphones", false)
+    fun setHeadphonesEnabled(ctx: Context, v: Boolean) =
+        sp(ctx).edit().putBoolean("headphones", v).apply()
+
+    fun getTailKeyMode(ctx: Context): String =
+        when (val v = sp(ctx).getString("tail_key_mode", "smart")) {
+            "smart", "edge", "off" -> v
+            else -> "smart"
+        }
+
+    fun setTailKeyMode(ctx: Context, v: String) {
+        val normalized = if (v == "edge" || v == "off") v else "smart"
+        sp(ctx).edit().putString("tail_key_mode", normalized).apply()
+    }
+
+    fun getFpsCap(ctx: Context): Int =
+        if (sp(ctx).getInt("fps_cap", 0) == 30) 30 else 0
+
+    fun setFpsCap(ctx: Context, v: Int) =
+        sp(ctx).edit().putInt("fps_cap", if (v == 30) 30 else 0).apply()
+
     fun getOverlayX(ctx: Context, defaultX: Int): Int = sp(ctx).getInt("overlay_x", defaultX)
     fun getOverlayY(ctx: Context, defaultY: Int): Int = sp(ctx).getInt("overlay_y", defaultY)
     fun setOverlayPos(ctx: Context, x: Int, y: Int) =
         sp(ctx).edit().putInt("overlay_x", x).putInt("overlay_y", y).apply()
+
+    fun clearOverlayPos(ctx: Context) =
+        sp(ctx).edit().remove("overlay_x").remove("overlay_y").apply()
 
     fun nextBreed(ctx: Context): String {
         val cur = getBreed(ctx)
@@ -67,14 +99,23 @@ object KuroPrefs {
         return next
     }
 
-    fun toJsJson(ctx: Context, privacyActive: Boolean = false): String {
+    fun toJsJson(
+        ctx: Context,
+        privacyActive: Boolean = false,
+        audioMuted: Boolean = false
+    ): String {
         return JSONObject().apply {
             put("catBreed", getBreed(ctx))
             put("keyboardLayout", getLayout(ctx))
             put("keyboardOrientation", getOrientation(ctx))
+            put("opacity", getOpacity(ctx).toDouble())
             put("showKeyBubbles", isShowKeyBubbles(ctx))
-            put("soundEnabled", isSoundEnabled(ctx))
+            put("soundEnabled", !audioMuted && isSoundEnabled(ctx))
+            put("typingSoundEnabled", !audioMuted && isTypingSoundEnabled(ctx))
             put("privacyMode", privacyActive && isPrivacyGuardEnabled(ctx))
+            put("headphones", isHeadphonesEnabled(ctx))
+            put("tailKeyMode", getTailKeyMode(ctx))
+            put("fpsCap", getFpsCap(ctx))
         }.toString()
     }
 }

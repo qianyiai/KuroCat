@@ -38,7 +38,7 @@ DATA_DIR = Path(os.environ.get("KUROCAT_DATA_DIR", "/var/lib/kurocat-stats")).re
 DB_PATH = DATA_DIR / "downloads.db"
 JSONL_PATH = DATA_DIR / "downloads.jsonl"
 GITHUB_CACHE_PATH = DATA_DIR / "github_cache.json"
-GITHUB_REPO = os.environ.get("KUROCAT_GITHUB_REPO", "qianyiai/kurocat").strip()
+GITHUB_REPO = os.environ.get("KUROCAT_GITHUB_REPO", "qianyiai/KuroCat").strip()
 GITHUB_TOKEN = os.environ.get("KUROCAT_GITHUB_TOKEN", "").strip()
 GITHUB_REFRESH_SEC = int(os.environ.get("KUROCAT_GITHUB_REFRESH_SEC", "180"))
 STATS_TOKEN = os.environ.get("KUROCAT_STATS_TOKEN", "").strip()
@@ -196,6 +196,8 @@ def init_storage() -> None:
 
 def classify_platform(filename: str) -> str:
     low = filename.lower()
+    if "android" in low or low.endswith(".apk"):
+        return "Android 移动端"
     if "macos" in low or low.endswith(".dmg") or low.endswith(".app.tar.gz"):
         return "macOS 通用版"
     if "win7" in low:

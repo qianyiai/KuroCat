@@ -54,7 +54,10 @@ interface SmearFrame {
   alpha: number;
 }
 
-type PawMode = 'idle' | 'curled' | 'poke' | 'mouse';
+export type CatHitZone = 'nose' | 'chin' | 'tail' | 'head' | 'body' | null;
+export type PeekEdge = 'none' | 'left' | 'right';
+
+type PawMode = 'idle' | 'curled' | 'poke' | 'mouse' | 'groom' | 'stretch' | 'knead' | 'scruff' | 'peek';
 
 interface PawState {
   side: 'left' | 'right';
@@ -179,7 +182,7 @@ function colorWithAlpha(color: string, alpha: number): string {
 }
 
 interface CatFxParticle {
-  kind: 'bang' | 'dust' | 'z';
+  kind: 'bang' | 'dust' | 'z' | 'heart' | 'sparkle' | 'sneeze';
   x: number;
   y: number;
   vx: number;
@@ -190,7 +193,7 @@ interface CatFxParticle {
 }
 
 interface IdleFidget {
-  kind: 'tilt' | 'ear' | 'slowBlink' | 'look' | 'tail';
+  kind: 'tilt' | 'ear' | 'slowBlink' | 'look' | 'tail' | 'doze' | 'yawn' | 'stretch' | 'groom' | 'knead';
   t0: number;
   dur: number;
   side: -1 | 1;
@@ -212,8 +215,13 @@ const BODY_SLICES: Array<{ t: number; hw: number }> = [
   { t: 1.00, hw: 46 }, // cozy bottom rest
 ];
 
-const IDLE_RENDER_AFTER_MS = 3000;
-const IDLE_RENDER_PAUSE_MS = 40;
+type RenderPacingTier = 'action' | 'ambient' | 'idle' | 'sleep';
+
+const ACTION_RENDER_AFTER_MS = 2200;
+const AMBIENT_RENDER_AFTER_MS = 1800;
+const AMBIENT_FRAME_MS = 44;      // ~22.7 FPS (matches 33-45ms global cursor/mouse cadence)
+const IDLE_FRAME_MS = 66;         // ~15.2 FPS (calm awake breathing & gentle tail sway)
+const DEEP_SLEEP_FRAME_MS = 100;  // ~10.0 FPS (deep sleep loaf & slow floating Zzz)
 const KEYBOARD_HIT_HALF_WIDTH_RATIO = 0.54;
 const KEYBOARD_HIT_HALF_HEIGHT_RATIO = 0.56;
 // A tail pat is a one-shot gesture (lift 24px, then slap down). Replaying it for every keystroke of a typing
@@ -228,14 +236,18 @@ export class KuroCatEngine {
   private ctx: CanvasRenderingContext2D;
   private rafId: number | null = null;
   private idleFrameTimer: number | null = null;
-  private isIdlePacing = false;
+  private pacingTier: RenderPacingTier = 'action';
   private directRafPrevMs = 0;
+  private lastRenderMs = 0;
+  private lastRenderPerfMs = 0;
   private vsyncMs = 16.67;
   private vsyncSamples = 0;
+  private highRefreshHits = 0;
   private gameActive = false;
   private kbCacheCanvas: HTMLCanvasElement | null = null;
   private kbCacheKey = '';
-  private lastActivityAt = 0;
+  private lastActionAt = 0;
+  private lastAmbientAt = 0;
   private lastTime = 0;
   private elapsed = 0;
 
@@ -252,6 +264,7 @@ export class KuroCatEngine {
   private tailPickerSelection: ReadonlySet<string> | null = null;
   private tailPickerHoverId: string | null = null;
   private renderScale = 1.0;
+  private chromaKeyBg: string | null = null;
   private embedded = false;
   private dafeiyu = new DaFeiYuRenderer();
   private catTail = {
@@ -275,7 +288,7 @@ export class KuroCatEngine {
   private lastDt = 1 / 60;
 
   public setPrivacyMode(active: boolean): void {
-    this.wakeRendering();
+    this.wakeAction();
     this.privacyMode = active;
     this.dafeiyu.onPrivacyModeChanged(active);
     if (active) {
@@ -293,7 +306,7 @@ export class KuroCatEngine {
 
   public onPrivacyTyping(): void {
     this.privacyTypingAt = performance.now();
-    this.wakeRendering(this.privacyTypingAt);
+    this.wakeAction(this.privacyTypingAt);
     if (this.catBreed === 'dafeiyu') {
       this.dafeiyu.onPrivacyTyping();
     }
@@ -301,7 +314,15 @@ export class KuroCatEngine {
 
   public setRenderScale(scale: number): void {
     this.renderScale = Math.max(0.2, Math.min(1.5, scale));
-    this.wakeRendering();
+    this.wakeAction();
+  }
+
+  public setChromaKeyBg(hex: string | null): void {
+    const next = typeof hex === 'string' && hex.trim() ? hex.trim() : null;
+    if (this.chromaKeyBg === next) return;
+    this.chromaKeyBg = next;
+    this.kbCacheKey = '';
+    this.wakeAction();
   }
 
   public getLogicalSize(): { w: number; h: number } {
@@ -320,7 +341,7 @@ export class KuroCatEngine {
       this.catTail.heldVks.clear();
       this.catTailHeldAt.clear();
     }
-    this.wakeRendering();
+    this.wakeAction();
   }
 
   public setTailPickerActive(active: boolean, selection?: ReadonlySet<string>): void {
@@ -329,13 +350,13 @@ export class KuroCatEngine {
     if (!this.tailPickerActive) {
       this.tailPickerHoverId = null;
     }
-    this.wakeRendering();
+    this.wakeAction();
   }
 
   public setTailPickerHover(specId: string | null): void {
     if (this.tailPickerHoverId !== specId) {
       this.tailPickerHoverId = specId;
-      this.wakeRendering();
+      this.wakeAction();
     }
   }
 
@@ -501,6 +522,323 @@ export class KuroCatEngine {
     return null;
   }
 
+  public clientToLogical(clientX: number, clientY: number): Vec2 | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return null;
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+    const canvasX = (clientX - rect.left) * scaleX;
+    const canvasY = (clientY - rect.top) * scaleY;
+    const { offsetX, offsetY, uniformScale } = this.getViewportTransform();
+    if (uniformScale <= 0.001) return null;
+    const rawX = (canvasX - offsetX) / uniformScale;
+    const rawY = (canvasY - offsetY) / uniformScale;
+    if (this.peekAmount > 0.01) {
+      // Inverse of peek render transform: translate(pivot+tx, pivot+ty) * rotate(rot) * translate(-pivot)
+      const { tx, ty, rot, pivotX, pivotY } = this.peekTransform;
+      const dx = rawX - (pivotX + tx);
+      const dy = rawY - (pivotY + ty);
+      const cos = Math.cos(-rot);
+      const sin = Math.sin(-rot);
+      return {
+        x: pivotX + dx * cos - dy * sin,
+        y: pivotY + dx * sin + dy * cos,
+      };
+    }
+    return { x: rawX, y: rawY };
+  }
+
+  public setPeekEdge(edge: PeekEdge): void {
+    const next: PeekEdge = edge === 'left' || edge === 'right' ? edge : 'none';
+    const hadPreview = this.peekPreviewEdge !== 'none';
+    this.peekPreviewEdge = 'none';
+    if (next !== this.peekEdge) {
+      this.peekEdge = next;
+      if (next !== 'none') {
+        this.peekVisualEdge = next;
+        this.isCross = false;
+        this.annoy = 0;
+        this.idleAct = null;
+        this.asleep = false;
+        this.peekSpring.kick(1.4);
+      } else {
+        this.squashSpring.kick(2.6);
+        catAudio.playSoftLand();
+      }
+      this.wakeAction();
+    } else if (hadPreview) {
+      this.wakeAction();
+    }
+  }
+
+  /** Live drag preview: cat preemptively tucks desk & peeks its head while still dragged at a screen edge (Option 2, no neon bar!). */
+  public setPeekPreview(edge: PeekEdge): void {
+    const next: PeekEdge = edge === 'left' || edge === 'right' ? edge : 'none';
+    if (next !== this.peekPreviewEdge) {
+      this.peekPreviewEdge = next;
+      if (next !== 'none') {
+        this.peekVisualEdge = next;
+        this.earPerkSpring.kick(1.6);
+      }
+      this.wakeAction();
+    }
+  }
+
+  public getPeekEdge(): PeekEdge {
+    return this.peekEdge;
+  }
+
+  private computePeekTransform2D(): { tx: number; ty: number; rot: number; pivotX: number; pivotY: number } {
+    const p = Math.max(0, Math.min(1, this.peekAmount));
+    const isDafeiyu = this.catBreed === 'dafeiyu';
+    const headY = this.catTopY + 0.24 * this.catHeight;
+    const pivotX = isDafeiyu ? (this.keyboardLayout === '108' ? 268 : 192) : this.catCenterX;
+    const pivotY = isDafeiyu ? 176 : headY;
+    if (p <= 0.001) {
+      return { tx: 0, ty: 0, rot: 0, pivotX, pivotY };
+    }
+    const { offsetX, offsetY, uniformScale } = this.getViewportTransform();
+    const s = Math.max(0.001, uniformScale);
+    const leftEdge = -offsetX / s;
+    const rightEdge = (this.canvas.width - offsetX) / s;
+    const topEdge = -offsetY / s;
+    const bottomEdge = (this.canvas.height - offsetY) / s;
+    const midY = (topEdge + bottomEdge) * 0.5;
+    const extraPop = this.peekHover * 14;
+    const edgeInset = isDafeiyu ? 64 : 44;
+    const tiltRad = isDafeiyu ? 1.18 : 1.28;
+
+    let goalTx = 0;
+    let goalTy = 0;
+    let goalRot = 0;
+    if (this.peekVisualEdge === 'left') {
+      // Sideways wall-peek from the left edge: torso tucks cleanly off-edge, ONLY head, BOTH ears/hood & gripping paws/hands show!
+      goalTx = leftEdge + edgeInset + extraPop - pivotX;
+      goalTy = midY - pivotY;
+      goalRot = tiltRad;
+    } else {
+      // Mirrored sideways wall-peek from the right edge!
+      goalTx = rightEdge - edgeInset - extraPop - pivotX;
+      goalTy = midY - pivotY;
+      goalRot = -tiltRad;
+    }
+    return {
+      tx: goalTx * p,
+      ty: goalTy * p,
+      rot: goalRot * p,
+      pivotX,
+      pivotY,
+    };
+  }
+
+  /** Transform a cat-local logical point into visible viewport CSS pixels (accounts for peek edge transform). */
+  public logicalToCssPoint(lx: number, ly: number): { x: number; y: number } | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return null;
+    let vx = lx;
+    let vy = ly;
+    if (this.peekAmount > 0.01) {
+      const { tx, ty, rot, pivotX, pivotY } = this.peekTransform;
+      const dx = lx - pivotX;
+      const dy = ly - pivotY;
+      const cos = Math.cos(rot);
+      const sin = Math.sin(rot);
+      vx = pivotX + tx + dx * cos - dy * sin;
+      vy = pivotY + ty + dx * sin + dy * cos;
+    }
+    const { offsetX, offsetY, uniformScale } = this.getViewportTransform();
+    const cx = offsetX + vx * uniformScale;
+    const cy = offsetY + vy * uniformScale;
+    return {
+      x: (cx / Math.max(1, this.canvas.width)) * rect.width,
+      y: (cy / Math.max(1, this.canvas.height)) * rect.height,
+    };
+  }
+
+  public getCatHitZonesLogical(): {
+    nose: { x: number; y: number; rx: number; ry: number };
+    chin: { x: number; y: number; rx: number; ry: number };
+    head: { x: number; y: number; rx: number; ry: number };
+    body: { x: number; y: number; rx: number; ry: number };
+    tailPts: Vec2[];
+  } {
+    if (this.catBreed === 'dafeiyu') {
+      const pivotX = this.keyboardLayout === '108' ? 268 : 192;
+      return {
+        nose: { x: pivotX, y: 204, rx: 18, ry: 15 },
+        chin: { x: pivotX, y: 232, rx: 32, ry: 18 },
+        head: { x: pivotX, y: 176, rx: 94, ry: 104 },
+        body: { x: pivotX, y: 288, rx: 74, ry: 60 },
+        tailPts: [],
+      };
+    }
+    const breath = Math.sin(this.breathPhase) * (1.0 + this.sleepAmount * 0.65);
+    const headPt = this.spinePoint(0.24, breath);
+    const wShift = this.faceTurnX * 0.72;
+    const cos = Math.cos(this.headTilt);
+    const sin = Math.sin(this.headTilt);
+    const rotHead = (lx: number, ly: number): Vec2 => ({
+      x: headPt.x + lx * cos - ly * sin,
+      y: headPt.y + lx * sin + ly * cos,
+    });
+    const noseC = rotHead(wShift, 11);
+    const chinC = rotHead(wShift * 0.75, 41);
+    const headC = rotHead(0, -14);
+    const torsoC = this.spinePoint(0.72, breath);
+    return {
+      nose: { x: noseC.x, y: noseC.y, rx: 20, ry: 17 },
+      chin: { x: chinC.x, y: chinC.y, rx: 35, ry: 19 },
+      head: { x: headC.x, y: headC.y, rx: 58, ry: 38 },
+      body: { x: torsoC.x, y: torsoC.y, rx: 68, ry: 56 },
+      tailPts: this.liveTailCurvePts,
+    };
+  }
+
+  public hitTestCatZoneLogical(lx: number, ly: number): CatHitZone {
+    if (this.catBreed === 'dafeiyu') {
+      if (this.peekAmount > 0.35) {
+        const pivotX = this.keyboardLayout === '108' ? 268 : 192;
+        const pivotY = 176;
+        const dx = (lx - pivotX) / 94;
+        const dy = (ly - pivotY) / 104;
+        if (dx * dx + dy * dy <= 1.0) {
+          return 'head';
+        }
+      }
+      return null;
+    }
+    const z = this.getCatHitZonesLogical();
+    const inEllipse = (c: { x: number; y: number; rx: number; ry: number }) => {
+      const dx = (lx - c.x) / c.rx;
+      const dy = (ly - c.y) / c.ry;
+      return dx * dx + dy * dy <= 1.0;
+    };
+    if (inEllipse(z.nose)) return 'nose';
+    if (this.peekAmount < 0.55) {
+      for (const pt of z.tailPts) {
+        if (Math.hypot(lx - pt.x, ly - pt.y) <= 23) {
+          return 'tail';
+        }
+      }
+    }
+    if (inEllipse(z.chin)) return 'chin';
+    if (inEllipse(z.head)) return 'head';
+    if (inEllipse(z.body)) return 'body';
+    return null;
+  }
+
+  public hitTestCatZoneAtClientPoint(clientX: number, clientY: number): CatHitZone {
+    const pt = this.clientToLogical(clientX, clientY);
+    if (!pt) return null;
+    return this.hitTestCatZoneLogical(pt.x, pt.y);
+  }
+
+  public onCatTapAtClientPoint(clientX: number, clientY: number): CatHitZone {
+    const zone = this.hitTestCatZoneAtClientPoint(clientX, clientY);
+    if (!zone || this.privacyMode) return zone;
+    if (zone === 'nose') {
+      this.triggerBoopDemo();
+    } else if (zone === 'tail') {
+      this.triggerTailPokeDemo();
+    } else if (zone === 'chin') {
+      this.triggerChinScratchDemo(1700);
+    } else if (zone === 'head') {
+      this.wakeCat(performance.now(), 'gentle');
+      this.earTwitchLeft = 1;
+      this.earTwitchRight = 0.8;
+      this.petEnergy = Math.max(this.petEnergy, 0.55);
+      this.squashSpring.kick(1.2);
+    } else if (zone === 'body') {
+      this.wakeCat(performance.now(), 'gentle');
+      this.squashSpring.kick(1.8);
+      if (Math.random() < 0.5) this.earTwitchLeft = 1;
+      else this.earTwitchRight = 1;
+    }
+    return zone;
+  }
+
+  public setDragging(dragging: boolean, velX = 0): void {
+    const now = performance.now();
+    const wasActive = this.isDragging || now < this.scruffDemoUntil;
+    this.isDragging = Boolean(dragging);
+    if (dragging) {
+      this.scruffDemoUntil = -10000;
+      this.wakeCat(now, 'gentle');
+      this.wakeAt = -10000;
+      this.isCross = false;
+      this.annoy = 0;
+      this.idleAct = null;
+      this.curiousUntil = -10000;
+      this.scruffDragVelX = Math.max(-2.8, Math.min(2.8, velX));
+      if (!wasActive) {
+        this.scruffSpring.kick(2.6);
+        this.scruffSwingSpring.kick((Math.random() < 0.5 ? -1 : 1) * 1.9);
+      }
+      this.wakeAction(now);
+    } else {
+      this.scruffDemoUntil = -10000;
+      this.scruffDragVelX = 0;
+      if (wasActive && this.scruffAmount > 0.22) {
+        this.onScruffLand(now);
+      }
+      this.wakeAction(now);
+    }
+  }
+
+  public updateDragVelocity(velX: number): void {
+    if (!this.isDragging) return;
+    const clamped = Math.max(-2.8, Math.min(2.8, velX));
+    this.scruffDragVelX = this.scruffDragVelX * 0.40 + clamped * 0.60;
+    this.scruffSwingSpring.kick(-clamped * 2.1);
+    this.wakeAction();
+  }
+
+  private onScruffLand(now: number): void {
+    this.wakeAction(now);
+    this.squashSpring.kick(4.6);
+    this.deskHopSpring.kick(-16);
+    catAudio.playSoftLand();
+    const basePt = this.spinePoint(1.0, 0);
+    for (const s of [-1, 1] as const) {
+      this.fxParticles.push({
+        kind: 'dust',
+        x: basePt.x + s * 44,
+        y: basePt.y - 2,
+        vx: s * 42,
+        vy: -16 - Math.random() * 10,
+        size: 6.2,
+        createdAt: now,
+        lifetime: 440,
+      });
+    }
+  }
+
+  public getStateSummary(): { mood: string; activeIdle: string | null; peekEdge: PeekEdge } {
+    const now = performance.now();
+    const previewActive = this.peekPreviewEdge !== 'none';
+    const scruffActive = !previewActive && (this.isDragging || now < this.scruffDemoUntil || this.scruffAmount > 0.35);
+    let mood = '平静待机 🐾';
+    if (this.privacyMode) mood = '隐私防偷窥 🙈';
+    else if (previewActive) {
+      mood = this.peekVisualEdge === 'left' ? '松手贴左边偷看 👀' : '松手贴右边偷看 👀';
+    } else if (scruffActive) mood = '被拎起后颈皮 🫳';
+    else if (this.peekAmount > 0.45) {
+      mood = this.peekVisualEdge === 'left' ? '左侧贴边偷看 👀' : '右侧贴边偷看 👀';
+    } else if (this.boopAmount > 0.15) mood = '戳鼻头斗鸡眼 🤧';
+    else if (this.isCross) mood = '生气飞机耳 💢';
+    else if (this.tailGlanceAmount > 0.25) mood = '被戳尾巴警惕 ⚡';
+    else if (this.chinAmount > 0.25) mood = '挠下巴超享受 💛';
+    else if (this.sleepAmount > 0.5) mood = '打瞌睡 Zzz';
+    else if (this.idleAct?.kind === 'doze') mood = '点头钓鱼犯困 😵‍💫';
+    else if (this.idleAct?.kind === 'yawn') mood = '打哈欠 🥱';
+    else if (this.idleAct?.kind === 'stretch') mood = '伸大懒腰 🐱';
+    else if (this.idleAct?.kind === 'groom') mood = '舔爪洗脸 🐾';
+    else if (this.idleAct?.kind === 'knead') mood = '键盘踩奶 🍞';
+    else if (now < this.curiousUntil) mood = '好奇大圆瞳 ✨';
+    else if (this.squintAmount > 0.35) mood = '摸头呼噜中 💛';
+    return { mood, activeIdle: this.idleAct?.kind ?? null, peekEdge: this.peekEdge };
+  }
+
   private shouldUseTailForKey(
     spec: KeySpec,
     targetPoint: Vec2,
@@ -585,6 +923,7 @@ export class KuroCatEngine {
       this.mouseBaseX = isBigFish ? 72 : 54;
       this.mouseBaseY = isBigFish ? 322 : 334;
     }
+    this.peekTransform = this.computePeekTransform2D();
   }
 
   public setCatAppearance(breedId: string, skin?: CatSkinConfig | null): void {
@@ -606,7 +945,7 @@ export class KuroCatEngine {
       this.customSkin = null;
     }
     this.syncLayoutPositions();
-    this.wakeRendering();
+    this.wakeAction();
   }
 
   public setHeadphones(active: boolean): void {
@@ -616,7 +955,7 @@ export class KuroCatEngine {
       if (next) {
         this.headsetSpring.v += 2.2;
       }
-      this.wakeRendering();
+      this.wakeAction();
     }
   }
 
@@ -638,18 +977,36 @@ export class KuroCatEngine {
       this.rightPaw.pos = { x: this.catCenterX + 18, y: this.catBaseY };
       this.rightPaw.target = { x: this.catCenterX + 18, y: this.catBaseY };
     }
-    this.wakeRendering();
+    this.wakeAction();
   }
 
   private buildDaFeiYuLayout(): DaFeiYuLayout {
     const mx = this.mouseBaseX + this.mouseOffsetX;
     const my = this.mouseBaseY + this.mouseOffsetY;
-    const isCatFacing = this.keyboardOrientation === 'cat';
+    // Mouse always stays cat-facing (#92) even when keyboard faces the viewer
     const localBtnX = this.mouseLeftDown ? -6.5 : this.mouseRightDown ? 6.5 : 0;
     const localBtnY = -10.5;
-    const ang = this.kbTiltRad + (isCatFacing ? Math.PI : 0);
+    const ang = this.kbTiltRad + Math.PI;
     const c = Math.cos(ang);
     const s = Math.sin(ang);
+    let cursorPt: { x: number; y: number } | null = null;
+    if (this.hasPointerPosition) {
+      const rawX = this.cursorRelX * this.logicalW;
+      const rawY = this.cursorRelY * this.logicalH;
+      if (!this.embedded && this.peekAmount > 0.01) {
+        const { tx, ty, rot, pivotX, pivotY } = this.peekTransform;
+        const dx = rawX - (pivotX + tx);
+        const dy = rawY - (pivotY + ty);
+        const cos = Math.cos(-rot);
+        const sin = Math.sin(-rot);
+        cursorPt = {
+          x: pivotX + dx * cos - dy * sin,
+          y: pivotY + dx * sin + dy * cos,
+        };
+      } else {
+        cursorPt = { x: rawX, y: rawY };
+      }
+    }
     return {
       logicalW: this.logicalW,
       kbCenterX: this.kbCenterX,
@@ -659,9 +1016,7 @@ export class KuroCatEngine {
       kbTiltRad: this.kbTiltRad,
       mouseBtnX: mx + localBtnX * c - localBtnY * s,
       mouseBtnY: my + localBtnX * s + localBtnY * c,
-      cursor: this.hasPointerPosition
-        ? { x: this.cursorRelX * this.logicalW, y: this.cursorRelY * this.logicalH }
-        : null,
+      cursor: cursorPt,
       mouseNX: this.lastMouseNX,
       mouseLeft: this.mouseLeftDown,
       mouseRight: this.mouseRightDown,
@@ -671,6 +1026,7 @@ export class KuroCatEngine {
       privacyMode: this.privacyMode,
       privacyTypingAt: this.privacyTypingAt,
       is108: this.keyboardLayout === '108',
+      peekAmount: Math.max(0, Math.min(1, this.peekAmount)),
     };
   }
 
@@ -744,12 +1100,19 @@ export class KuroCatEngine {
   private crossSpring = new Spring(0, 1.9, 0.86);
   private deskHopSpring = new Spring(0, 9.2, 0.34);
   private headsetSpring = new Spring(0, 5.4, 0.70);
+  private scruffSpring = new Spring(0, 5.0, 0.72);
+  private scruffSwingSpring = new Spring(0, 2.9, 0.24);
+  private tailRecoilSpring = new Spring(0, 7.6, 0.42);
+  private peekSpring = new Spring(0, 4.4, 0.72);
+  private peekHoverSpring = new Spring(0, 5.8, 0.74);
   private headphonesOn = false;
 
   // Alive cat emotional state machine: curious (laser-pointer eyes), sleepy loaf (Zzz), idle fidgets, cross (airplane ears + tail desk-thump!)
   private lastInputAt = performance.now();
   private asleep = false;
   private sleepAmount = 0;
+  private breathPhase = 0;
+  private tailDriftPhase = 0;
   private wakeAt = -10000;
   private nextZAt = 0;
   private pointerSamples: Array<{ t: number; dist: number }> = [];
@@ -772,6 +1135,53 @@ export class KuroCatEngine {
   private idleAct: IdleFidget | null = null;
   private nextIdleActAt = performance.now() + 4500;
   private fxParticles: CatFxParticle[] = [];
+
+  // New rich idle vignettes (doze nod-off, yawn, stretch, groom face-wash, biscuit knead)
+  private dozeLidClose = 0;
+  private dozeNod = 0;
+  private dozeJoltFired = false;
+  private yawnAmount = 0;
+  private stretchAmount = 0;
+  private groomAmount = 0;
+  private groomLickAmount = 0;
+  private groomEarPressLeft = 0;
+  private groomEarPressRight = 0;
+  private groomSparkleSpawned = false;
+  private kneadAmount = 0;
+  private kneadPhase = 0;
+  private hadHeartyPet = false;
+  private petEndedAt = -10000;
+  private yawnDoneThisIdle = false;
+  private dozeDoneThisIdle = false;
+
+  // New interactive states: scruffed drag + body-zone boop / chin scratch / tail poke
+  private isDragging = false;
+  private scruffDemoUntil = -10000;
+  private scruffAmount = 0;
+  private scruffSwing = 0;
+  private scruffDragVelX = 0;
+  private boopStartAt = -10000;
+  private boopUntil = -10000;
+  private boopAmount = 0;
+  private boopCrossEye = 0;
+  private boopSneezeFired = false;
+  private boopShake = 0;
+  private chinScratchEnergy = 0;
+  private chinAmount = 0;
+  private nextHeartAt = 0;
+  private tailRecoil = 0;
+  private tailGlanceUntil = -10000;
+  private tailGlanceAmount = 0;
+  private tailPokeTimes: number[] = [];
+  private liveTailCurvePts: Vec2[] = [];
+
+  // Screen-edge peek mode (cat hides keyboard & torso off-edge, peeking ONLY its head & gripping paws!)
+  private peekEdge: PeekEdge = 'none';
+  private peekPreviewEdge: PeekEdge = 'none';
+  private peekVisualEdge: 'left' | 'right' = 'left';
+  private peekAmount = 0;
+  private peekHover = 0;
+  private peekTransform = { tx: 0, ty: 0, rot: 0, pivotX: 196, pivotY: 136 };
 
   // Spine-shear deformation state (exact measured flexible cat spine + playful typing body/head sway!)
   private spineLean = 0;    // -1 (mouse lean: head shifts -46px left while hips stay anchored!) .. +1
@@ -884,19 +1294,28 @@ export class KuroCatEngine {
   }
 
   public resize(): void {
-    const dpr = Math.max(window.devicePixelRatio || 1, 1);
+    const dpr = Math.min(2, Math.max(window.devicePixelRatio || 1, 1));
     const cssW = Math.max(1, this.embedded ? (this.canvas.clientWidth || 420) : window.innerWidth);
     const cssH = Math.max(1, this.embedded ? (this.canvas.clientHeight || 440) : window.innerHeight);
-    this.canvas.width = Math.round(cssW * dpr);
-    this.canvas.height = Math.round(cssH * dpr);
-    this.wakeRendering();
+    const nextW = Math.round(cssW * dpr);
+    const nextH = Math.round(cssH * dpr);
+    if (this.canvas.width !== nextW || this.canvas.height !== nextH) {
+      this.canvas.width = nextW;
+      this.canvas.height = nextH;
+    }
+    this.wakeAction();
   }
 
   public start(): void {
     if (this.rafId !== null || this.idleFrameTimer !== null) return;
-    this.lastTime = this.lastActivityAt = performance.now();
+    const now = performance.now();
+    this.lastTime = now;
+    this.lastActionAt = now;
+    this.lastAmbientAt = now;
+    this.lastRenderMs = 0;
+    this.lastRenderPerfMs = 0;
     this.directRafPrevMs = 0;
-    this.isIdlePacing = false;
+    this.pacingTier = 'action';
     this.rafId = requestAnimationFrame(this.renderFrame);
   }
 
@@ -905,7 +1324,10 @@ export class KuroCatEngine {
     if (this.idleFrameTimer !== null) window.clearTimeout(this.idleFrameTimer);
     this.rafId = null;
     this.idleFrameTimer = null;
-    this.isIdlePacing = false;
+    this.pacingTier = 'action';
+    this.directRafPrevMs = 0;
+    this.lastRenderMs = 0;
+    this.lastRenderPerfMs = 0;
   }
 
   public releaseCachedResources(): void {
@@ -924,26 +1346,163 @@ export class KuroCatEngine {
     this.gameActive = Boolean(active);
   }
 
+  private computePacingTier(now: number): RenderPacingTier {
+    const wakeElapsed = now - this.wakeAt;
+    const peekTransitioning =
+      this.peekPreviewEdge !== 'none'
+        ? Math.abs(this.peekAmount - 0.90) > 0.02 || Math.abs(this.peekSpring.v) > 0.02
+        : (this.peekAmount > 0.01 && this.peekAmount < 0.99) || Math.abs(this.peekSpring.v) > 0.02;
+    const hasActiveAction =
+      now - this.lastActionAt < ACTION_RENDER_AFTER_MS ||
+      this.heldKeys.size > 0 ||
+      this.catTail.heldVks.size > 0 ||
+      this.catTail.reach > 0.02 ||
+      this.mouseLeftDown ||
+      this.mouseRightDown ||
+      this.mouseMiddleDown ||
+      this.bubbles.length > 0 ||
+      this.mouseBadges.length > 0 ||
+      this.petEnergy > 0.12 ||
+      this.isCross ||
+      this.crossAmount > 0.03 ||
+      now < this.curiousUntil ||
+      this.curiousAmount > 0.02 ||
+      this.isDragging ||
+      now < this.scruffDemoUntil ||
+      this.scruffAmount > 0.02 ||
+      this.boopAmount > 0.02 ||
+      this.chinAmount > 0.02 ||
+      this.tailRecoil > 0.02 ||
+      this.tailGlanceAmount > 0.02 ||
+      peekTransitioning ||
+      (this.sleepAmount > 0.02 && this.sleepAmount < 0.98) ||
+      (wakeElapsed >= 0 && wakeElapsed < 650) ||
+      Math.abs(this.deskHopY) > 0.15 ||
+      Math.abs(this.headsetSpring.v) > 0.02 ||
+      Math.abs(this.headsetSpring.x - (this.headphonesOn ? 1 : 0)) > 0.01 ||
+      this.fxParticles.some((fx) => fx.kind !== 'z');
+    if (hasActiveAction) return 'action';
+
+    if (this.sleepAmount > 0.95) return 'sleep';
+
+    const hasAmbientMotion =
+      now - this.lastAmbientAt < AMBIENT_RENDER_AFTER_MS ||
+      this.idleAct !== null ||
+      this.yawnAmount > 0.02 ||
+      this.stretchAmount > 0.02 ||
+      this.groomAmount > 0.02 ||
+      this.kneadAmount > 0.02 ||
+      Math.abs(this.dozeNod) > 0.02 ||
+      (this.peekHover > 0.01 && this.peekHover < 0.99) ||
+      Math.abs(this.peekHoverSpring.v) > 0.02 ||
+      (this.catBreed === 'dafeiyu' && this.peekAmount > 0.01 && this.peekAmount < 0.99) ||
+      this.isBlinking ||
+      Math.abs(this.eyeXSpring.v) > 0.02 ||
+      Math.abs(this.eyeYSpring.v) > 0.02 ||
+      Math.abs(this.faceTurnSpring.v) > 0.05;
+    if (hasAmbientMotion) return 'ambient';
+
+    return 'idle';
+  }
+
+  private getTargetIntervalMs(tier: RenderPacingTier, eco30: boolean): number {
+    switch (tier) {
+      case 'action':
+        return eco30 ? 33.33 : 16.67;
+      case 'ambient':
+        return AMBIENT_FRAME_MS;
+      case 'idle':
+        return IDLE_FRAME_MS;
+      case 'sleep':
+        return DEEP_SLEEP_FRAME_MS;
+    }
+  }
+
+  private scheduleNextFrame(tier: RenderPacingTier, sleepMs: number): void {
+    this.rafId = null;
+    this.pacingTier = tier;
+    if (this.idleFrameTimer !== null) {
+      window.clearTimeout(this.idleFrameTimer);
+    }
+    this.idleFrameTimer = window.setTimeout(() => {
+      this.idleFrameTimer = null;
+      this.rafId = requestAnimationFrame(this.renderFrame);
+    }, sleepMs);
+  }
+
   private readonly renderFrame = (now: number): void => {
     const frameId = this.rafId;
     const workStart = performance.now();
 
-    if (this.directRafPrevMs > 0 && this.vsyncSamples < 8) {
+    // Continuously adapt to VRR / ProMotion (24-120Hz) and display switches:
+    // if direct rAF ever observes >=2 short intervals (<13.5ms), lock vsyncMs down immediately
+    // so 120-240Hz displays never run uncapped even if startup happened at 60Hz (#59).
+    if (this.directRafPrevMs > 0) {
       const gap = now - this.directRafPrevMs;
       if (gap >= 3.2 && gap <= 25) {
-        this.vsyncMs = this.vsyncSamples === 0 ? gap : Math.min(this.vsyncMs, gap);
-        this.vsyncSamples += 1;
+        if (gap < 13.5) {
+          this.highRefreshHits = Math.min(4, this.highRefreshHits + 1);
+          if (this.highRefreshHits >= 2) {
+            this.vsyncMs = Math.min(this.vsyncMs, gap);
+          }
+        } else {
+          this.highRefreshHits = Math.max(0, this.highRefreshHits - 1);
+          if (this.highRefreshHits === 0) {
+            this.vsyncMs = this.vsyncSamples === 0 ? gap : this.vsyncMs * 0.75 + gap * 0.25;
+          }
+        }
+        if (this.vsyncSamples < 8) {
+          this.vsyncSamples += 1;
+        }
+      }
+    }
+
+    const eco30 = this.gameActive || this.fpsCap === 30;
+    const preTier = this.computePacingTier(now);
+    const minIntervalMs =
+      preTier === 'action'
+        ? eco30
+          ? 28
+          : 12.5
+        : preTier === 'ambient'
+          ? 36
+          : preTier === 'idle'
+            ? 56
+            : 85;
+
+    if (this.lastRenderMs > 0) {
+      const sinceLast = now - this.lastRenderMs;
+      if (sinceLast >= 0 && sinceLast < minIntervalMs) {
+        const preTargetMs = this.getTargetIntervalMs(preTier, eco30);
+        const remainingMs = preTargetMs - sinceLast;
+        if (
+          preTier === 'action' &&
+          !eco30 &&
+          (this.vsyncMs >= 13.5 || remainingMs <= this.vsyncMs + 2)
+        ) {
+          this.pacingTier = preTier;
+          this.directRafPrevMs = now;
+          this.rafId = requestAnimationFrame(this.renderFrame);
+        } else {
+          this.directRafPrevMs = 0;
+          this.scheduleNextFrame(
+            preTier,
+            Math.max(4, Math.round(remainingMs - this.vsyncMs * 0.35)),
+          );
+        }
+        return;
       }
     }
 
     const dt = Math.min(0.05, Math.max(0.001, (now - this.lastTime) / 1000));
     this.lastTime = now;
+    this.lastRenderMs = now;
+    this.lastRenderPerfMs = workStart;
     this.update(dt, now);
     this.render();
     this.onAfterRender?.();
 
     if (this.rafId !== frameId) return;
-    const active = now - this.lastActivityAt < IDLE_RENDER_AFTER_MS;
 
     if (this.sleepAmount > 0.96) {
       if (!this.sleepTrimSent) {
@@ -954,14 +1513,15 @@ export class KuroCatEngine {
       this.sleepTrimSent = false;
     }
 
-    // Smart adaptive frame pacing:
-    // - User Eco 30 FPS or Game Eco Mode: 30 FPS cap
-    // - 60Hz normal mode: native direct rAF
-    // - 120-240Hz normal mode: 60 FPS cap
-    // - Idle awake: ~18 FPS (55ms); Deep sleep: ~12 FPS (85ms)
-    const eco30 = this.gameActive || this.fpsCap === 30;
-    if (active && (this.vsyncSamples < 8 || (!eco30 && this.vsyncMs >= 13.5))) {
-      this.isIdlePacing = false;
+    // 4-tier adaptive frame pacing:
+    // - Full action (typing, clicking, scrolling, petting, scruff/boop/chin/tail/peek slides, agent/mood bursts): 60 FPS (30 FPS eco)
+    //   * 60Hz normal: native direct rAF (0 timer jitter)
+    //   * 120-240Hz / ProMotion VRR normal: 60 FPS paced cap
+    // - Ambient cursor-gaze / mouse follow / idle vignettes / peek hover pop-out: ~23 FPS (44ms, matches 33-45ms IPC cadence)
+    // - Idle awake (including calmly settled edge-peek): ~15 FPS (66ms); Deep sleep: ~10 FPS (100ms)
+    const tier = this.computePacingTier(now);
+    if (tier === 'action' && !eco30 && this.vsyncMs >= 13.5) {
+      this.pacingTier = 'action';
       this.directRafPrevMs = now;
       this.rafId = requestAnimationFrame(this.renderFrame);
       return;
@@ -969,31 +1529,40 @@ export class KuroCatEngine {
 
     this.directRafPrevMs = 0;
     const workMs = performance.now() - workStart;
-    const targetMs = active
-      ? eco30
-        ? 33.33
-        : 16.67
-      : this.sleepAmount > 0.95
-        ? 85
-        : Math.max(IDLE_RENDER_PAUSE_MS, 55);
+    const targetMs = this.getTargetIntervalMs(tier, eco30);
     const sleepMs = Math.max(4, Math.round(targetMs - workMs - this.vsyncMs * 0.35));
 
     // Pause after drawing so even a slow frame leaves CPU headroom on older hardware (Fixes #9).
-    this.rafId = null;
-    this.isIdlePacing = !active;
-    this.idleFrameTimer = window.setTimeout(() => {
-      this.idleFrameTimer = null;
-      this.isIdlePacing = false;
-      this.rafId = requestAnimationFrame(this.renderFrame);
-    }, sleepMs);
+    this.scheduleNextFrame(tier, sleepMs);
   };
 
-  private wakeRendering(now = performance.now()): void {
-    this.lastActivityAt = now;
-    if (this.idleFrameTimer === null || !this.isIdlePacing) return;
+  private wakeAction(now = performance.now()): void {
+    this.lastActionAt = Math.max(this.lastActionAt, now);
+    this.lastAmbientAt = Math.max(this.lastAmbientAt, now);
+    // Interrupt slower ambient/idle/sleep timers immediately on real action,
+    // without defeating active 60/30 FPS action pacing timers.
+    if (this.idleFrameTimer === null || this.pacingTier === 'action') return;
     window.clearTimeout(this.idleFrameTimer);
     this.idleFrameTimer = null;
-    this.isIdlePacing = false;
+    this.pacingTier = 'action';
+    this.rafId = requestAnimationFrame(this.renderFrame);
+  }
+
+  private wakeAmbient(now = performance.now()): void {
+    this.lastAmbientAt = Math.max(this.lastAmbientAt, now);
+    // Never defeat active action or ambient pacing timers on high-Hz cursor storms;
+    // only promote out of slow idle/sleep timers once an ambient frame interval has elapsed.
+    if (
+      this.idleFrameTimer === null ||
+      this.pacingTier === 'action' ||
+      this.pacingTier === 'ambient'
+    ) {
+      return;
+    }
+    if (now - this.lastRenderPerfMs < AMBIENT_FRAME_MS - 6) return;
+    window.clearTimeout(this.idleFrameTimer);
+    this.idleFrameTimer = null;
+    this.pacingTier = 'ambient';
     this.rafId = requestAnimationFrame(this.renderFrame);
   }
 
@@ -1003,16 +1572,27 @@ export class KuroCatEngine {
     this.lastPokeAt = now;
   }
 
-  private wakeCat(now = performance.now(), mode: 'gentle' | 'abrupt' = 'gentle'): void {
-    this.wakeRendering(now);
+  private wakeCat(
+    now = performance.now(),
+    mode: 'gentle' | 'abrupt' = 'gentle',
+    highActivity = true,
+  ): void {
     const wasAsleep = this.asleep;
     const recentlyWoken = wasAsleep || this.sleepAmount >= 0.45 || now - this.wakeAt < 1200;
+    if (highActivity || recentlyWoken) {
+      this.wakeAction(now);
+    } else {
+      this.wakeAmbient(now);
+    }
     if (wasAsleep) {
       this.wakeAt = now;
     }
     this.asleep = false;
     this.lastInputAt = now;
     this.idleAct = null;
+    this.scruffDemoUntil = -10000;
+    this.yawnDoneThisIdle = false;
+    this.dozeDoneThisIdle = false;
     this.nextIdleActAt = now + 4200 + Math.random() * 4200;
 
     if (
@@ -1089,7 +1669,7 @@ export class KuroCatEngine {
   /** Interactive demo trigger: immediately curls into sleepy loaf with floating Zzz! */
   public triggerSleepDemo(): void {
     const now = performance.now();
-    this.wakeRendering(now);
+    this.wakeAction(now);
     this.isCross = false;
     this.annoy = 0;
     this.curiousUntil = -10000;
@@ -1126,6 +1706,137 @@ export class KuroCatEngine {
     window.setTimeout(() => this.onKeyUp(vk), 170);
   }
 
+  private startIdleVignette(kind: IdleFidget['kind'], dur: number, side: -1 | 1 = Math.random() < 0.5 ? -1 : 1): void {
+    const now = performance.now();
+    this.wakeCat(now, 'gentle');
+    this.wakeAt = -10000;
+    this.isCross = false;
+    this.annoy = 0;
+    this.curiousUntil = -10000;
+    this.boopUntil = -10000;
+    this.chinScratchEnergy = 0;
+    this.dozeJoltFired = false;
+    this.groomSparkleSpawned = false;
+    this.kneadPhase = 0;
+    this.idleAct = { kind, t0: now, dur, side };
+    this.nextIdleActAt = now + dur + 3600 + Math.random() * 4000;
+    this.wakeAction(now);
+  }
+
+  /** Interactive demo trigger: pre-sleep nodding off ("点头钓鱼") with sudden wake-up jolt! */
+  public triggerDozeDemo(): void {
+    this.startIdleVignette('doze', 3500);
+  }
+
+  /** Interactive demo trigger: big cozy feline yawn ("打哈欠") with round pink mouth & tongue! */
+  public triggerYawnDemo(): void {
+    this.startIdleVignette('yawn', 2500);
+  }
+
+  /** Interactive demo trigger: big satisfying keyboard stretch ("伸懒腰")! */
+  public triggerStretchDemo(): void {
+    this.startIdleVignette('stretch', 2700);
+  }
+
+  /** Interactive demo trigger: lick paw + wipe face & press ear ("舔爪洗脸")! */
+  public triggerGroomDemo(): void {
+    this.startIdleVignette('groom', 3400);
+  }
+
+  /** Interactive demo trigger: rhythmic alternating paw kneading ("键盘踩奶")! */
+  public triggerKneadDemo(): void {
+    this.startIdleVignette('knead', 4000);
+  }
+
+  /** Interactive demo trigger: lifted by the scruff with dangling swinging paws + bouncy landing! */
+  public triggerScruffDemo(durationMs = 2600): void {
+    const now = performance.now();
+    this.wakeCat(now, 'gentle');
+    this.wakeAt = -10000;
+    this.isCross = false;
+    this.annoy = 0;
+    this.idleAct = null;
+    this.curiousUntil = -10000;
+    this.scruffDemoUntil = now + durationMs;
+    this.scruffSpring.kick(2.8);
+    this.scruffSwingSpring.kick(4.2);
+    this.wakeAction(now);
+  }
+
+  /** Interactive demo trigger: nose boop -> adorable cross-eyed stare + tiny kitten sneeze! */
+  public triggerBoopDemo(): void {
+    if (this.catBreed === 'dafeiyu' || this.privacyMode) return;
+    const now = performance.now();
+    this.wakeCat(now, 'gentle');
+    this.wakeAt = -10000;
+    this.isCross = false;
+    this.annoy = 0;
+    this.idleAct = null;
+    this.curiousUntil = -10000;
+    this.boopStartAt = now;
+    this.boopUntil = now + 1150;
+    this.boopSneezeFired = false;
+    this.squashSpring.kick(-1.5);
+    this.headTiltSpring.kick((Math.random() < 0.5 ? -1 : 1) * 1.15);
+    this.earTwitchLeft = 1;
+    this.earTwitchRight = 1;
+    catAudio.playBoopSneeze();
+    this.wakeAction(now);
+  }
+
+  /** Interactive demo trigger: blissful chin scratch with lifted chin, hearts & warm deeper purr! */
+  public triggerChinScratchDemo(durationMs = 2800): void {
+    if (this.catBreed === 'dafeiyu' || this.privacyMode) return;
+    const now = performance.now();
+    this.wakeCat(now, 'gentle');
+    this.wakeAt = -10000;
+    this.isCross = false;
+    this.annoy = 0;
+    this.idleAct = null;
+    this.curiousUntil = -10000;
+    this.chinScratchEnergy = Math.max(this.chinScratchEnergy, Math.min(3.5, 0.9 + durationMs / 1100));
+    this.nextHeartAt = Math.min(this.nextHeartAt, now + 80);
+    this.wakeAction(now);
+  }
+
+  /** Interactive demo trigger: poke tail -> instant recoil tuck + suspicious side-eye (3x within 6s = grumpy!) */
+  public triggerTailPokeDemo(): void {
+    if (this.catBreed === 'dafeiyu' || this.privacyMode) return;
+    const now = performance.now();
+    this.wakeCat(now, 'gentle');
+    this.wakeAt = -10000;
+    this.idleAct = null;
+    this.curiousUntil = -10000;
+    this.tailPokeTimes = this.tailPokeTimes.filter((t) => now - t < 6000);
+    this.tailPokeTimes.push(now);
+    this.tailRecoilSpring.kick(5.2);
+    this.tailGlanceUntil = now + 1550;
+    this.earTwitchRight = 1;
+    this.squashSpring.kick(-0.9);
+    const tip = this.liveTailCurvePts[this.liveTailCurvePts.length - 1] ?? {
+      x: this.catCenterX + 110,
+      y: this.catBaseY - 40,
+    };
+    this.fxParticles.push({
+      kind: 'sparkle',
+      x: tip.x,
+      y: tip.y - 8,
+      vx: 14,
+      vy: -26,
+      size: 10,
+      createdAt: now,
+      lifetime: 420,
+    });
+    if (this.tailPokeTimes.length >= 3) {
+      this.tailPokeTimes = [];
+      catAudio.playTailFlick(true);
+      this.triggerCrossDemo();
+    } else {
+      catAudio.playTailFlick(false);
+    }
+    this.wakeAction(now);
+  }
+
   // ---- Flexible spine coordinate system (exact match to measured 0.3s -> 2.2s shear!) ----
 
   private spinePoint(t: number, breath: number): Vec2 {
@@ -1134,11 +1845,31 @@ export class KuroCatEngine {
     const shearCurve = u * u * (3 - 2 * u); // smoothstep from hips up to head!
     // Measured mouse-lean shift (-46px at head) + lively typing left-right body/head sway (+-25px)!
     const leanAmp = this.keyboardLayout === '108' ? 76 : 46;
-    const leanX = (this.spineLean * leanAmp + this.typingSway * 25 + this.strikeRock * 10) * shearCurve;
+    const scruffSwingX = this.scruffAmount * this.scruffSwing * 30 * Math.pow(Math.max(0, t - 0.14), 1.3);
+    const peekCalm = 1 - Math.max(0, Math.min(1, this.peekAmount));
+    const leanX =
+      (this.spineLean * leanAmp + this.typingSway * 25 + this.strikeRock * 10) * shearCurve * peekCalm +
+      scruffSwingX;
     const swayDipY = Math.abs(this.typingSway) * 4.0 * shearCurve;
     const sleepSinkY = this.sleepAmount * 16.5 * shearCurve;
     const squashDipY = this.squashSpring.x * 6.5 * shearCurve;
-    const hunchY = (this.typingHunch * 13 + this.bodyBob * 3.2 + breath) * shearCurve + swayDipY + sleepSinkY + squashDipY;
+    const dozeDropY = this.dozeNod * 15.5 * shearCurve;
+    const yawnLiftY = -this.yawnAmount * 6.5 * shearCurve;
+    const chinLiftY = -this.chinAmount * 7.5 * shearCurve;
+    // Stretch: head lifts slightly while lower chest bows gently forward; Scruff: lifts gently inside top headroom & stretches lower body!
+    const stretchCurveY =
+      this.stretchAmount * (-9.5 * shearCurve + 8.5 * Math.sin(t * Math.PI));
+    const scruffLiftY = Math.min(1, this.scruffAmount) * (-14 + (t - 0.18) * 16);
+    const hunchY =
+      (this.typingHunch * 13 + this.bodyBob * 3.2 + breath) * shearCurve +
+      swayDipY +
+      sleepSinkY +
+      squashDipY +
+      dozeDropY +
+      yawnLiftY +
+      chinLiftY +
+      stretchCurveY +
+      scruffLiftY;
     // Slight forward drop when leaning deeply to the mouse
     const leanDropY = Math.abs(this.spineLean) * 6 * shearCurve;
     return {
@@ -1392,7 +2123,7 @@ export class KuroCatEngine {
     if (this.privacyMode) return;
     const spec = resolveKeyByVk(vk, this.keyboardLayout);
     if (!spec) return;
-    this.wakeRendering();
+    this.wakeAction();
     let stillHeldSameSpec = false;
     for (const h of this.heldKeys.values()) {
       if (h.specId === spec.id) {
@@ -1426,7 +2157,9 @@ export class KuroCatEngine {
       return;
     }
 
-    this.wakeCat(now, 'abrupt');
+    // Casual mouse travel uses ambient (~23 FPS) pacing unless it wakes a sleeping cat
+    // or triggers laser-pointer Curious mode in update().
+    this.wakeCat(now, 'abrupt', false);
     // On desktop, onGlobalMouseMove carries true full-screen 0..1 coords; on embedded web, window pointermove feeds onPointerSpeedSample directly
     if (!this.embedded) {
       this.recordPointerSpeed(nx, ny, now);
@@ -1468,17 +2201,8 @@ export class KuroCatEngine {
     const color = button === 'left' ? colors.left : button === 'right' ? colors.right : colors.middle;
     const mx = this.mouseBaseX + this.mouseOffsetX;
     const my = this.mouseBaseY + this.mouseOffsetY;
-    const isCatFacing = this.keyboardOrientation === 'cat';
-    const sideShift =
-      button === 'left'
-        ? isCatFacing
-          ? 10
-          : -10
-        : button === 'right'
-          ? isCatFacing
-            ? -10
-            : 10
-          : 0;
+    // Mouse stays cat-facing in both keyboard orientations (#92): LMB = inner/+X, RMB = outer/-X
+    const sideShift = button === 'left' ? 10 : button === 'right' ? -10 : 0;
 
     if (this.mouseBadges.length >= 2) {
       this.mouseBadges.shift();
@@ -1525,7 +2249,7 @@ export class KuroCatEngine {
   }
 
   public onMouseUp(button: string): void {
-    this.wakeRendering();
+    this.wakeAction();
     if (button === 'left') {
       this.mouseLeftDown = false;
       this.mouseDownAt.left = 0;
@@ -1562,17 +2286,57 @@ export class KuroCatEngine {
     this.petStrokeCount = 0;
   }
 
+  private isCursorNearDafeiyuPeekHead(relX: number, relY: number): boolean {
+    if (this.catBreed !== 'dafeiyu' || this.peekAmount <= 0.35) return false;
+    const { tx, ty, rot, pivotX, pivotY } = this.peekTransform;
+    if (this.embedded) {
+      // Embedded callers pass inverse-peekTransform logical coords via clientToLogical()
+      const lx = relX * this.logicalW;
+      const ly = relY * this.logicalH;
+      if (this.hitTestCatZoneLogical(lx, ly) !== 'head') return false;
+      const { offsetX, offsetY, uniformScale } = this.getViewportTransform();
+      const s = Math.max(0.001, uniformScale);
+      const leftEdge = -offsetX / s;
+      const rightEdge = (this.canvas.width - offsetX) / s;
+      const topEdge = -offsetY / s;
+      const bottomEdge = (this.canvas.height - offsetY) / s;
+      const dx = lx - pivotX;
+      const dy = ly - pivotY;
+      const cos = Math.cos(rot);
+      const sin = Math.sin(rot);
+      const vx = pivotX + tx + dx * cos - dy * sin;
+      const vy = pivotY + ty + dx * sin + dy * cos;
+      return vx >= leftEdge && vx <= rightEdge && vy >= topEdge && vy <= bottomEdge;
+    }
+    if (relX < 0 || relX > 1 || relY < 0 || relY > 1) return false;
+    const rawX = relX * this.logicalW;
+    const rawY = relY * this.logicalH;
+    const dx = rawX - (pivotX + tx);
+    const dy = rawY - (pivotY + ty);
+    const cos = Math.cos(-rot);
+    const sin = Math.sin(-rot);
+    const lx = pivotX + dx * cos - dy * sin;
+    const ly = pivotY + dx * sin + dy * cos;
+    return this.hitTestCatZoneLogical(lx, ly) === 'head';
+  }
+
   public onWindowCursor(relX: number, relY: number, overCat: boolean, input: 'pointer' | 'touch' = 'pointer'): void {
     const now = performance.now();
     const cursorDelta = Math.hypot(relX - this.cursorRelX, relY - this.cursorRelY);
     const hasPointerPosition = input === 'pointer';
+    const effectiveOverCat =
+      overCat || (hasPointerPosition && this.isCursorNearDafeiyuPeekHead(relX, relY));
     if (
       relX !== this.cursorRelX ||
       relY !== this.cursorRelY ||
-      overCat !== this.cursorOverCat ||
+      effectiveOverCat !== this.cursorOverCat ||
       hasPointerPosition !== this.hasPointerPosition
     ) {
-      this.wakeRendering(now);
+      // Ambient cursor gaze runs at ~23 FPS instead of forcing 60-120 FPS redraws;
+      // while deeply asleep with eyes closed and cursor outside the cat, skip waking entirely.
+      if (!(this.asleep && this.sleepAmount > 0.92 && !effectiveOverCat)) {
+        this.wakeAmbient(now);
+      }
       if (cursorDelta > 0.0015) {
         this.lastCursorEyeAt = now;
       }
@@ -1580,9 +2344,9 @@ export class KuroCatEngine {
     this.hasPointerPosition = hasPointerPosition;
     this.cursorRelX = relX;
     this.cursorRelY = relY;
-    this.cursorOverCat = overCat;
+    this.cursorOverCat = effectiveOverCat;
 
-    if (overCat && !this.mouseLeftDown && !this.mouseRightDown) {
+    if (effectiveOverCat && !this.mouseLeftDown && !this.mouseRightDown) {
       const now = performance.now();
       const px = relX * this.logicalW;
       const py = relY * this.logicalH;
@@ -1635,7 +2399,16 @@ export class KuroCatEngine {
 
           // Only unlock petting energy & purring after intentional back-and-forth / circular strokes (Fixes #13)
           if (this.petStrokeCount >= REQUIRED_STROKES) {
-            this.petEnergy = Math.min(1, this.petEnergy + dist * 0.015);
+            const zone = this.hitTestCatZoneLogical(px, py);
+            if (zone === 'chin') {
+              this.chinScratchEnergy = Math.min(1.4, this.chinScratchEnergy + dist * 0.018);
+              this.nextHeartAt = Math.min(this.nextHeartAt, now + 180);
+            } else {
+              this.petEnergy = Math.min(1, this.petEnergy + dist * 0.015);
+              if (this.petEnergy > 0.55) {
+                this.hadHeartyPet = true;
+              }
+            }
             this.wakeCat(now, 'gentle');
             this.wakeAt = -10000;
             this.isCross = false;
@@ -1840,21 +2613,121 @@ export class KuroCatEngine {
       this.catTail.heldVks.size > 0;
     const isCatMode = this.catBreed !== 'dafeiyu';
 
-    // 1) Alive cat emotional states: sleep (loaf + Zzz), curious (laser-pointer eyes), annoy -> cross (airplane ears + tail desk-thump), idle fidgets!
-    const sleepAfterMs = this.embedded ? 18_000 : 28_000;
+    // 1) Alive cat emotional states: sleep (loaf + Zzz), curious (laser-pointer eyes), annoy -> cross (airplane ears + tail desk-thump),
+    //    rich idle vignettes (doze, yawn, stretch, groom, knead), scruffed drag, boop, chin scratch & tail poke!
+    const previewWanted = !this.privacyMode && this.peekPreviewEdge !== 'none';
+    const scruffWanted = isCatMode && !this.privacyMode && !previewWanted && (this.isDragging || now < this.scruffDemoUntil);
+    const peekWanted = !this.privacyMode && (previewWanted || (this.peekEdge !== 'none' && !scruffWanted));
+    const peekGoal = previewWanted ? 0.90 : peekWanted ? 1.0 : 0.0;
+    this.peekAmount = Math.max(0, Math.min(1.06, this.peekSpring.step(peekGoal, dt)));
+    const peekClamped = Math.min(1, this.peekAmount);
+    const peekHoverWanted = (peekWanted && this.cursorOverCat) || previewWanted ? 1 : 0;
+    this.peekHover = Math.max(0, Math.min(1, this.peekHoverSpring.step(peekHoverWanted, dt)));
+    this.peekTransform = this.computePeekTransform2D();
+    const wasScruffDemo = !this.isDragging && this.scruffDemoUntil > 0 && now >= this.scruffDemoUntil;
+    if (wasScruffDemo) {
+      this.scruffDemoUntil = -10000;
+      if (this.scruffAmount > 0.25) {
+        this.onScruffLand(now);
+      }
+    }
+    this.scruffAmount = Math.max(0, Math.min(1.12, this.scruffSpring.step(scruffWanted ? 1 : 0, dt)));
+    const scruffClamped = Math.min(1, this.scruffAmount);
+    const scruffTargetSwing = scruffWanted
+      ? Math.max(-2.0, Math.min(2.0, -this.scruffDragVelX * 1.05 + Math.sin(this.elapsed * 3.9) * (now < this.scruffDemoUntil ? 1.05 : 0.44)))
+      : 0;
+    this.scruffSwing = Math.max(-2.2, Math.min(2.2, this.scruffSwingSpring.step(scruffTargetSwing, dt)));
+    this.scruffDragVelX *= Math.exp(-5.5 * dt);
+
+    // Nose Boop cross-eyed recoil + tiny kitten sneeze puff
+    const boopActive = isCatMode && !this.privacyMode && !scruffWanted && now < this.boopUntil;
+    const boopElapsed = boopActive ? (now - this.boopStartAt) / 1000 : -1;
+    const targetBoop = boopActive ? 1 : 0;
+    this.boopAmount += (targetBoop - this.boopAmount) * (1 - Math.exp(-(boopActive ? 18 : 8) * dt));
+    if (this.boopAmount < 0.004 && !boopActive) this.boopAmount = 0;
+    this.boopCrossEye =
+      boopActive && boopElapsed >= 0 && boopElapsed < 0.78
+        ? Math.sin(Math.min(1, boopElapsed / 0.12) * (Math.PI * 0.5)) * (1 - Math.max(0, (boopElapsed - 0.52) / 0.26))
+        : 0;
+    if (boopActive && boopElapsed >= 0.30 && !this.boopSneezeFired) {
+      this.boopSneezeFired = true;
+      this.squashSpring.kick(2.6);
+      const headPt = this.spinePoint(0.24, 0);
+      for (const s of [-1, 0, 1] as const) {
+        this.fxParticles.push({
+          kind: 'sneeze',
+          x: headPt.x + this.faceTurnX * 0.7 + s * 7,
+          y: headPt.y + 14,
+          vx: s * 46 + (Math.random() - 0.5) * 14,
+          vy: 12 + Math.random() * 14,
+          size: 7.5 - Math.abs(s) * 1.4,
+          createdAt: now,
+          lifetime: 380,
+        });
+      }
+    }
+    this.boopShake =
+      boopActive && boopElapsed >= 0.30 && boopElapsed < 0.72
+        ? Math.sin((boopElapsed - 0.30) * 44) * 0.22 * (1 - (boopElapsed - 0.30) / 0.42)
+        : 0;
+
+    // Chin scratch energy + warm floating hearts
+    this.chinScratchEnergy = Math.max(
+      0,
+      this.chinScratchEnergy - dt * (this.cursorOverCat ? 0.20 : 0.95),
+    );
+    const chinActive = isCatMode && !this.privacyMode && !this.isCross && !scruffWanted && this.chinScratchEnergy > 0.22;
+    this.chinAmount += ((chinActive ? 1 : 0) - this.chinAmount) * (1 - Math.exp(-10 * dt));
+    if (this.chinAmount < 0.004 && !chinActive) this.chinAmount = 0;
+    if (chinActive && this.chinAmount > 0.42 && now >= this.nextHeartAt) {
+      this.nextHeartAt = now + 440 + Math.random() * 240;
+      const headPt = this.spinePoint(0.24, 0);
+      const side = Math.random() < 0.5 ? -1 : 1;
+      this.fxParticles.push({
+        kind: 'heart',
+        x: headPt.x + side * (36 + Math.random() * 14),
+        y: headPt.y + 4 + Math.random() * 10,
+        vx: side * 8,
+        vy: -32 - Math.random() * 12,
+        size: 12 + Math.random() * 3,
+        createdAt: now,
+        lifetime: 1450,
+      });
+    }
+
+    // Tail poke recoil + suspicious side glance
+    this.tailRecoil = Math.max(0, Math.min(1.2, this.tailRecoilSpring.step(0, dt)));
+    const tailGlanceNow = isCatMode && !this.privacyMode && !this.isCross && !scruffWanted && now < this.tailGlanceUntil;
+    this.tailGlanceAmount += ((tailGlanceNow ? 1 : 0) - this.tailGlanceAmount) * (1 - Math.exp(-12 * dt));
+    if (this.tailGlanceAmount < 0.004 && !tailGlanceNow) this.tailGlanceAmount = 0;
+
+    const sleepAfterMs = this.embedded ? 20_000 : 28_000;
     const idleMs = now - this.lastInputAt;
-    if (isCatMode && !this.privacyMode && !this.asleep && this.petEnergy < 0.15 && idleMs > sleepAfterMs) {
+    const blockingSleep =
+      scruffWanted ||
+      peekWanted ||
+      boopActive ||
+      chinActive ||
+      this.petEnergy >= 0.15 ||
+      (this.idleAct !== null && ['doze', 'yawn', 'stretch', 'groom', 'knead'].includes(this.idleAct.kind));
+    if (isCatMode && !this.privacyMode && !this.asleep && !blockingSleep && idleMs > sleepAfterMs) {
       this.asleep = true;
       this.isCross = false;
       this.idleAct = null;
       this.nextZAt = now + 900;
     }
-    const wantSleep = isCatMode && this.asleep && !this.privacyMode ? 1 : 0;
+    const wantSleep = isCatMode && this.asleep && !this.privacyMode && !scruffWanted ? 1 : 0;
     this.sleepAmount += (wantSleep - this.sleepAmount) * (1 - Math.exp(-(wantSleep ? 1.5 : 6.5) * dt));
     if (this.sleepAmount < 0.002 && !wantSleep) this.sleepAmount = 0;
 
+    // Phase-integrated breath & tail drift oscillators: varying frequency smoothly NEVER chirps or jitters after long uptime!
+    const breathFreq = 2.1 - this.sleepAmount * 0.95;
+    this.breathPhase = (this.breathPhase + dt * breathFreq) % (Math.PI * 2);
+    const tailDriftFreq = 0.9 + this.typingEnergy * 1.4;
+    this.tailDriftPhase = (this.tailDriftPhase + dt * tailDriftFreq) % (Math.PI * 2);
+
     // Fast pointer speed over last 220ms triggers Curious (laser-pointer big round eyes!)
-    // Never false-trigger Curious while grumpy (isCross) or actively typing, so moving the mouse never snaps back typing/grumpy mood!
+    // Never false-trigger Curious while grumpy (isCross), scruffed, booped or actively typing!
     while (this.pointerSamples.length > 0 && now - this.pointerSamples[0].t > 220) {
       this.pointerSamples.shift();
     }
@@ -1865,16 +2738,20 @@ export class KuroCatEngine {
       !this.asleep &&
       !this.privacyMode &&
       !this.isCross &&
+      !scruffWanted &&
+      !boopActive &&
+      !chinActive &&
       now - this.lastAnyKeyAt > 900;
     if (canTriggerCurious && this.pointerSamples.length >= 4 && pointerSpeed > 0.92) {
       this.curiousUntil = Math.max(this.curiousUntil, now + 2200);
     }
-    const curiousNow = isCatMode && !this.asleep && !this.privacyMode && !this.isCross && now < this.curiousUntil;
+    const curiousNow =
+      isCatMode && !this.asleep && !this.privacyMode && !this.isCross && !scruffWanted && !boopActive && now < this.curiousUntil;
     this.curiousAmount = Math.max(0, Math.min(1.2, this.curiousSpring.step(curiousNow ? 1 : 0, dt)));
     const curiousClamped = Math.min(1, this.curiousAmount);
 
     // Annoyance accumulates from sustained furious typing (>8.5 CPS) or key mashing (in onKeyDown), cools down after 2.2s quiet
-    if (isCatMode && !this.privacyMode && !this.asleep) {
+    if (isCatMode && !this.privacyMode && !this.asleep && !scruffWanted) {
       const cps = this.recentKeyTimes.length / 0.95;
       if (cps > 8.5) {
         this.pokeAnnoy((cps - 8.5) * 0.055 * dt, now);
@@ -1903,38 +2780,80 @@ export class KuroCatEngine {
     const crossTarget = this.isCross ? 1 : 0;
     this.crossAmount = Math.max(0, Math.min(1, this.crossSpring.step(crossTarget, dt)));
 
-    // Idle fidgets when calmly awake and idle > 2.6s (tilt, single-ear flick, affectionate slowBlink, look around, tail flick)
+    // Track hearty petting end -> naturally rewards user with cozy biscuit kneading!
+    if (this.hadHeartyPet && this.petEnergy < 0.14 && this.petEndedAt < now - 8000) {
+      this.petEndedAt = now;
+    }
+
+    // Idle fidgets & feline life vignettes (tilt, ear, slowBlink, look, tail + doze, yawn, stretch, groom, knead!)
     if (this.idleAct && now > this.idleAct.t0 + this.idleAct.dur) {
       this.idleAct = null;
     }
     if (
       isCatMode &&
       !this.idleAct &&
-      now >= this.nextIdleActAt &&
-      idleMs > 2600 &&
       !this.asleep &&
       !this.privacyMode &&
+      !scruffWanted &&
+      !peekWanted &&
+      !boopActive &&
+      !chinActive &&
       this.petEnergy < 0.15 &&
       !this.isCross &&
       !curiousNow
     ) {
-      const kinds: IdleFidget['kind'][] = ['tilt', 'tilt', 'ear', 'slowBlink', 'look', 'tail'];
-      const kind = kinds[Math.floor(Math.random() * kinds.length)];
-      const durMap: Record<IdleFidget['kind'], number> = {
-        tilt: 1900,
-        ear: 460,
-        slowBlink: 1450,
-        look: 2100,
-        tail: 1100,
-      };
-      this.idleAct = {
-        kind,
-        t0: now,
-        dur: durMap[kind],
-        side: Math.random() < 0.5 ? -1 : 1,
-      };
-      this.nextIdleActAt = now + 3800 + Math.random() * 4800;
-      this.wakeRendering(now);
+      const hour = new Date().getHours();
+      const isLateNight = hour >= 23 || hour < 5;
+      const dozeStartMs = this.embedded ? 13_500 : isLateNight ? 16_000 : 20_500;
+      const yawnStartMs = this.embedded ? 10_000 : isLateNight ? 11_500 : 14_500;
+
+      if (this.hadHeartyPet && now - this.petEndedAt > 1200 && now - this.petEndedAt < 6000) {
+        this.hadHeartyPet = false;
+        this.idleAct = { kind: 'knead', t0: now, dur: 3800, side: 1 };
+        this.kneadPhase = 0;
+        this.nextIdleActAt = now + 5600;
+        this.wakeAmbient(now);
+      } else if (!this.dozeDoneThisIdle && idleMs > dozeStartMs && idleMs < sleepAfterMs - 1500) {
+        this.dozeDoneThisIdle = true;
+        this.dozeJoltFired = false;
+        this.idleAct = { kind: 'doze', t0: now, dur: 3500, side: Math.random() < 0.5 ? -1 : 1 };
+        this.nextIdleActAt = now + 4800;
+        this.wakeAmbient(now);
+      } else if (!this.yawnDoneThisIdle && idleMs > yawnStartMs && idleMs < dozeStartMs) {
+        this.yawnDoneThisIdle = true;
+        this.idleAct = { kind: 'yawn', t0: now, dur: 2500, side: Math.random() < 0.5 ? -1 : 1 };
+        this.nextIdleActAt = now + 4200;
+        this.wakeAmbient(now);
+      } else if (now >= this.nextIdleActAt && idleMs > 2600) {
+        const pool: IdleFidget['kind'][] =
+          idleMs > 7500
+            ? ['tilt', 'ear', 'slowBlink', 'look', 'tail', 'groom', 'groom', 'stretch', 'knead', 'yawn']
+            : ['tilt', 'tilt', 'ear', 'slowBlink', 'look', 'tail'];
+        const kind = pool[Math.floor(Math.random() * pool.length)];
+        const durMap: Record<IdleFidget['kind'], number> = {
+          tilt: 1900,
+          ear: 460,
+          slowBlink: 1450,
+          look: 2100,
+          tail: 1100,
+          doze: 3500,
+          yawn: 2500,
+          stretch: 2700,
+          groom: 3400,
+          knead: 3800,
+        };
+        this.dozeJoltFired = false;
+        this.groomSparkleSpawned = false;
+        this.kneadPhase = 0;
+        this.idleAct = {
+          kind,
+          t0: now,
+          dur: durMap[kind],
+          side: Math.random() < 0.5 ? -1 : 1,
+        };
+        this.nextIdleActAt = now + durMap[kind] + 3200 + Math.random() * 4400;
+        this.wakeAmbient(now);
+      }
     }
     const act = this.idleAct;
     const actU = act ? Math.max(0, Math.min(1, (now - act.t0) / act.dur)) : 0;
@@ -1944,12 +2863,117 @@ export class KuroCatEngine {
     };
     const actEnv = act ? smoothstep(0, 0.25, actU) * (1 - smoothstep(0.7, 1, actU)) : 0;
 
+    // Drive rich idle vignette continuous envelopes
+    let targetDozeLid = 0;
+    let targetDozeNod = 0;
+    let targetYawn = 0;
+    let targetStretch = 0;
+    let targetGroom = 0;
+    let targetGroomLick = 0;
+    let targetEarPressL = 0;
+    let targetEarPressR = 0;
+    let targetKnead = 0;
+    let groomHeadBob = 0;
+    let groomHeadTilt = 0;
+    let dozeTilt = 0;
+
+    if (act && act.kind === 'doze') {
+      if (actU < 0.54) {
+        const p = actU / 0.54;
+        // Two sleepy head-dips getting heavier before snapping awake!
+        const dipWave = p < 0.42 ? Math.sin((p / 0.42) * Math.PI) * 0.45 : smoothstep(0.38, 1.0, p);
+        targetDozeLid = Math.min(0.86, 0.25 + dipWave * 0.65);
+        targetDozeNod = dipWave;
+        dozeTilt = act.side * 0.14 * dipWave;
+      } else {
+        if (!this.dozeJoltFired) {
+          this.dozeJoltFired = true;
+          this.squashSpring.kick(-2.2);
+          this.headTiltSpring.kick(-act.side * 1.6);
+          this.earPerkSpring.kick(2.6);
+          this.earTwitchLeft = 1;
+          this.earTwitchRight = 1;
+        }
+        const post = (actU - 0.54) / 0.46;
+        // Wide awake startled glance left/right, then soft sleepy blink at end
+        targetDozeLid = post > 0.72 ? Math.sin(((post - 0.72) / 0.28) * Math.PI) * 0.75 : 0;
+        targetDozeNod = -0.18 * (1 - smoothstep(0, 0.35, post));
+        dozeTilt = -act.side * 0.12 * Math.sin(Math.min(1, post / 0.55) * Math.PI);
+      }
+    } else if (act && act.kind === 'yawn') {
+      targetYawn = smoothstep(0.06, 0.34, actU) * (1 - smoothstep(0.68, 0.94, actU));
+      if (actU > 0.82 && actU < 0.96) {
+        // Cute tiny post-yawn satisfaction shiver
+        dozeTilt = Math.sin((actU - 0.82) * 58) * 0.08 * (1 - (actU - 0.82) / 0.14);
+      }
+    } else if (act && act.kind === 'stretch') {
+      targetStretch = smoothstep(0.06, 0.28, actU) * (1 - smoothstep(0.74, 0.96, actU));
+    } else if (act && act.kind === 'groom') {
+      targetGroom = smoothstep(0.0, 0.14, actU) * (1 - smoothstep(0.86, 1.0, actU));
+      if (actU >= 0.12 && actU < 0.44) {
+        // 2 rhythmic paw licks
+        const lp = ((actU - 0.12) / 0.32) * 2;
+        const beat = Math.sin((lp % 1) * Math.PI);
+        targetGroomLick = beat;
+        groomHeadBob = beat * 0.45;
+        groomHeadTilt = act.side * 0.13;
+      } else if (actU >= 0.44 && actU < 0.84) {
+        // 2 sweeping face-wash wipes pressing the same-side ear softly down!
+        const wp = ((actU - 0.44) / 0.40) * 2;
+        const frac = wp % 1;
+        const earContact = Math.sin(smoothstep(0.18, 0.78, frac) * Math.PI);
+        if (act.side < 0) targetEarPressL = earContact;
+        else targetEarPressR = earContact;
+        groomHeadTilt = act.side * (-0.10 + Math.sin(frac * Math.PI) * 0.18);
+      } else if (actU >= 0.84 && !this.groomSparkleSpawned) {
+        this.groomSparkleSpawned = true;
+        const headPt = this.spinePoint(0.24, 0);
+        for (const k of [0, 1]) {
+          this.fxParticles.push({
+            kind: 'sparkle',
+            x: headPt.x + act.side * (34 + k * 14),
+            y: headPt.y - 10 + k * 16,
+            vx: act.side * (10 + k * 6),
+            vy: -18 - k * 8,
+            size: 10 - k * 2,
+            createdAt: now,
+            lifetime: 640,
+          });
+        }
+      }
+    } else if (act && act.kind === 'knead') {
+      targetKnead = smoothstep(0.0, 0.14, actU) * (1 - smoothstep(0.84, 1.0, actU));
+      this.kneadPhase += dt * 4.4;
+    }
+
+    const vigLerp = 1 - Math.exp(-12 * dt);
+    this.dozeLidClose += (targetDozeLid - this.dozeLidClose) * vigLerp;
+    this.dozeNod += (targetDozeNod - this.dozeNod) * (1 - Math.exp(-9 * dt));
+    this.yawnAmount += (targetYawn - this.yawnAmount) * vigLerp;
+    this.stretchAmount += (targetStretch - this.stretchAmount) * (1 - Math.exp(-8 * dt));
+    this.groomAmount += (targetGroom - this.groomAmount) * vigLerp;
+    this.groomLickAmount += (targetGroomLick - this.groomLickAmount) * (1 - Math.exp(-18 * dt));
+    this.groomEarPressLeft += (targetEarPressL - this.groomEarPressLeft) * (1 - Math.exp(-16 * dt));
+    this.groomEarPressRight += (targetEarPressR - this.groomEarPressRight) * (1 - Math.exp(-16 * dt));
+    this.kneadAmount += (targetKnead - this.kneadAmount) * (1 - Math.exp(-9 * dt));
+
     // 2) Staggered 240Hz spring posture (body & hunch follow a beat behind head & eyes!)
-    const targetHunch = isTypingRecently
-      ? 0.45 + this.typingEnergy * 0.55
-      : curiousClamped * 0.28;
-    this.typingHunch = Math.max(0, Math.min(1.2, this.hunchSpring.step(targetHunch, dt)));
-    this.squashSpring.step(this.sleepAmount * 0.35 - curiousClamped * 0.25, dt);
+    const peekCalm = 1 - peekClamped;
+    const targetHunch = scruffClamped > 0.1 || peekWanted
+      ? 0
+      : isTypingRecently
+        ? 0.45 + this.typingEnergy * 0.55
+        : curiousClamped * 0.28 + groomHeadBob * 0.52 + this.kneadAmount * 0.24;
+    this.typingHunch = Math.max(0, Math.min(1.2, this.hunchSpring.step(targetHunch * peekCalm, dt)));
+    this.squashSpring.step(
+      (this.sleepAmount * 0.35 -
+        curiousClamped * 0.25 -
+        this.yawnAmount * 0.30 -
+        this.stretchAmount * 0.38 -
+        scruffClamped * 0.28) *
+        peekCalm,
+      dt,
+    );
 
     const rockAcc = -this.strikeRock * 140 - this.strikeRockVel * 14;
     this.strikeRockVel += rockAcc * dt;
@@ -1958,33 +2982,36 @@ export class KuroCatEngine {
     this.bodyBob = Math.max(0, this.bodyBob - dt * 11.5);
     this.kbBounce = Math.max(0, this.kbBounce - dt * 15);
 
-    // Playful left-right body & head groove sway during pure typing
-    const pureTypingActive = isTypingRecently && this.leftPaw.mode !== 'mouse';
+    // Playful left-right body & head groove sway during pure typing (damped cleanly while peeking so head stays centered between paws!)
+    const pureTypingActive = !peekWanted && isTypingRecently && this.leftPaw.mode !== 'mouse';
     if (pureTypingActive) {
       this.typingGroovePhase += dt * (4.8 + this.typingEnergy * 5.2);
     }
     const grooveWave = Math.sin(this.typingGroovePhase) * (0.58 + this.typingEnergy * 0.44);
-    const targetTypingSway = pureTypingActive
-      ? Math.max(-1.1, Math.min(1.1, grooveWave * 0.72 + this.lastKeyBias * 0.55))
-      : this.leftPaw.mode === 'mouse' && isTypingRecently
-        ? Math.sin(this.typingGroovePhase) * 0.16
-        : 0;
-    const swayAcc = (targetTypingSway - this.typingSway) * 118 - this.typingSwayVel * 12.5;
+    const kneadSway = this.kneadAmount > 0.05 ? Math.sin(this.kneadPhase) * 0.22 * this.kneadAmount : 0;
+    const targetTypingSway = peekWanted
+      ? 0
+      : pureTypingActive
+        ? Math.max(-1.1, Math.min(1.1, grooveWave * 0.72 + this.lastKeyBias * 0.55))
+        : this.leftPaw.mode === 'mouse' && isTypingRecently
+          ? Math.sin(this.typingGroovePhase) * 0.16
+          : kneadSway;
+    const swayAcc = (targetTypingSway * peekCalm - this.typingSway) * 118 - this.typingSwayVel * 12.5;
     this.typingSwayVel += swayAcc * dt;
     this.typingSway = Math.max(-1.2, Math.min(1.2, this.typingSway + this.typingSwayVel * dt));
 
     // Measured spine-shear lean via 240Hz spring (1.9 Hz -> organic weighty follow-through!)
     let targetLean = 0;
-    if (this.leftPaw.mode === 'mouse') {
+    if (!peekWanted && this.leftPaw.mode === 'mouse') {
       const mouseSweepBias = (this.mouseOffsetX / 18) * 0.22;
       targetLean = this.rightPaw.mode === 'poke'
         ? -0.52 + mouseSweepBias
         : -0.96 + mouseSweepBias;
-    } else if (this.catTail.reach > 0.05) {
+    } else if (!peekWanted && this.catTail.reach > 0.05) {
       const tailDir = Math.max(-1, Math.min(1, (this.catTail.tipX - this.catCenterX) / (this.kbWidth * 0.5)));
       targetLean = tailDir * 0.14 * this.catTail.reach;
     }
-    this.spineLean = this.spineLeanSpring.step(targetLean, dt);
+    this.spineLean = this.spineLeanSpring.step(targetLean * peekCalm, dt);
 
     // Stable neutral eye reference (no feedback wobble when spine leans toward the mouse!)
     const eyeRefRelX = this.catCenterX / this.logicalW;
@@ -2004,31 +3031,51 @@ export class KuroCatEngine {
     // Continuous smooth head cock when curious (never snaps left/right across dx=0!)
     const curiousCock = curiousClamped * 0.16 * gx;
     const sleepTilt = this.sleepAmount * 0.08;
+    const chinSway = this.chinAmount > 0.05 ? Math.sin(this.elapsed * 3.4) * 0.10 * this.chinAmount : 0;
+    const scruffTilt = -scruffClamped * this.scruffSwing * 0.16;
     const desiredHeadTilt =
       this.typingSway * 0.18 +
       this.typingHunch * (this.strikeRock * 0.065 - 0.02) +
       this.spineLean * 0.085 +
       fidgetTilt +
       curiousCock +
-      sleepTilt;
-    this.headTilt = this.headTiltSpring.step(desiredHeadTilt, dt) + wakeShake;
+      sleepTilt +
+      dozeTilt +
+      groomHeadTilt +
+      chinSway +
+      scruffTilt;
+    this.headTilt = this.headTiltSpring.step(desiredHeadTilt, dt) + wakeShake + this.boopShake;
 
     this.petEnergy = Math.max(0, this.petEnergy - dt * (this.cursorOverCat ? 0.22 : 1.15));
     this.lastDt = dt;
-    const wantSquint = this.petEnergy > 0.3 && !this.isCross ? 1 : 0;
+    const wantSquint = (this.petEnergy > 0.3 || this.chinAmount > 0.25 || this.kneadAmount > 0.3) && !this.isCross && !scruffWanted ? 1 : 0;
     this.squintAmount += (wantSquint - this.squintAmount) * (1 - Math.exp(-12 * dt));
     const wantPrivacy = this.privacyMode ? 1 : 0;
     this.privacyClose += (wantPrivacy - this.privacyClose) * (1 - Math.exp(-14 * dt));
-    catAudio.setPurrIntensity(
-      this.catBreed !== 'dafeiyu' && !this.privacyMode && this.squintAmount > 0.25 ? this.squintAmount : 0,
-    );
+    if (this.catBreed !== 'dafeiyu' && !this.privacyMode && !scruffWanted) {
+      if (this.chinAmount > 0.25) {
+        catAudio.setPurrIntensity(this.chinAmount, 'chin');
+      } else if (this.petEnergy > 0.3 && this.squintAmount > 0.25) {
+        catAudio.setPurrIntensity(this.squintAmount, 'normal');
+      } else if (this.kneadAmount > 0.25) {
+        catAudio.setPurrIntensity(this.kneadAmount * 0.72, 'knead');
+      } else {
+        catAudio.setPurrIntensity(0);
+      }
+    } else {
+      catAudio.setPurrIntensity(0);
+    }
 
-    // Dynamic ear spring (5.2Hz, damping 0.36): perks up when curious/excited, flattens into airplane ears when cross!
+    // Dynamic ear spring (5.2Hz, damping 0.36): perks up when curious/excited, flattens into airplane ears when cross, droops gently when scruffed or yawning!
     const earTarget = isCatMode
       ? 0.12 * this.typingEnergy * (1 - this.crossAmount) +
-        0.16 * curiousClamped -
+        0.16 * curiousClamped +
+        0.14 * peekClamped * (0.4 + 0.6 * this.peekHover) -
         0.18 * this.squintAmount -
         0.58 * this.crossAmount -
+        0.22 * scruffClamped -
+        0.26 * this.yawnAmount -
+        0.22 * this.stretchAmount -
         0.12 * this.sleepAmount
       : 0;
     this.earPerkSpring.step(earTarget, dt);
@@ -2145,22 +3192,10 @@ export class KuroCatEngine {
       }
     }
 
-    // Keep active animations smooth. Sleep particles continue drawing at the idle rate.
-    if (
-      isCatMode &&
-      (curiousNow ||
-        this.crossAmount > 0.03 ||
-        this.idleAct !== null ||
-        this.fxParticles.some((fx) => fx.kind !== 'z') ||
-        (this.sleepAmount > 0.02 && this.sleepAmount < 0.98) ||
-        (wakeElapsed >= 0 && wakeElapsed < 0.65) ||
-        Math.abs(this.deskHopY) > 0.15 ||
-        Math.abs(this.eyeXSpring.v) > 0.02 ||
-        Math.abs(this.eyeYSpring.v) > 0.02 ||
-        Math.abs(this.faceTurnSpring.v) > 0.05)
-    ) {
-      this.lastActivityAt = Math.max(this.lastActivityAt, now);
-    }
+    // Note: active emotional/physics transitions (curious, cross, scruff, boop, chin, tail poke,
+    // edge-peek slide, sleep transition, wake shake, desk hop, non-Z FX) and ambient gaze/fidgets
+    // are evaluated directly by computePacingTier() so they never tack an extra 2.2s of 60 FPS
+    // tail-off onto finished transitions, settled edge-peek, or sleep entry.
 
     this.earTwitchLeft = Math.max(0, this.earTwitchLeft - dt * 8);
     this.earTwitchRight = Math.max(0, this.earTwitchRight - dt * 8);
@@ -2196,6 +3231,16 @@ export class KuroCatEngine {
       targetGazeX = targetGazeX * (1 - actEnv) + act.side * 0.85 * actEnv;
       targetGazeY = targetGazeY * (1 - actEnv) - 0.22 * actEnv;
     }
+    if (act && act.kind === 'doze' && actU >= 0.54) {
+      const post = (actU - 0.54) / 0.46;
+      const glance = Math.sin(Math.min(1, post / 0.65) * Math.PI * 2) * 0.72;
+      targetGazeX = glance;
+      targetGazeY = -0.14;
+    }
+    if (this.tailGlanceAmount > 0.05) {
+      targetGazeX = targetGazeX * (1 - this.tailGlanceAmount * 0.85) + 0.92 * this.tailGlanceAmount * 0.85;
+      targetGazeY = targetGazeY * (1 - this.tailGlanceAmount * 0.6) + 0.35 * this.tailGlanceAmount * 0.6;
+    }
     if (this.crossAmount > 0.05) {
       // Stable huffy side-glance (locked direction -> zero sudden left/right snap when cursor crosses center!)
       const huffX = this.crossHuffDir * 0.72 * this.crossAmount;
@@ -2206,10 +3251,12 @@ export class KuroCatEngine {
 
     const huffFace = this.crossAmount * this.crossHuffDir * 7.5;
     const lookFace = act && act.kind === 'look' ? act.side * 5.5 * actEnv : 0;
+    const tailGlanceFace = this.tailGlanceAmount * 7.0;
     const targetFaceTurn =
-      gx * (5.2 + curiousClamped * 3.8) * (1 - this.crossAmount * 0.75) +
+      gx * (5.2 + curiousClamped * 3.8) * (1 - this.crossAmount * 0.75) * (1 - this.tailGlanceAmount * 0.7) +
       huffFace +
       lookFace +
+      tailGlanceFace +
       this.spineLean * 8.0 +
       this.typingSway * 8.5 +
       pureTypingGlance * 1.5;
@@ -2254,24 +3301,101 @@ export class KuroCatEngine {
     const liveMouseX = this.mouseBaseX + this.mouseOffsetX;
     const liveMouseY = this.mouseBaseY + this.mouseOffsetY;
     const heldKey = this.latestHeldKeyFor(paw.side);
+    const sideSign = paw.side === 'left' ? -1 : 1;
+    const act = this.idleAct;
+    const actU = act ? Math.max(0, Math.min(1, (now - act.t0) / act.dur)) : 0;
 
-    if (paw.mode === 'mouse') {
-      const isCatFacing = this.keyboardOrientation === 'cat';
-      const lrBias = this.mouseLeftPress - this.mouseRightPress;
-      const anyClickPress = Math.max(this.mouseLeftPress, this.mouseRightPress, this.mouseMiddlePress);
-      if (isCatFacing) {
-        // 180° cat-facing: palm heel at TOP, LMB = inner/+X, RMB = outer/-X
+    // Special posture overrides: scruffed dangle > edge-peek grip > groom face-wash > keyboard stretch > biscuit knead
+    if (this.scruffAmount > 0.14 && !this.privacyMode) {
+      paw.mode = 'scruff';
+      const chestSp = this.spinePoint(0.72, 0);
+      const clampedSwing = Math.max(-1.6, Math.min(1.6, this.scruffSwing));
+      const dangleSway = clampedSwing * 7.5 + Math.sin(this.elapsed * 5.2 + sideSign * 0.7) * 2.5;
+      paw.target = {
+        x: chestSp.x + sideSign * 22 + dangleSway,
+        y: chestSp.y + 8 + Math.abs(clampedSwing) * 2.0,
+      };
+    } else if (this.peekAmount > 0.22) {
+      // Keep internal paw anchor parked cleanly at seated idle base so exiting side-peek never flashes a floating arm!
+      paw.mode = 'peek';
+      const baseSp = this.spinePoint(1.0, 0);
+      paw.target = { x: baseSp.x + sideSign * 19, y: baseSp.y };
+      paw.idleWeight = 1;
+    } else if (
+      act &&
+      act.kind === 'groom' &&
+      ((act.side < 0 && paw.side === 'left') || (act.side > 0 && paw.side === 'right')) &&
+      this.groomAmount > 0.08 &&
+      !heldKey
+    ) {
+      paw.mode = 'groom';
+      const headPt = this.spinePoint(0.24, 0);
+      const mouthX = headPt.x + this.faceTurnX * 0.55 + sideSign * 14;
+      const mouthY = headPt.y + 20;
+      if (actU < 0.44) {
+        // Phase 1: raise paw to mouth & bob gently while licking
+        const lickBeat = actU > 0.12 ? Math.sin((((actU - 0.12) / 0.32) * 2 % 1) * Math.PI) : 0;
         paw.target = {
-          x: liveMouseX + 1.2 + lrBias * 6.4,
-          y: liveMouseY - 11.5 + anyClickPress * 3.6,
+          x: mouthX,
+          y: mouthY - lickBeat * 5.5,
         };
       } else {
-        // 0° viewer-facing: palm heel at BOTTOM, LMB = left/-X, RMB = right/+X
-        paw.target = {
-          x: liveMouseX + 0.5 - lrBias * 6.4,
-          y: liveMouseY + 10.0 - anyClickPress * 3.4,
-        };
+        // Phase 2: lift high over ear & wipe smoothly down across cheek twice!
+        const wp = Math.min(1.999, ((actU - 0.44) / 0.40) * 2);
+        const frac = wp % 1;
+        if (frac < 0.35) {
+          const u = frac / 0.35;
+          paw.target = {
+            x: mouthX + sideSign * 26 * u,
+            y: mouthY - 52 * u,
+          };
+        } else {
+          const u = (frac - 0.35) / 0.65;
+          paw.target = {
+            x: headPt.x + sideSign * (42 - u * 16),
+            y: headPt.y - 34 + u * 50,
+          };
+        }
       }
+    } else if (this.stretchAmount > 0.10 && !heldKey && paw.mode !== 'mouse') {
+      paw.mode = 'stretch';
+      const kbTopY = this.kbCenterY - this.kbHeight * 0.28;
+      const reach = this.stretchAmount;
+      paw.target = {
+        x: this.catCenterX + sideSign * (24 + reach * 34),
+        y: this.catBaseY + reach * (kbTopY - this.catBaseY + 12),
+      };
+    } else if (this.kneadAmount > 0.10 && !heldKey && paw.mode !== 'mouse') {
+      paw.mode = 'knead';
+      const phase = this.kneadPhase + (paw.side === 'left' ? 0 : Math.PI);
+      const lift = Math.max(0, Math.sin(phase));
+      const press = Math.max(0, -Math.sin(phase));
+      const rimY = this.kbCenterY - this.kbHeight * 0.36;
+      paw.target = {
+        x: this.catCenterX + sideSign * 28,
+        y: rimY - lift * 13 + press * 3.5,
+      };
+      if (press > 0.72) {
+        paw.impactSquash = Math.max(paw.impactSquash, press * 0.55);
+      }
+    } else if (
+      paw.mode === 'scruff' ||
+      paw.mode === 'peek' ||
+      paw.mode === 'groom' ||
+      paw.mode === 'stretch' ||
+      paw.mode === 'knead'
+    ) {
+      paw.mode = heldKey ? 'poke' : 'idle';
+    }
+
+    if (paw.mode === 'mouse') {
+      const lrBias = this.mouseLeftPress - this.mouseRightPress;
+      const anyClickPress = Math.max(this.mouseLeftPress, this.mouseRightPress, this.mouseMiddlePress);
+      // Mouse always stays cat-facing (#92): palm heel at TOP, LMB = inner/+X, RMB = outer/-X
+      paw.target = {
+        x: liveMouseX + 1.2 + lrBias * 6.4,
+        y: liveMouseY - 11.5 + anyClickPress * 3.6,
+      };
       const stillHolding =
         this.mouseLeftDown ||
         this.mouseRightDown ||
@@ -2280,34 +3404,42 @@ export class KuroCatEngine {
       if (!stillHolding) {
         paw.mode = heldKey ? 'poke' : 'idle';
       }
-    } else if (heldKey) {
-      // Keep paw pressed down onto the held keycap until keyUp (Fixes #3)
-      paw.mode = 'poke';
-      paw.target = { x: heldKey.x, y: heldKey.y };
-      paw.pokeTime = Math.min(paw.pokeTime + dt, 0.10);
-      paw.lastActiveAt = now;
-    } else if (paw.mode === 'poke') {
-      paw.pokeTime += dt;
-      if (paw.pokeTime > 0.13) {
-        if (paw.side === 'left' && (this.mouseLeftDown || this.mouseRightDown || now - this.lastMouseMoveAt < 450)) {
-          paw.mode = 'mouse';
-        } else if (now - this.lastAnyKeyAt < 650 || this.heldKeys.size > 0) {
-          paw.mode = 'curled';
-        } else {
+    } else if (
+      paw.mode !== 'scruff' &&
+      paw.mode !== 'peek' &&
+      paw.mode !== 'groom' &&
+      paw.mode !== 'stretch' &&
+      paw.mode !== 'knead'
+    ) {
+      if (heldKey) {
+        // Keep paw pressed down onto the held keycap until keyUp (Fixes #3)
+        paw.mode = 'poke';
+        paw.target = { x: heldKey.x, y: heldKey.y };
+        paw.pokeTime = Math.min(paw.pokeTime + dt, 0.10);
+        paw.lastActiveAt = now;
+      } else if (paw.mode === 'poke') {
+        paw.pokeTime += dt;
+        if (paw.pokeTime > 0.13) {
+          if (paw.side === 'left' && (this.mouseLeftDown || this.mouseRightDown || now - this.lastMouseMoveAt < 450)) {
+            paw.mode = 'mouse';
+          } else if (now - this.lastAnyKeyAt < 650 || this.heldKeys.size > 0) {
+            paw.mode = 'curled';
+          } else {
+            paw.mode = 'idle';
+          }
+        }
+      } else if (paw.mode === 'curled') {
+        if (now - this.lastAnyKeyAt > 680 && this.heldKeys.size === 0) {
           paw.mode = 'idle';
         }
       }
-    } else if (paw.mode === 'curled') {
-      if (now - this.lastAnyKeyAt > 680 && this.heldKeys.size === 0) {
-        paw.mode = 'idle';
-      }
-    }
 
-    if (paw.mode === 'curled') {
-      paw.target = this.getLiveCurledPawPos(paw, 0);
-    } else if (paw.mode === 'idle') {
-      const baseSp = this.spinePoint(1.0, 0);
-      paw.target = { x: baseSp.x + (paw.side === 'left' ? -19 : 19), y: baseSp.y };
+      if (paw.mode === 'curled') {
+        paw.target = this.getLiveCurledPawPos(paw, 0);
+      } else if (paw.mode === 'idle') {
+        const baseSp = this.spinePoint(1.0, 0);
+        paw.target = { x: baseSp.x + (paw.side === 'left' ? -19 : 19), y: baseSp.y };
+      }
     }
 
     const wantIdle = paw.mode === 'idle' ? 1 : 0;
@@ -2317,7 +3449,14 @@ export class KuroCatEngine {
     paw.curlWeight += (wantCurl - paw.curlWeight) * blendRate;
 
     // Unconditionally stable, framerate-independent tracking (ZERO Euler spring overshoot at any FPS!)
-    const followRate = paw.mode === 'poke' ? 42 : paw.mode === 'mouse' ? 32 : 22;
+    const followRate =
+      paw.mode === 'poke'
+        ? 42
+        : paw.mode === 'mouse'
+          ? 32
+          : paw.mode === 'groom' || paw.mode === 'knead' || paw.mode === 'scruff'
+            ? 24
+            : 22;
     const follow = 1 - Math.exp(-followRate * dt);
     paw.pos.x += (paw.target.x - paw.pos.x) * follow;
     paw.pos.y += (paw.target.y - paw.pos.y) * follow;
@@ -2347,25 +3486,80 @@ export class KuroCatEngine {
     const ctx = this.ctx;
     const cw = this.canvas.width;
     const ch = this.canvas.height;
-    ctx.clearRect(0, 0, cw, ch);
+    if (this.chromaKeyBg) {
+      ctx.fillStyle = this.chromaKeyBg;
+      ctx.fillRect(0, 0, cw, ch);
+    } else {
+      ctx.clearRect(0, 0, cw, ch);
+    }
 
     ctx.save();
     const { offsetX, offsetY, uniformScale } = this.getViewportTransform();
     ctx.translate(offsetX, offsetY);
     ctx.scale(uniformScale, uniformScale);
 
-    const breathFreq = 2.1 - this.sleepAmount * 0.95;
-    const breath = Math.sin(this.elapsed * breathFreq) * (1.0 + this.sleepAmount * 0.65);
+    const breath = Math.sin(this.breathPhase) * (1.0 + this.sleepAmount * 0.65);
     const purrShift = this.squintAmount > 0.4 ? Math.sin(this.elapsed * 22) * 0.45 * this.squintAmount : 0;
 
     if (this.catBreed === 'dafeiyu') {
       const now = performance.now();
       const layout = this.buildDaFeiYuLayout();
-      this.dafeiyu.renderBody(ctx, now, layout);
-      this.drawMiniMouse(ctx);
-      this.drawKeyboard(ctx);
-      this.dafeiyu.renderForeground(ctx, this.lastDt, now, layout);
-      if (this.showKeyBubbles && !this.privacyMode) {
+      const peekP = Math.max(0, Math.min(1, this.peekAmount));
+
+      // Layer 1: BigFish sprite & Live2D eyes (rotated out cleanly from the screen border while peeking)
+      ctx.save();
+      if (peekP > 0.004) {
+        const { tx, ty, rot, pivotX, pivotY } = this.peekTransform;
+        ctx.translate(pivotX + tx, pivotY + ty);
+        ctx.rotate(rot);
+        ctx.translate(-pivotX, -pivotY);
+      }
+      this.dafeiyu.renderBody(ctx, now, layout, peekP);
+      ctx.restore();
+
+      // Layer 2: Mini mouse & mechanical keyboard (slide & fade cleanly away in Edge Peek Mode)
+      if (peekP < 0.78) {
+        ctx.save();
+        if (peekP > 0.01) {
+          ctx.globalAlpha = Math.max(0, 1 - peekP * 1.35);
+          ctx.translate(0, peekP * 54);
+        }
+        this.drawMiniMouse(ctx);
+        this.drawKeyboard(ctx);
+        ctx.restore();
+      }
+
+      // Layer 3: Keyboard arms & whale slap fade smoothly out as she hides on the screen edge
+      if (peekP < 0.35) {
+        ctx.save();
+        if (peekP > 0.004) {
+          const { tx, ty, rot, pivotX, pivotY } = this.peekTransform;
+          ctx.translate(pivotX + tx, pivotY + ty);
+          ctx.rotate(rot);
+          ctx.translate(-pivotX, -pivotY);
+        }
+        if (peekP > 0.01) {
+          ctx.globalAlpha = Math.max(0, 1 - peekP * 3.0);
+        }
+        this.dafeiyu.renderForeground(ctx, this.lastDt, now, layout);
+        ctx.restore();
+      }
+
+      // Layer 4: Screen-border-aligned chibi sailor hands wrapping flush around the vertical left/right edge
+      if (peekP > 0.22) {
+        const s = Math.max(0.001, uniformScale);
+        const leftEdge = -offsetX / s;
+        const rightEdge = (cw - offsetX) / s;
+        const topEdge = -offsetY / s;
+        const bottomEdge = (ch - offsetY) / s;
+        const midY = (topEdge + bottomEdge) * 0.5;
+        const isLeft = this.peekVisualEdge === 'left';
+        const edgeX = isLeft ? leftEdge : rightEdge;
+        this.dafeiyu.renderEdgePeekHands(ctx, edgeX, midY, isLeft, peekP, now);
+      }
+
+      // Layer 5: Keycap bubbles & mouse click badges (hidden while peeking)
+      if (this.showKeyBubbles && !this.privacyMode && peekP < 0.4) {
         this.drawKeyBubbles(ctx);
         this.drawMouseBadges(ctx);
       }
@@ -2373,25 +3567,54 @@ export class KuroCatEngine {
       return;
     }
 
-    // Layer 1: Mini mouse & mechanical keyboard (both hop organically on grumpy tail desk-slam!)
-    this.drawMiniMouse(ctx);
-    this.drawKeyboard(ctx);
+    // Layer 1: Mini mouse & mechanical keyboard (slide & fade cleanly away in Edge Peek Mode!)
+    const peekP = Math.max(0, Math.min(1, this.peekAmount));
+    if (peekP < 0.78) {
+      ctx.save();
+      if (peekP > 0.01) {
+        ctx.globalAlpha = Math.max(0, 1 - peekP * 1.35);
+        ctx.translate(0, peekP * 54);
+      }
+      this.drawMiniMouse(ctx);
+      this.drawKeyboard(ctx);
+      ctx.restore();
+    }
 
-    // Layer 2: Plush cat tail (above keyboard so near-tail key pats & angry desk-thumps land cleanly, yet tucked behind hip!)
-    this.drawTail(ctx);
+    // Apply Edge-Peek transform to cat + paws + FX so ONLY the cat head & gripping paws peek cleanly from the screen border!
+    ctx.save();
+    if (peekP > 0.004) {
+      const { tx, ty, rot, pivotX, pivotY } = this.peekTransform;
+      ctx.translate(pivotX + tx, pivotY + ty);
+      ctx.rotate(rot);
+      ctx.translate(-pivotX, -pivotY);
+    }
+
+    // Layer 2: Plush cat tail (tucks away cleanly when peeking from edge!)
+    if (peekP < 0.55) {
+      ctx.save();
+      if (peekP > 0.02) ctx.globalAlpha = Math.max(0, 1 - peekP * 1.9);
+      this.drawTail(ctx);
+      ctx.restore();
+    }
 
     // Layer 3: Exact measured spine-deformable cat silhouette (ears, cheeks, neck, pear belly, grounded hind feet, eyes & tiny whiskers)
     this.drawCatBody(ctx, breath, purrShift);
 
-    // Layer 4: True-scale velvety cat paws (tapered idle legs / planted diagonal mouse support leg / bent curled chest paw / plump round poking paw!)
+    // Layer 4: True-scale velvety cat paws (tapered idle legs / edge-gripping peek paws / poking / grooming!)
     this.drawPaw(ctx, this.leftPaw, breath);
     this.drawPaw(ctx, this.rightPaw, breath);
 
-    // Layer 4.5: Alive cat comic FX (anger 💢 mark, tail-slam starburst & dust puffs, sleepy Zzz bubbles)
+    // Layer 4.5: Alive cat comic FX (anger 💢 mark, tail-slam starburst & dust puffs, sleepy Zzz, chin hearts, groom sparkles)
     this.drawCatAliveFx(ctx, performance.now(), breath);
+    ctx.restore();
 
-    // Layer 5: Organic bouncing 3D keycap bubbles & crisp mouse click badges
-    if (this.showKeyBubbles && !this.privacyMode) {
+    // Layer 4.8: Screen-edge-aligned 2D gripping paws hugging flush around the vertical left/right screen border!
+    if (peekP > 0.22) {
+      this.drawScreenEdgePeekPaws(ctx, peekP);
+    }
+
+    // Layer 5: Organic bouncing 3D keycap bubbles & crisp mouse click badges (hidden while peeking)
+    if (this.showKeyBubbles && !this.privacyMode && peekP < 0.4) {
       this.drawKeyBubbles(ctx);
       this.drawMouseBadges(ctx);
     }
@@ -2467,7 +3690,7 @@ export class KuroCatEngine {
       ctx.restore();
     }
 
-    // 2) Impact starburst ('bang'), dust puffs ('dust'), and sleepy 'Z' bubbles ('z')
+    // 2) Impact starburst ('bang'), dust puffs ('dust'), sleepy 'Z' ('z'), chin hearts ('heart'), groom sparkles ('sparkle'), sneeze puffs ('sneeze')
     for (const fx of this.fxParticles) {
       const age = now - fx.createdAt;
       const u = Math.max(0, Math.min(1, age / fx.lifetime));
@@ -2516,6 +3739,58 @@ export class KuroCatEngine {
         ctx.strokeText('Z', 0, 0);
         ctx.fillStyle = '#fbfaf3';
         ctx.fillText('Z', 0, 0);
+      } else if (fx.kind === 'heart') {
+        const swayX = Math.sin(age * 0.0055) * 5.0;
+        const pop = Math.min(1, u / 0.18);
+        const sc = (0.65 + 0.45 * pop) * (1 - u * 0.15);
+        const alpha = pop * Math.max(0, Math.min(1, (1 - u) / 0.30));
+        ctx.globalAlpha = alpha;
+        ctx.translate(fx.x + swayX, fx.y);
+        ctx.scale(sc, sc);
+        const r = fx.size * 0.55;
+        ctx.beginPath();
+        ctx.moveTo(0, r * 0.9);
+        ctx.bezierCurveTo(-r * 1.45, -r * 0.1, -r * 1.1, -r * 1.35, 0, -r * 0.45);
+        ctx.bezierCurveTo(r * 1.1, -r * 1.35, r * 1.45, -r * 0.1, 0, r * 0.9);
+        ctx.closePath();
+        ctx.fillStyle = '#ffcb52';
+        ctx.strokeStyle = '#241f1c';
+        ctx.lineWidth = 1.9;
+        ctx.lineJoin = 'round';
+        ctx.fill();
+        ctx.stroke();
+      } else if (fx.kind === 'sparkle') {
+        const pop = Math.sin(u * Math.PI);
+        const s = fx.size * (0.4 + 0.75 * pop);
+        ctx.globalAlpha = Math.max(0, pop);
+        ctx.translate(fx.x, fx.y);
+        ctx.rotate(u * 0.75);
+        ctx.beginPath();
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * Math.PI * 2;
+          const rad = i % 2 === 0 ? s : s * 0.28;
+          if (i === 0) ctx.moveTo(Math.cos(a) * rad, Math.sin(a) * rad);
+          else ctx.lineTo(Math.cos(a) * rad, Math.sin(a) * rad);
+        }
+        ctx.closePath();
+        ctx.fillStyle = '#fff5b8';
+        ctx.strokeStyle = '#332e22';
+        ctx.lineWidth = 1.35;
+        ctx.fill();
+        ctx.stroke();
+      } else if (fx.kind === 'sneeze') {
+        const sc = 0.55 + u * 0.8;
+        ctx.globalAlpha = Math.max(0, (1 - u) * 0.92);
+        ctx.translate(fx.x, fx.y);
+        ctx.scale(sc, sc);
+        ctx.strokeStyle = '#fbfaf3';
+        ctx.lineWidth = 3.2;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.arc(0, 0, fx.size * 0.55, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = '#e7f5ff';
+        ctx.fill();
       }
       ctx.restore();
     }
@@ -2536,7 +3811,7 @@ export class KuroCatEngine {
         ? Math.sin(this.elapsed * 14.5) * 4.2 * Math.min(1, this.curiousAmount)
         : 0;
     const swayAmp = (1.4 + this.typingEnergy * 2.2) * (1 - this.sleepAmount * 0.85);
-    const gentleDrift = Math.sin(this.elapsed * (0.9 + this.typingEnergy * 1.4)) * swayAmp;
+    const gentleDrift = Math.sin(this.tailDriftPhase) * swayAmp;
     const hipRight = this.spinePoint(0.84, 0);
 
     const startX = hipRight.x + 56;
@@ -2563,6 +3838,41 @@ export class KuroCatEngine {
       restCp2Y += (slCp2Y - restCp2Y) * sl;
       restEndX += (slEndX - restEndX) * sl;
       restEndY += (slEndY - restEndY) * sl;
+    }
+
+    // Happy high question-mark tail during big stretch!
+    if (this.stretchAmount > 0.01) {
+      const st = this.stretchAmount;
+      const quiver = Math.sin(this.elapsed * 20) * 3.2 * st;
+      restCp1X += (startX + 24 - restCp1X) * st;
+      restCp1Y += (startY - 26 - restCp1Y) * st;
+      restCp2X += (startX + 44 - restCp2X) * st;
+      restCp2Y += (startY - 76 - restCp2Y) * st;
+      restEndX += (startX + 26 + quiver - restEndX) * st;
+      restEndY += (startY - 82 - restEndY) * st;
+    }
+
+    // Scruffed dangle: limp lower tail swaying with drag inertia!
+    if (this.scruffAmount > 0.01) {
+      const sc = Math.min(1, this.scruffAmount);
+      const sw = this.scruffSwing * 36;
+      restCp1X += (startX + 22 + sw * 0.4 - restCp1X) * sc;
+      restCp1Y += (startY + 20 - restCp1Y) * sc;
+      restCp2X += (startX + 28 + sw * 0.8 - restCp2X) * sc;
+      restCp2Y += (startY + 42 - restCp2Y) * sc;
+      restEndX += (startX + 18 + sw - restEndX) * sc;
+      restEndY += (startY + 52 - restEndY) * sc;
+    }
+
+    // Tail poke recoil: snaps tightly curled inward toward the hip!
+    if (this.tailRecoil > 0.01) {
+      const tr = Math.min(1, this.tailRecoil);
+      restCp1X += (startX + 14 - restCp1X) * tr;
+      restCp1Y += (startY + 12 - restCp1Y) * tr;
+      restCp2X += (startX + 18 - restCp2X) * tr;
+      restCp2Y += (startY + 22 - restCp2Y) * tr;
+      restEndX += (startX - 4 - restEndX) * tr;
+      restEndY += (startY + 18 - restEndY) * tr;
     }
 
     // Grumpy 3-beat desk-thump pose when cross (lifts up smoothly, slams down onto desk!)
@@ -2617,6 +3927,16 @@ export class KuroCatEngine {
     const tipAngle = Math.atan2(endY - cp2Y, endX - cp2X);
     const tipSquash = this.catTail.impactSquash * smoothR;
 
+    // Cache live sampled points along the visible tail for pixel-exact tail-poke hit testing!
+    this.liveTailCurvePts = [];
+    for (const u of [0.22, 0.36, 0.50, 0.64, 0.78, 0.90, 1.0]) {
+      const m = 1 - u;
+      this.liveTailCurvePts.push({
+        x: m * m * m * startX + 3 * m * m * u * cp1X + 3 * m * u * u * cp2X + u * u * u * endX,
+        y: m * m * m * startY + 3 * m * m * u * cp1Y + 3 * m * u * u * cp2Y + u * u * u * endY,
+      });
+    }
+
     ctx.save();
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -2645,9 +3965,11 @@ export class KuroCatEngine {
       const s = this.customSkin;
       const tailW = s.tailFluffy ? 20.0 : 16.0;
       if (s.outlineColor) {
-        ctx.shadowColor = 'rgba(30, 32, 40, 0.22)';
-        ctx.shadowBlur = 0; /* perf: no per-frame blur */
-        ctx.shadowOffsetY = 1.5;
+        if (!this.chromaKeyBg) {
+          ctx.shadowColor = 'rgba(30, 32, 40, 0.22)';
+          ctx.shadowBlur = 0; /* perf: no per-frame blur */
+          ctx.shadowOffsetY = 1.5;
+        }
         ctx.strokeStyle = s.outlineColor;
         ctx.lineWidth = tailW + 3.4;
         ctx.beginPath();
@@ -2656,7 +3978,7 @@ export class KuroCatEngine {
         ctx.stroke();
         ctx.shadowBlur =0; /* perf: no per-frame blur */
         ctx.shadowOffsetY = 0;
-      } else {
+      } else if (!this.chromaKeyBg) {
         ctx.shadowColor = 'rgba(18, 17, 18, 0.42)';
         ctx.shadowBlur = 0; /* perf: no per-frame blur */
       }
@@ -2741,9 +4063,11 @@ export class KuroCatEngine {
 
     if (this.catBreed === 'ragdoll') {
       // Plush bushy warm cocoa-taupe Ragdoll plume tail matching the real cat photo!
-      ctx.shadowColor = 'rgba(48, 38, 30, 0.22)';
-      ctx.shadowBlur = 0; /* perf: no per-frame blur */
-      ctx.shadowOffsetY = 1.5;
+      if (!this.chromaKeyBg) {
+        ctx.shadowColor = 'rgba(48, 38, 30, 0.22)';
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
+        ctx.shadowOffsetY = 1.5;
+      }
       ctx.strokeStyle = '#4e4239';
       ctx.lineWidth = 23.5;
       ctx.beginPath();
@@ -2786,8 +4110,6 @@ export class KuroCatEngine {
       ctx.bezierCurveTo(cp1X - 2, cp1Y - 4, cp2X - 3, cp2Y - 4, endX - 3, endY - 4);
       ctx.stroke();
     } else {
-      ctx.shadowColor = 'rgba(18, 17, 18, 0.45)';
-      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.strokeStyle = '#141314';
       ctx.lineWidth = 16.0;
       ctx.beginPath();
@@ -2826,7 +4148,8 @@ export class KuroCatEngine {
     // Evaluate measured left & right silhouette points deformed by flexible cat spine + unified head tilt!
     const leftPts: Vec2[] = [];
     const rightPts: Vec2[] = [];
-    const bellySwell = 1 + this.typingHunch * 0.04 + this.sleepAmount * 0.085;
+    const scruffSlim = Math.min(1, this.scruffAmount) * 0.14;
+    const bellySwell = 1 + this.typingHunch * 0.04 + this.sleepAmount * 0.085 - scruffSlim;
     const headCenter = this.spinePoint(0.24, breath);
     const hcx = headCenter.x + purrShift;
     const hcy = headCenter.y;
@@ -2866,25 +4189,27 @@ export class KuroCatEngine {
     const basePt = this.spinePoint(1.0, breath);
 
     ctx.save();
-    if (isRagdoll) {
+    if (isRagdoll && !this.chromaKeyBg) {
       ctx.shadowColor = 'rgba(26, 30, 40, 0.24)';
       ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.shadowOffsetY = 2;
-    } else {
-      ctx.shadowColor = 'rgba(18, 17, 18, 0.42)';
-      ctx.shadowBlur = 0; /* perf: no per-frame blur */
     }
 
-    // 1) Cute rounded grounded hind paws always rendered in seated posture (no idle disappear/blink; Fixes #1)
+    // 1) Cute rounded grounded hind paws always rendered in seated posture (dangle softly when scruffed!)
     ctx.fillStyle = isRagdoll ? '#f7f5f0' : catBlack;
     ctx.strokeStyle = inkOutline;
     ctx.lineWidth = 1.9;
+    const scruffFootDrop = Math.min(1, this.scruffAmount) * 12.0;
+    const scruffFootSway = Math.min(1, this.scruffAmount) * this.scruffSwing * 14;
+    const scruffFootRot = Math.min(1, this.scruffAmount) * this.scruffSwing * 0.24;
+    const scruffFootScaleX = 1 - Math.min(1, this.scruffAmount) * 0.14;
+    const scruffFootScaleY = 1 + Math.min(1, this.scruffAmount) * 0.24;
     for (const [fx, fy, rx, ry] of [
-      [basePt.x - 42, basePt.y - 3, 14.5, 11.5],
-      [basePt.x + 32, basePt.y - 1, 15.0, 11.5],
+      [basePt.x - 42 + scruffFootSway, basePt.y - 3 + scruffFootDrop, 14.5 * scruffFootScaleX, 11.5 * scruffFootScaleY],
+      [basePt.x + 32 + scruffFootSway, basePt.y - 1 + scruffFootDrop, 15.0 * scruffFootScaleX, 11.5 * scruffFootScaleY],
     ]) {
       ctx.beginPath();
-      ctx.ellipse(fx, fy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(fx, fy, rx, ry, scruffFootRot, 0, Math.PI * 2);
       ctx.fill();
       if (isRagdoll) {
         ctx.save();
@@ -3052,8 +4377,8 @@ export class KuroCatEngine {
     const earActU = earAct && earAct.kind === 'ear' ? Math.max(0, Math.min(1, (nowEar - earAct.t0) / earAct.dur)) : 0;
     const lFlick = earAct && earAct.kind === 'ear' && earAct.side === -1 ? Math.sin(earActU * Math.PI * 3) * 0.24 * (1 - earActU) : 0;
     const rFlick = earAct && earAct.kind === 'ear' && earAct.side === 1 ? Math.sin(earActU * Math.PI * 3) * 0.24 * (1 - earActU) : 0;
-    const lTwitch = Math.sin(this.earTwitchLeft * Math.PI) * 0.12 + lFlick;
-    const rTwitch = Math.sin(this.earTwitchRight * Math.PI) * 0.12 + rFlick;
+    const lTwitch = Math.sin(this.earTwitchLeft * Math.PI) * 0.12 + lFlick + this.groomEarPressLeft * 0.44;
+    const rTwitch = Math.sin(this.earTwitchRight * Math.PI) * 0.12 + rFlick + this.groomEarPressRight * 0.44;
     const earPerk = this.earPerkSpring.x; // +0.16 curious/perky, -0.58 airplane ears!
     const airplaneDrop = Math.max(0, -earPerk) * 11;
     const airplaneSpread = Math.max(0, -earPerk) * 6;
@@ -3131,36 +4456,51 @@ export class KuroCatEngine {
 
     const wShift = this.faceTurnX * 0.72;
 
-    // 4) Ragdoll rosy petting blush + adorable tiny pink nose & gentle kitten smile!
+    // 4) Ragdoll rosy petting/chin blush + adorable tiny pink nose & gentle kitten smile (morphs smoothly for yawn & groom lick!)
+    const blushBoost = Math.max(this.squintAmount, this.chinAmount * 1.15, this.kneadAmount * 0.85);
     if (isRagdoll) {
-      if (this.squintAmount > 0.12) {
-        ctx.fillStyle = `rgba(244, 146, 166, ${(0.42 * this.squintAmount).toFixed(3)})`;
+      if (blushBoost > 0.12) {
+        ctx.fillStyle = `rgba(244, 146, 166, ${(0.44 * Math.min(1.15, blushBoost)).toFixed(3)})`;
         ctx.beginPath();
         ctx.ellipse(wShift - 30, 13, 8.5, 4.6, -0.08, 0, Math.PI * 2);
         ctx.ellipse(wShift + 30, 13, 8.5, 4.6, 0.08, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // Cute rosy-pink Ragdoll nose centered neatly inside the snow-white inverted-V blaze
+      // Cute rosy-pink Ragdoll nose centered neatly inside the snow-white inverted-V blaze (scrunches up gently on Boop & Yawn!)
+      const noseWiggleY = -1.4 * this.boopCrossEye - 1.3 * this.yawnAmount;
       ctx.fillStyle = '#ee8e9e';
       ctx.beginPath();
-      ctx.moveTo(wShift - 4.1, 9.6);
-      ctx.quadraticCurveTo(wShift, 8.5, wShift + 4.1, 9.6);
-      ctx.quadraticCurveTo(wShift + 3.2, 13.8, wShift, 14.3);
-      ctx.quadraticCurveTo(wShift - 3.2, 13.8, wShift - 4.1, 9.6);
+      ctx.moveTo(wShift - 4.1, 9.6 + noseWiggleY);
+      ctx.quadraticCurveTo(wShift, 8.5 + noseWiggleY, wShift + 4.1, 9.6 + noseWiggleY);
+      ctx.quadraticCurveTo(wShift + 3.2, 13.8 + noseWiggleY, wShift, 14.3 + noseWiggleY);
+      ctx.quadraticCurveTo(wShift - 3.2, 13.8 + noseWiggleY, wShift - 4.1, 9.6 + noseWiggleY);
       ctx.closePath();
       ctx.fill();
 
-      // Delicate cute kitten "w" mouth
-      ctx.strokeStyle = 'rgba(72, 77, 92, 0.80)';
-      ctx.lineWidth = 1.35;
-      ctx.lineCap = 'round';
+      // Delicate cute kitten "w" mouth (hides smoothly while big yawn mouth is open)
+      if (this.yawnAmount < 0.25) {
+        ctx.save();
+        ctx.globalAlpha = 1 - this.yawnAmount / 0.25;
+        ctx.strokeStyle = 'rgba(72, 77, 92, 0.80)';
+        ctx.lineWidth = 1.35;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(wShift - 5.8, 16.6);
+        ctx.quadraticCurveTo(wShift - 2.9, 19.6, wShift, 16.4);
+        ctx.quadraticCurveTo(wShift + 2.9, 19.6, wShift + 5.8, 16.6);
+        ctx.stroke();
+        ctx.restore();
+      }
+    } else if (this.chinAmount > 0.2) {
+      // Subtle cozy warm cheek glow on Black Cat during blissful chin scratch!
+      ctx.fillStyle = `rgba(255, 168, 186, ${(0.24 * this.chinAmount).toFixed(3)})`;
       ctx.beginPath();
-      ctx.moveTo(wShift - 5.8, 16.6);
-      ctx.quadraticCurveTo(wShift - 2.9, 19.6, wShift, 16.4);
-      ctx.quadraticCurveTo(wShift + 2.9, 19.6, wShift + 5.8, 16.6);
-      ctx.stroke();
+      ctx.ellipse(wShift - 30, 14, 7.5, 4.0, -0.08, 0, Math.PI * 2);
+      ctx.ellipse(wShift + 30, 14, 7.5, 4.0, 0.08, 0, Math.PI * 2);
+      ctx.fill();
     }
+    this.drawYawnOrLickMouth(ctx, wShift, isRagdoll ? '#473c34' : '#3a232b');
 
     // 5) Delicate wispy cheek whiskers adapting to 2.5D head turn
     ctx.strokeStyle = isRagdoll ? 'rgba(98, 86, 76, 0.52)' : 'rgba(205, 208, 214, 0.54)';
@@ -3380,6 +4720,61 @@ export class KuroCatEngine {
     ctx.restore();
   }
 
+  /** Expressive kitten "ω"-lipped yawn anchored strictly BELOW the nose with nestled pink tongue, or tiny groom lick tongue! */
+  private drawYawnOrLickMouth(ctx: CanvasRenderingContext2D, cx: number, rimColor: string): void {
+    if (this.yawnAmount > 0.04) {
+      const y = Math.min(1, this.yawnAmount);
+      const topY = 17.2; // Strictly below nose bottom (y <= 14.3), drops downward as jaw opens!
+      const w = 4.2 + y * 5.2;
+      const h = 2.0 + y * 11.4;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(cx, topY + 1.4);
+      ctx.quadraticCurveTo(cx + w * 0.52, topY - 1.1, cx + w, topY + 2.0);
+      ctx.bezierCurveTo(cx + w * 1.12, topY + h * 0.58, cx + w * 0.72, topY + h, cx, topY + h);
+      ctx.bezierCurveTo(cx - w * 0.72, topY + h, cx - w * 1.12, topY + h * 0.58, cx - w, topY + 2.0);
+      ctx.quadraticCurveTo(cx - w * 0.52, topY - 1.1, cx, topY + 1.4);
+      ctx.closePath();
+      ctx.fillStyle = '#6d2c3e';
+      ctx.fill();
+
+      // Cute curved pastel-pink tongue nestled snugly inside lower jaw
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle = '#ff9bb3';
+      ctx.beginPath();
+      ctx.ellipse(cx, topY + h * 0.88, w * 0.78, h * 0.44, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(180, 62, 92, 0.35)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(cx, topY + h * 0.58);
+      ctx.lineTo(cx, topY + h * 0.96);
+      ctx.stroke();
+      ctx.restore();
+
+      ctx.strokeStyle = rimColor;
+      ctx.lineWidth = 1.3;
+      ctx.lineJoin = 'round';
+      ctx.stroke();
+      ctx.restore();
+      return;
+    }
+
+    if (this.groomLickAmount > 0.08) {
+      const l = Math.min(1, this.groomLickAmount);
+      ctx.save();
+      ctx.fillStyle = '#ff9bb3';
+      ctx.strokeStyle = '#6c2a3a';
+      ctx.lineWidth = 1.05;
+      ctx.beginPath();
+      ctx.ellipse(cx, 19.4 + l * 2.6, 3.6 * l + 1.1, 4.2 * l + 1.0, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
   private drawEyes(ctx: CanvasRenderingContext2D, cx: number, eyeY: number): void {
     const isRagdoll = this.catBreed === 'ragdoll';
     const nowEye = performance.now();
@@ -3388,14 +4783,27 @@ export class KuroCatEngine {
         ? 0.92 * Math.sin(Math.max(0, Math.min(1, (nowEye - this.idleAct.t0) / this.idleAct.dur)) * Math.PI)
         : 0;
     const blinkVal = Math.max(this.isBlinking ? 1 - Math.abs(this.blinkProgress - 1) : 0, slowBlinkVal);
-    const closedness = Math.max(blinkVal, this.squintAmount * 0.85, this.privacyClose, this.sleepAmount);
+    const yawnClose = Math.min(1, this.yawnAmount * 1.45);
+    const stretchClose = Math.min(1, this.stretchAmount * 1.25);
+    const groomClose = Math.min(0.85, this.groomAmount * 0.95);
+    const closedness = Math.max(
+      blinkVal,
+      this.squintAmount * 0.85,
+      this.privacyClose,
+      this.sleepAmount,
+      this.dozeLidClose,
+      yawnClose,
+      stretchClose,
+      groomClose,
+    );
     const curious = Math.min(1, this.curiousAmount);
+    const scruff = Math.min(1, this.scruffAmount);
     const cross = this.crossAmount;
 
     // Exact measured eye spacing & size from original 0.3s & 10.6s!
     const eyeXs = [cx - 23.0, cx + 23.0];
-    const rx = (14.8 + this.typingHunch * 1.0) * (1 + curious * 0.06);
-    const ry = (13.4 - this.typingHunch * 0.5) * (1 + curious * 0.09);
+    const rx = (14.8 + this.typingHunch * 1.0) * (1 + curious * 0.06 + scruff * 0.09);
+    const ry = (13.4 - this.typingHunch * 0.5) * (1 + curious * 0.09 + scruff * 0.13);
 
     for (let idx = 0; idx < 2; idx++) {
       const ex = eyeXs[idx];
@@ -3414,7 +4822,33 @@ export class KuroCatEngine {
         continue;
       }
 
-      if (this.squintAmount > 0.38 && blinkVal < 0.3) {
+      // Cozy squeezed-shut happy arcs during big yawn or satisfying stretch!
+      if (yawnClose > 0.48 || stretchClose > 0.52) {
+        ctx.strokeStyle = isRagdoll ? '#212533' : '#d4f044';
+        ctx.lineWidth = 3.0;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-12.5, 2.0);
+        ctx.quadraticCurveTo(0, -5.2, 12.5, 2.0);
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+
+      // Extra blissful upturned happy smile arcs when getting chin scratches!
+      if (this.chinAmount > 0.36 && blinkVal < 0.3) {
+        ctx.strokeStyle = isRagdoll ? '#212533' : '#d4f044';
+        ctx.lineWidth = 2.9;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-13.0, 2.6);
+        ctx.quadraticCurveTo(0, -4.4, 13.0, 2.6);
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+
+      if ((this.squintAmount > 0.38 || groomClose > 0.48) && blinkVal < 0.3) {
         if (isRagdoll) {
           // Sleek lazy drooping slits with a subtle crystal-blue underside shimmer!
           ctx.strokeStyle = 'rgba(174, 224, 255, 0.72)';
@@ -3446,12 +4880,14 @@ export class KuroCatEngine {
       }
 
       const openRy = Math.max(1.2, ry * (1 - closedness));
-      const curiousTilt = (idx === 0 ? -0.1 : 0.1) * (0.25 + this.typingHunch * 0.75);
+      const curiousTilt = (idx === 0 ? -0.1 : 0.1) * (0.25 + this.typingHunch * 0.75) * (1 - scruff * 0.8);
       ctx.rotate(curiousTilt);
 
-      const hasGrumpyLid = cross > 0.04;
-      const innerDrop = -openRy + openRy * 0.90 * cross;
-      const outerDrop = -openRy + openRy * 0.56 * cross;
+      const suspLid = this.tailGlanceAmount * 0.45;
+      const hasGrumpyLid = cross > 0.04 || suspLid > 0.04;
+      const lidEff = Math.max(cross, suspLid);
+      const innerDrop = -openRy + openRy * 0.90 * lidEff;
+      const outerDrop = -openRy + openRy * 0.56 * lidEff;
       const leftDrop = idx === 0 ? outerDrop : innerDrop;
       const rightDrop = idx === 0 ? innerDrop : outerDrop;
 
@@ -3486,31 +4922,44 @@ export class KuroCatEngine {
       ctx.clip();
 
       if (openRy > 3.2) {
-        // Dilated huge round pupils when Curious (laser-pointer mode), sharp narrow slits when Cross!
-        const pupilRx = Math.min(rx - 2.4, (6.2 + curious * 4.2 + this.typingEnergy * 0.8) * (1 - cross * 0.34));
-        const pupilRy = Math.min(openRy - 1.4, (8.8 + curious * 1.9) * (1 - cross * 0.08));
+        // Dilated huge round pupils when Curious/Scruffed, slightly tightened on Boop surprise, narrow slits when Cross!
+        const boopShrink = 1 - this.boopCrossEye * 0.22;
+        const pupilRx = Math.min(
+          rx - 2.4,
+          (6.2 + curious * 4.2 + scruff * 3.4 + this.typingEnergy * 0.8) * (1 - cross * 0.34) * boopShrink,
+        );
+        const pupilRy = Math.min(
+          openRy - 1.4,
+          (8.8 + curious * 1.9 + scruff * 2.2) * (1 - cross * 0.08) * boopShrink,
+        );
         // Scale normalized gaze (-1..+1) smoothly into available travel room (never sticks on a clamp wall!)
         const maxTravelX = Math.max(2.6, rx - pupilRx - 1.0);
         const maxTravelY = Math.max(2.2, openRy - pupilRy - 0.6);
-        const px = Math.max(-maxTravelX, Math.min(maxTravelX, this.eyeLookX * maxTravelX));
-        const py = Math.max(-maxTravelY, Math.min(maxTravelY, this.eyeLookY * maxTravelY));
+        const crossEyeDir = idx === 0 ? 1 : -1;
+        const gazeXEff =
+          this.eyeLookX * (1 - this.boopCrossEye) + crossEyeDir * 0.94 * this.boopCrossEye;
+        const gazeYEff =
+          this.eyeLookY * (1 - this.boopCrossEye) + 0.42 * this.boopCrossEye;
+        const px = Math.max(-maxTravelX, Math.min(maxTravelX, gazeXEff * maxTravelX));
+        const py = Math.max(-maxTravelY, Math.min(maxTravelY, gazeYEff * maxTravelY));
 
         ctx.fillStyle = isRagdoll ? '#101624' : '#0e0e10';
         ctx.beginPath();
         ctx.ellipse(px, py, pupilRx, pupilRy, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        if (isRagdoll || curious > 0.25) {
-          // Crisp glossy starlight catchlights (always on Ragdoll, plus sparkles on Black Cat when curious!)
-          const ca = isRagdoll ? 0.94 : Math.min(0.92, curious * 0.95);
+        const sparkleBoost = Math.max(curious, scruff * 0.75, this.boopCrossEye * 0.65);
+        if (isRagdoll || sparkleBoost > 0.25) {
+          // Crisp glossy starlight catchlights (always on Ragdoll, plus sparkles on Black Cat when curious/scruffed/booped!)
+          const ca = isRagdoll ? 0.94 : Math.min(0.92, sparkleBoost * 0.95);
           ctx.fillStyle = `rgba(255, 255, 255, ${ca.toFixed(2)})`;
           ctx.beginPath();
-          ctx.arc(px - 3.6 - curious * 0.8, py - 4.0 - curious * 0.5, 2.5 + curious * 0.7, 0, Math.PI * 2);
+          ctx.arc(px - 3.6 - sparkleBoost * 0.8, py - 4.0 - sparkleBoost * 0.5, 2.5 + sparkleBoost * 0.7, 0, Math.PI * 2);
           ctx.fill();
 
           ctx.fillStyle = `rgba(255, 255, 255, ${(ca * 0.76).toFixed(2)})`;
           ctx.beginPath();
-          ctx.arc(px + 3.2, py + 3.2, 1.2 + curious * 0.4, 0, Math.PI * 2);
+          ctx.arc(px + 3.2, py + 3.2, 1.2 + sparkleBoost * 0.4, 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -3563,9 +5012,11 @@ export class KuroCatEngine {
 
     // Soft 3D base rim / drop shadow
     ctx.save();
-    ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
-    ctx.shadowBlur = 0; /* perf: no per-frame blur */
-    ctx.shadowOffsetY = 3.5;
+    if (!this.chromaKeyBg) {
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.28)';
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
+      ctx.shadowOffsetY = 3.5;
+    }
     ctx.fillStyle = '#c8cac4';
     ctx.beginPath();
     ctx.ellipse(0, 1.8, rx, ry, 0, 0, Math.PI * 2);
@@ -3582,26 +5033,18 @@ export class KuroCatEngine {
     ctx.fill();
 
     // Clip inside mouse silhouette to render strictly separated Left / Right front button plates!
-    const isCatFacing = this.keyboardOrientation === 'cat';
+    // Mouse always stays cat-facing (#92): palm at TOP, buttons at BOTTOM, L = +X (inner), R = -X (outer)
     ctx.save();
     ctx.beginPath();
     ctx.ellipse(0, 0, rx - 0.5, ry - 0.5, 0, 0, Math.PI * 2);
     ctx.clip();
-
-    // Orientation-aware button/wheel geometry:
-    // - 'cat' (180°): palm at TOP, buttons at BOTTOM, L = +X (inner), R = -X (outer)
-    // - 'viewer' (0°): buttons at TOP, palm at BOTTOM, L = -X (left), R = +X (right)
-    ctx.save();
-    if (!isCatFacing) {
-      ctx.scale(-1, -1);
-    }
 
     const traceSeam = () => {
       ctx.moveTo(-rx - 2, -0.8);
       ctx.quadraticCurveTo(0, 1.8, rx + 2, -0.8);
     };
 
-    // 1) Left Mouse Button plate (+X half in local coords -> inner-bottom in cat mode, top-left in viewer mode)
+    // 1) Left Mouse Button plate (+X half -> inner-bottom in cat-facing orientation)
     ctx.beginPath();
     ctx.moveTo(0, 0.5);
     ctx.quadraticCurveTo(rx * 0.52, 0.4, rx + 2, -0.8);
@@ -3616,7 +5059,7 @@ export class KuroCatEngine {
       ctx.fillRect(0, -1, 2.2, ry + 2);
     }
 
-    // 2) Right Mouse Button plate (-X half in local coords -> outer-bottom in cat mode, top-right in viewer mode)
+    // 2) Right Mouse Button plate (-X half -> outer-bottom in cat-facing orientation)
     ctx.beginPath();
     ctx.moveTo(-rx - 2, -0.8);
     ctx.quadraticCurveTo(-rx * 0.52, 0.4, 0, 0.5);
@@ -3661,20 +5104,14 @@ export class KuroCatEngine {
     ctx.lineTo(1.0, 8.8 + this.mouseMiddlePress * 0.8);
     ctx.stroke();
 
-    ctx.restore(); // end local orientation transform
-
     // Always draw upright crisp L / R button legends in unobstructed front tips!
     ctx.font = '800 7.6px "Segoe UI", system-ui, sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const lx = isCatFacing ? 7.4 : -7.4;
-    const rxLbl = isCatFacing ? -7.4 : 7.4;
-    const lyBase = isCatFacing ? 14.0 : -14.0;
-    const pressDir = isCatFacing ? 0.9 : -0.9;
     ctx.fillStyle = lPress > 0.12 ? '#14161a' : 'rgba(72, 76, 86, 0.56)';
-    ctx.fillText('L', lx, lyBase + lPress * pressDir);
+    ctx.fillText('L', 7.4, 14.0 + lPress * 0.9);
     ctx.fillStyle = rPress > 0.12 ? '#ffffff' : 'rgba(72, 76, 86, 0.56)';
-    ctx.fillText('R', rxLbl, lyBase + rPress * pressDir);
+    ctx.fillText('R', -7.4, 14.0 + rPress * 0.9);
 
     ctx.restore(); // end mouse clip
 
@@ -3839,7 +5276,7 @@ export class KuroCatEngine {
       const padMargin = 20;
       const cacheLogW = Math.ceil(botHalfW * 2 + padMargin * 2);
       const cacheLogH = Math.ceil(this.kbHeight + padMargin * 2);
-      const nextKey = `${this.keyboardLayout}|${this.keyboardOrientation}|${this.kbWidth}|${this.kbHeight}|${cacheScale}`;
+      const nextKey = `${this.keyboardLayout}|${this.keyboardOrientation}|${this.kbWidth}|${this.kbHeight}|${cacheScale}|${this.chromaKeyBg ? 1 : 0}`;
 
       if (!this.kbCacheCanvas || this.kbCacheKey !== nextKey) {
         if (!this.kbCacheCanvas) this.kbCacheCanvas = document.createElement('canvas');
@@ -3853,9 +5290,11 @@ export class KuroCatEngine {
           cg.translate(cacheLogW * 0.5, cacheLogH * 0.5);
 
           cg.save();
-          cg.shadowColor = 'rgba(0, 0, 0, 0.34)';
-          cg.shadowBlur = 11;
-          cg.shadowOffsetY = 5;
+          if (!this.chromaKeyBg) {
+            cg.shadowColor = 'rgba(0, 0, 0, 0.34)';
+            cg.shadowBlur = 11;
+            cg.shadowOffsetY = 5;
+          }
           cg.fillStyle = '#191a1e';
           this.trapezoidPath(cg, topHalfW, botHalfW, -halfH + 3.5, halfH + 5.5, 6.5);
           cg.fill();
@@ -3893,9 +5332,11 @@ export class KuroCatEngine {
     } else {
       // Interactive tail-picker mode: draw live highlights & hover outlines
       ctx.save();
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.34)';
-      ctx.shadowBlur = 0; /* perf: no per-frame blur */
-      ctx.shadowOffsetY = 5;
+      if (!this.chromaKeyBg) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.34)';
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
+        ctx.shadowOffsetY = 5;
+      }
       ctx.fillStyle = '#191a1e';
       this.trapezoidPath(ctx, topHalfW, botHalfW, -halfH + 3.5, halfH + 5.5, 6.5);
       ctx.fill();
@@ -4049,7 +5490,7 @@ export class KuroCatEngine {
 
       // Soft subtle contact shadow ONLY under the plump round white mitten paw ball
       ctx.save();
-      if (!isSmear) {
+      if (!isSmear && !this.chromaKeyBg) {
         ctx.shadowColor = 'rgba(46, 38, 30, 0.22)';
         ctx.shadowBlur = 0; /* perf: no per-frame blur */
         ctx.shadowOffsetY = 1.5;
@@ -4104,8 +5545,6 @@ export class KuroCatEngine {
       return;
     }
 
-    ctx.shadowColor = 'rgba(18, 17, 18, 0.42)';
-    ctx.shadowBlur = 0; /* perf: no per-frame blur */
     if (isSmear) {
       const smearGrad = ctx.createLinearGradient(sx, sy, px, py);
       smearGrad.addColorStop(0.0, 'rgba(20, 19, 20, 0.0)');
@@ -4352,10 +5791,91 @@ export class KuroCatEngine {
         ctx.restore();
       }
 
-      // Keep mouse-reaching arm pure velvet black in open air (ORIG 2.2s); show subtle separation lines when poking across black torso!
-      this.drawPlumpCatArm(ctx, paw.side, sh.x, sh.y, px, py, paw.impactSquash, paw.mode !== 'mouse', false);
+      // Edge-peek paws are drawn flush in screen-border space by drawScreenEdgePeekPaws() (never overlapping eyes/whiskers!)
+      if (paw.mode !== 'peek') {
+        // Keep mouse-reaching arm pure velvet black in open air (ORIG 2.2s); show subtle separation lines when poking across black torso!
+        this.drawPlumpCatArm(ctx, paw.side, sh.x, sh.y, px, py, paw.impactSquash, paw.mode !== 'mouse', false);
+      }
       ctx.restore();
     }
+  }
+
+  /** Renders two chubby 2D paws wrapped flush around the vertical screen border above & below the peeking cat head! */
+  private drawScreenEdgePeekPaws(ctx: CanvasRenderingContext2D, peekP: number): void {
+    const { offsetX, offsetY, uniformScale } = this.getViewportTransform();
+    const s = Math.max(0.001, uniformScale);
+    const leftEdge = -offsetX / s;
+    const rightEdge = (this.canvas.width - offsetX) / s;
+    const topEdge = -offsetY / s;
+    const bottomEdge = (this.canvas.height - offsetY) / s;
+    const midY = (topEdge + bottomEdge) * 0.5;
+
+    const isLeft = this.peekVisualEdge === 'left';
+    const dir = isLeft ? 1 : -1;
+    const edgeX = isLeft ? leftEdge : rightEdge;
+    const alpha = Math.max(0, Math.min(1, (peekP - 0.22) / 0.38));
+    const slide = (1 - Math.min(1, peekP)) * 22;
+
+    const isRagdoll = this.catBreed === 'ragdoll';
+    const fill = this.customSkin ? this.customSkin.pawColor : isRagdoll ? '#f9f6ef' : '#08080a';
+    const isDarkPaw =
+      !isRagdoll &&
+      (!this.customSkin ||
+        (fill.startsWith('#') &&
+          fill.length === 7 &&
+          parseInt(fill.slice(1, 3), 16) * 0.299 +
+            parseInt(fill.slice(3, 5), 16) * 0.587 +
+            parseInt(fill.slice(5, 7), 16) * 0.114 <
+            115));
+    const stroke = isDarkPaw
+      ? this.customSkin?.armCreaseColor || 'rgba(215, 218, 226, 0.36)'
+      : this.customSkin
+        ? this.customSkin.pawOutlineColor || this.customSkin.outlineColor || 'rgba(72, 62, 56, 0.55)'
+        : 'rgba(93, 81, 72, 0.65)';
+    const toeInk = isDarkPaw
+      ? this.customSkin?.armCreaseColor || 'rgba(220, 224, 232, 0.38)'
+      : this.customSkin
+        ? this.customSkin.pawOutlineColor || this.customSkin.outlineColor || 'rgba(92, 80, 70, 0.50)'
+        : 'rgba(110, 96, 86, 0.50)';
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    for (const side of [-1, 1] as const) {
+      const bob = Math.sin(this.elapsed * 2.4 + (side < 0 ? 0 : Math.PI)) * 1.1;
+      const py = midY + (side < 0 ? -53 : 63) + bob;
+      const anchorX = edgeX - dir * slide;
+
+      ctx.save();
+      ctx.translate(anchorX, py);
+      ctx.scale(dir, 1);
+
+      // Rounded paw wrapping flush around the vertical edge (x = -18 behind edge -> x = +17.5 gripping inward!)
+      ctx.fillStyle = fill;
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = 1.65;
+      ctx.beginPath();
+      ctx.moveTo(-18, -11.5);
+      ctx.lineTo(5.5, -11.5);
+      ctx.bezierCurveTo(14.5, -11.5, 17.5, -5.5, 17.5, 0);
+      ctx.bezierCurveTo(17.5, 5.5, 14.5, 11.5, 5.5, 11.5);
+      ctx.lineTo(-18, 11.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Two cute inward-facing toe cleft lines gripping the edge
+      ctx.strokeStyle = toeInk;
+      ctx.lineWidth = 1.3;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(15.6, -4.2);
+      ctx.lineTo(10.6, -3.5);
+      ctx.moveTo(15.6, 4.2);
+      ctx.lineTo(10.6, 3.5);
+      ctx.stroke();
+      ctx.restore();
+    }
+    ctx.restore();
   }
 
   private drawKeyBubbles(ctx: CanvasRenderingContext2D): void {
@@ -4387,9 +5907,11 @@ export class KuroCatEngine {
       const bx = -boxW / 2;
       const by = -boxH / 2;
 
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
-      ctx.shadowBlur = 0; /* perf: no per-frame blur */
-      ctx.shadowOffsetY = 2;
+      if (!this.chromaKeyBg) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.22)';
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
+        ctx.shadowOffsetY = 2;
+      }
 
       ctx.fillStyle = '#c8cac6';
       this.roundRect(ctx, bx, by + 2.2, boxW, boxH, 5.5);
@@ -4449,9 +5971,11 @@ export class KuroCatEngine {
       const bx = -boxW / 2;
       const by = -boxH / 2;
 
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.24)';
-      ctx.shadowBlur = 0; /* perf: no per-frame blur */
-      ctx.shadowOffsetY = 1.5;
+      if (!this.chromaKeyBg) {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.24)';
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
+        ctx.shadowOffsetY = 1.5;
+      }
 
       ctx.fillStyle = '#22242a';
       this.roundRect(ctx, bx, by + 1.6, boxW, boxH, 5);
@@ -4483,7 +6007,8 @@ export class KuroCatEngine {
   ): void {
     const leftPts: Vec2[] = [];
     const rightPts: Vec2[] = [];
-    const bellySwell = 1 + this.typingHunch * 0.04 + this.sleepAmount * 0.085;
+    const scruffSlim = Math.min(1, this.scruffAmount) * 0.14;
+    const bellySwell = 1 + this.typingHunch * 0.04 + this.sleepAmount * 0.085 - scruffSlim;
     const headCenter = this.spinePoint(0.24, breath);
     const hcx = headCenter.x + purrShift;
     const hcy = headCenter.y;
@@ -4540,20 +6065,27 @@ export class KuroCatEngine {
     const basePt = this.spinePoint(1.0, breath);
 
     ctx.save();
-    ctx.shadowColor = s.isDarkBase ? 'rgba(18, 17, 18, 0.42)' : 'rgba(30, 32, 42, 0.22)';
-    ctx.shadowBlur = 0; /* perf: no per-frame blur */
-    if (!s.isDarkBase) ctx.shadowOffsetY = 2;
+    if (!this.chromaKeyBg) {
+      ctx.shadowColor = s.isDarkBase ? 'rgba(18, 17, 18, 0.42)' : 'rgba(30, 32, 42, 0.22)';
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
+      if (!s.isDarkBase) ctx.shadowOffsetY = 2;
+    }
 
-    // 1) Grounded hind paws always rendered in seated posture (no idle disappear/blink; Fixes #1)
+    // 1) Grounded hind paws always rendered in seated posture (dangle gently when scruffed!)
     ctx.fillStyle = s.pawColor;
     ctx.strokeStyle = s.pawOutlineColor || s.outlineColor || 'transparent';
     ctx.lineWidth = 1.85;
+    const scruffFootDrop = Math.min(1, this.scruffAmount) * 12.0;
+    const scruffFootSway = Math.min(1, this.scruffAmount) * this.scruffSwing * 14;
+    const scruffFootRot = Math.min(1, this.scruffAmount) * this.scruffSwing * 0.24;
+    const scruffFootScaleX = 1 - Math.min(1, this.scruffAmount) * 0.14;
+    const scruffFootScaleY = 1 + Math.min(1, this.scruffAmount) * 0.24;
     for (const [fx, fy, rx, ry] of [
-      [basePt.x - 42, basePt.y - 3, 14.5, 11.5],
-      [basePt.x + 32, basePt.y - 1, 15.0, 11.5],
+      [basePt.x - 42 + scruffFootSway, basePt.y - 3 + scruffFootDrop, 14.5 * scruffFootScaleX, 11.5 * scruffFootScaleY],
+      [basePt.x + 32 + scruffFootSway, basePt.y - 1 + scruffFootDrop, 15.0 * scruffFootScaleX, 11.5 * scruffFootScaleY],
     ]) {
       ctx.beginPath();
-      ctx.ellipse(fx, fy, rx, ry, 0, 0, Math.PI * 2);
+      ctx.ellipse(fx, fy, rx, ry, scruffFootRot, 0, Math.PI * 2);
       ctx.fill();
       if (s.pawOutlineColor || s.outlineColor) {
         ctx.save();
@@ -4838,21 +6370,31 @@ export class KuroCatEngine {
     const earActU = earAct && earAct.kind === 'ear' ? Math.max(0, Math.min(1, (nowEar - earAct.t0) / earAct.dur)) : 0;
     const lFlick = earAct && earAct.kind === 'ear' && earAct.side === -1 ? Math.sin(earActU * Math.PI * 3) * 0.24 * (1 - earActU) : 0;
     const rFlick = earAct && earAct.kind === 'ear' && earAct.side === 1 ? Math.sin(earActU * Math.PI * 3) * 0.24 * (1 - earActU) : 0;
-    const lTwitch = Math.sin(this.earTwitchLeft * Math.PI) * 0.12 + lFlick;
-    const rTwitch = Math.sin(this.earTwitchRight * Math.PI) * 0.12 + rFlick;
+    const lTwitch = Math.sin(this.earTwitchLeft * Math.PI) * 0.12 + lFlick + this.groomEarPressLeft * 0.44;
+    const rTwitch = Math.sin(this.earTwitchRight * Math.PI) * 0.12 + rFlick + this.groomEarPressRight * 0.44;
     const earPerk = this.earPerkSpring.x;
     const airplaneDrop = Math.max(0, -earPerk) * 11;
     const airplaneSpread = Math.max(0, -earPerk) * 6;
 
     const earShape = contour.earShape;
     const earScale = contour.earScale;
-    const earMountX = 33 * (0.45 + 0.55 * hwScale) + jawSq * 5.0;
-    const earMountY = -28 - jawSq * 2.5 - (isOval ? 3.5 : 0);
+    const earMountX =
+      (33 * (0.45 + 0.55 * hwScale) +
+        jawSq * 5.0 +
+        (earShape === 'floppy' ? 6.5 : earShape === 'folded' ? 3.5 : 0)) *
+      contour.earSpacing;
+    const earMountY =
+      -28 -
+      jawSq * 2.5 -
+      (isOval ? 3.5 : 0) +
+      (earShape === 'floppy' ? 11.5 : earShape === 'folded' ? 5.5 : 0);
 
     const drawCustomEar = (sideSign: -1 | 1, twitch: number) => {
       ctx.save();
       ctx.translate(sideSign * (earMountX + airplaneSpread) + this.faceTurnX * 0.18, earMountY + airplaneDrop);
-      ctx.rotate(sideSign * ((earShape === 'wide' ? 0.28 : 0.08) - earPerk + twitch));
+      const baseEarRot =
+        earShape === 'wide' ? 0.28 : earShape === 'folded' ? 0.34 : earShape === 'floppy' ? 0.14 : 0.08;
+      ctx.rotate(sideSign * (baseEarRot + contour.earTilt - earPerk + twitch));
       ctx.scale(earScale, earScale);
 
       const earPath = (strokeOnly = false) => {
@@ -4880,6 +6422,20 @@ export class KuroCatEngine {
           ctx.bezierCurveTo(sideSign * 28, -8, sideSign * 20, -28, sideSign * 7, -27);
           ctx.bezierCurveTo(sideSign * -8, -23, sideSign * -18, -8, sideSign * -22, 10);
           if (!strokeOnly) ctx.closePath();
+        } else if (earShape === 'folded') {
+          // Scottish Fold cute downward-bent rounded ear cap
+          ctx.moveTo(sideSign * -15, 7);
+          ctx.bezierCurveTo(sideSign * -12, -8, sideSign * 2, -15, sideSign * 14, -6);
+          ctx.bezierCurveTo(sideSign * 23, 1, sideSign * 24, 15, sideSign * 13, 19);
+          ctx.bezierCurveTo(sideSign * 4, 21, sideSign * -7, 15, sideSign * -15, 7);
+          if (!strokeOnly) ctx.closePath();
+        } else if (earShape === 'floppy') {
+          // Puppy / lop-bunny soft plush drooping side ear
+          ctx.moveTo(sideSign * -10, -4);
+          ctx.bezierCurveTo(sideSign * 2, -12, sideSign * 16, -6, sideSign * 20, 10);
+          ctx.bezierCurveTo(sideSign * 25, 29, sideSign * 18, 46, sideSign * 7, 45);
+          ctx.bezierCurveTo(sideSign * -5, 44, sideSign * -12, 26, sideSign * -11, 8);
+          if (!strokeOnly) ctx.closePath();
         } else {
           ctx.moveTo(sideSign * 19, strokeOnly ? 17 : 20);
           ctx.bezierCurveTo(sideSign * 19, -8, sideSign * 12, -23, sideSign * 3, -21);
@@ -4892,7 +6448,12 @@ export class KuroCatEngine {
         s.pattern === 'calico' && sideSign === -1
           ? s.maskColor || s.earOuterColor
           : s.earOuterColor;
-      const earGrad = ctx.createLinearGradient(0, earShape === 'tall' ? -37 : -23, 0, 18);
+      const earGrad = ctx.createLinearGradient(
+        0,
+        earShape === 'tall' ? -37 : earShape === 'floppy' ? -10 : -23,
+        0,
+        earShape === 'floppy' ? 46 : 18,
+      );
       earGrad.addColorStop(0.0, s.earTipColor || baseEarCol);
       earGrad.addColorStop(1.0, baseEarCol);
       ctx.fillStyle = earGrad;
@@ -4910,7 +6471,16 @@ export class KuroCatEngine {
         ctx.stroke();
       }
 
-      if (s.earInnerColor) {
+      if (earShape === 'folded') {
+        // Subtle fold crease shadow so folded ear reads unmistakably as bent forward
+        ctx.strokeStyle = s.outlineColor || 'rgba(0, 0, 0, 0.24)';
+        ctx.lineWidth = 1.4 / Math.max(0.7, earScale);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(sideSign * -8, 1);
+        ctx.quadraticCurveTo(sideSign * 4, -3, sideSign * 14, 5);
+        ctx.stroke();
+      } else if (s.earInnerColor) {
         ctx.fillStyle = s.earInnerColor;
         ctx.beginPath();
         if (earShape === 'round') {
@@ -4923,6 +6493,8 @@ export class KuroCatEngine {
           ctx.moveTo(sideSign * 8, 6);
           ctx.bezierCurveTo(sideSign * 8, -2, sideSign * 5, -9, sideSign * 1, -8);
           ctx.bezierCurveTo(sideSign * -3, -7, sideSign * -7, -1, sideSign * -7, 5);
+        } else if (earShape === 'floppy') {
+          ctx.ellipse(sideSign * 4, 22, 6.2, 13.5, sideSign * -0.1, 0, Math.PI * 2);
         } else {
           ctx.moveTo(sideSign * 11, 10);
           ctx.bezierCurveTo(sideSign * 11, -3, sideSign * 7, -13, sideSign * 2, -11);
@@ -4932,7 +6504,7 @@ export class KuroCatEngine {
         ctx.fill();
       }
 
-      if (s.earTuftColor) {
+      if (s.earTuftColor && earShape !== 'folded' && earShape !== 'floppy') {
         ctx.strokeStyle = s.earTuftColor;
         ctx.lineWidth = 1.5;
         ctx.lineCap = 'round';
@@ -4954,61 +6526,145 @@ export class KuroCatEngine {
     ctx.shadowOffsetY = 0;
     const wShift = this.faceTurnX * 0.72;
 
-    // Blush on petting
-    if (s.blushColor && this.squintAmount > 0.12) {
+    // Blush on petting / chin scratch / kneading (or permanent soft blush when blushAlways is true)
+    const blushFloor = contour.blushAlways ? 0.62 : 0;
+    const customBlushAmt = Math.max(blushFloor, this.squintAmount, this.chinAmount * 1.15, this.kneadAmount * 0.85);
+    const blushX = 30 * (0.55 + 0.45 * contour.eyeSpacing);
+    const blushY = 13 + contour.eyeOffsetY * 6.0;
+    const bScale = contour.blushScale;
+    if (s.blushColor && customBlushAmt > 0.12) {
       ctx.save();
-      ctx.globalAlpha = 0.42 * this.squintAmount;
+      ctx.globalAlpha = 0.42 * Math.min(1.15, customBlushAmt);
       ctx.fillStyle = s.blushColor;
       ctx.beginPath();
-      ctx.ellipse(wShift - 30, 13, 8.5, 4.6, -0.08, 0, Math.PI * 2);
-      ctx.ellipse(wShift + 30, 13, 8.5, 4.6, 0.08, 0, Math.PI * 2);
+      ctx.ellipse(wShift - blushX, blushY, 8.5 * bScale, 4.6 * bScale, -0.08, 0, Math.PI * 2);
+      ctx.ellipse(wShift + blushX, blushY, 8.5 * bScale, 4.6 * bScale, 0.08, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (this.chinAmount > 0.2 || contour.blushAlways) {
+      ctx.save();
+      ctx.globalAlpha = Math.max(contour.blushAlways ? 0.28 : 0, 0.24 * this.chinAmount);
+      ctx.fillStyle = '#ffa8ba';
+      ctx.beginPath();
+      ctx.ellipse(wShift - blushX, blushY + 1, 7.5 * bScale, 4.0 * bScale, -0.08, 0, Math.PI * 2);
+      ctx.ellipse(wShift + blushX, blushY + 1, 7.5 * bScale, 4.0 * bScale, 0.08, 0, Math.PI * 2);
       ctx.fill();
       ctx.restore();
     }
 
-    // Nose & mouth
-    if (s.noseColor) {
+    // Nose (supports cat / round / wide / small / none + noseScale + noseOffsetY)
+    const customNoseWiggleY = -1.4 * this.boopCrossEye - 1.3 * this.yawnAmount;
+    const noseBaseY = 11.4 + contour.noseOffsetY * 7.0 + customNoseWiggleY;
+    const nScale = contour.noseScale;
+    if (s.noseColor && contour.noseShape !== 'none') {
+      ctx.save();
+      ctx.translate(wShift, noseBaseY);
+      ctx.scale(nScale, nScale);
       ctx.fillStyle = s.noseColor;
       ctx.beginPath();
-      ctx.moveTo(wShift - 4.1, 9.6);
-      ctx.quadraticCurveTo(wShift, 8.5, wShift + 4.1, 9.6);
-      ctx.quadraticCurveTo(wShift + 3.2, 13.8, wShift, 14.3);
-      ctx.quadraticCurveTo(wShift - 3.2, 13.8, wShift - 4.1, 9.6);
-      ctx.closePath();
-      ctx.fill();
+      if (contour.noseShape === 'round') {
+        ctx.ellipse(0, 0, 4.3, 3.3, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.32)';
+        ctx.beginPath();
+        ctx.ellipse(-1.2, -1.0, 1.3, 0.8, -0.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else if (contour.noseShape === 'wide') {
+        ctx.moveTo(-6.2, -1.8);
+        ctx.quadraticCurveTo(0, -3.2, 6.2, -1.8);
+        ctx.quadraticCurveTo(5.2, 2.8, 0, 3.4);
+        ctx.quadraticCurveTo(-5.2, 2.8, -6.2, -1.8);
+        ctx.closePath();
+        ctx.fill();
+      } else if (contour.noseShape === 'small') {
+        ctx.ellipse(0, 0, 2.6, 2.0, 0, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        ctx.moveTo(-4.1, -1.8);
+        ctx.quadraticCurveTo(0, -2.9, 4.1, -1.8);
+        ctx.quadraticCurveTo(3.2, 2.4, 0, 2.9);
+        ctx.quadraticCurveTo(-3.2, 2.4, -4.1, -1.8);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.restore();
     }
-    if (s.mouthColor) {
+
+    // Mouth (supports w / smile / flat / open / blep / none + mouthScale + mouthOffsetY)
+    const mouthBaseY = 16.6 + contour.mouthOffsetY * 7.0;
+    const mScale = contour.mouthScale;
+    if (s.mouthColor && contour.mouthShape !== 'none' && this.yawnAmount < 0.25) {
+      ctx.save();
+      ctx.globalAlpha = 1 - this.yawnAmount / 0.25;
+      ctx.translate(wShift, mouthBaseY);
+      ctx.scale(mScale, mScale);
       ctx.strokeStyle = s.mouthColor;
-      ctx.lineWidth = 1.35;
+      ctx.lineWidth = 1.35 / Math.max(0.75, Math.sqrt(mScale));
       ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(wShift - 5.8, 16.6);
-      ctx.quadraticCurveTo(wShift - 2.9, 19.6, wShift, 16.4);
-      ctx.quadraticCurveTo(wShift + 2.9, 19.6, wShift + 5.8, 16.6);
-      ctx.stroke();
+      if (contour.mouthShape === 'smile') {
+        ctx.beginPath();
+        ctx.moveTo(-6.2, -0.5);
+        ctx.quadraticCurveTo(0, 4.6, 6.2, -0.5);
+        ctx.stroke();
+      } else if (contour.mouthShape === 'flat') {
+        ctx.beginPath();
+        ctx.moveTo(-5.8, 0.6);
+        ctx.quadraticCurveTo(0, 0.2, 5.8, 0.6);
+        ctx.stroke();
+      } else if (contour.mouthShape === 'open') {
+        ctx.fillStyle = '#c85b6f';
+        ctx.beginPath();
+        ctx.ellipse(0, 1.5, 3.2, 3.8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        // Classic 'w' or 'blep' (blep adds adorable tiny pink sticking-out tongue below center!)
+        if (contour.mouthShape === 'blep') {
+          ctx.fillStyle = '#f489a0';
+          ctx.beginPath();
+          ctx.moveTo(-2.7, 0.6);
+          ctx.bezierCurveTo(-3.0, 5.6, 3.0, 5.6, 2.7, 0.6);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = '#d4667e';
+          ctx.lineWidth = 0.9;
+          ctx.stroke();
+          ctx.strokeStyle = s.mouthColor;
+          ctx.lineWidth = 1.35 / Math.max(0.75, Math.sqrt(mScale));
+        }
+        ctx.beginPath();
+        ctx.moveTo(-5.8, 0.0);
+        ctx.quadraticCurveTo(-2.9, 3.0, 0, -0.2);
+        ctx.quadraticCurveTo(2.9, 3.0, 5.8, 0.0);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+    this.drawYawnOrLickMouth(ctx, wShift, s.mouthColor || s.outlineColor || '#3a232b');
+
+    // Whiskers (whiskerLength = 0 cleanly hides whiskers for non-cat animals!)
+    if (contour.whiskerLength > 0.01) {
+      const whiskerAnchorX = 34 * (0.55 + 0.45 * hwScale);
+      ctx.strokeStyle = s.whiskerColor;
+      ctx.lineWidth = 1.1;
+      ctx.lineCap = 'round';
+      const leftLen = Math.max(8, 12 - this.faceTurnX * 0.55) * contour.whiskerLength;
+      const rightLen = Math.max(8, 12 + this.faceTurnX * 0.55) * contour.whiskerLength;
+      for (let i = 0; i < 3; i++) {
+        const wy = 16 + i * 5.0;
+        const slant = (2.0 + i * 1.1) * Math.min(1.25, contour.whiskerLength);
+        ctx.beginPath();
+        ctx.moveTo(-whiskerAnchorX + wShift, wy);
+        ctx.lineTo(-whiskerAnchorX + wShift - leftLen, wy + slant);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(whiskerAnchorX + wShift, wy);
+        ctx.lineTo(whiskerAnchorX + wShift + rightLen, wy + slant);
+        ctx.stroke();
+      }
     }
 
-    // Whiskers (adapt horizontal anchor smoothly for wide/square faces)
-    const whiskerAnchorX = 34 * (0.55 + 0.45 * hwScale);
-    ctx.strokeStyle = s.whiskerColor;
-    ctx.lineWidth = 1.1;
-    ctx.lineCap = 'round';
-    const leftLen = Math.max(8, 12 - this.faceTurnX * 0.55);
-    const rightLen = Math.max(8, 12 + this.faceTurnX * 0.55);
-    for (let i = 0; i < 3; i++) {
-      const wy = 16 + i * 5.0;
-      const slant = 2.0 + i * 1.1;
-      ctx.beginPath();
-      ctx.moveTo(-whiskerAnchorX + wShift, wy);
-      ctx.lineTo(-whiskerAnchorX + wShift - leftLen, wy + slant);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.moveTo(whiskerAnchorX + wShift, wy);
-      ctx.lineTo(whiskerAnchorX + wShift + rightLen, wy + slant);
-      ctx.stroke();
-    }
-
-    this.drawCustomEyes(ctx, s, wShift, -1);
+    this.drawCustomEyes(ctx, s, wShift, -1 + contour.eyeOffsetY * 11.0);
     this.drawHeadphonesFront(ctx);
 
     ctx.restore();
@@ -5022,14 +6678,31 @@ export class KuroCatEngine {
         ? 0.92 * Math.sin(Math.max(0, Math.min(1, (nowEye - this.idleAct.t0) / this.idleAct.dur)) * Math.PI)
         : 0;
     const blinkVal = Math.max(this.isBlinking ? 1 - Math.abs(this.blinkProgress - 1) : 0, slowBlinkVal);
-    const closedness = Math.max(blinkVal, this.squintAmount * 0.85, this.privacyClose, this.sleepAmount);
+    const yawnClose = Math.min(1, this.yawnAmount * 1.45);
+    const stretchClose = Math.min(1, this.stretchAmount * 1.25);
+    const groomClose = Math.min(0.85, this.groomAmount * 0.95);
+    const closedness = Math.max(
+      blinkVal,
+      this.squintAmount * 0.85,
+      this.privacyClose,
+      this.sleepAmount,
+      this.dozeLidClose,
+      yawnClose,
+      stretchClose,
+      groomClose,
+    );
     const curious = Math.min(1, this.curiousAmount);
+    const scruff = Math.min(1, this.scruffAmount);
     const cross = this.crossAmount;
-    const eyeXs = [cx - 23.0, cx + 23.0];
-    const rx = (14.8 + this.typingHunch * 1.0) * (1 + curious * 0.06);
-    const ry = (13.4 - this.typingHunch * 0.5) * (1 + curious * 0.09);
+    const contour = s.contour;
+    const eScale = contour.eyeScale;
+    const eAspect = contour.eyeAspect;
+    const eyeXs = [cx - 23.0 * contour.eyeSpacing, cx + 23.0 * contour.eyeSpacing];
+    const rx = (14.8 * eScale + this.typingHunch * 1.0) * (1 + curious * 0.06 + scruff * 0.09);
+    const ry = (13.4 * eScale * eAspect - this.typingHunch * 0.5) * (1 + curious * 0.09 + scruff * 0.13);
 
     for (let idx = 0; idx < 2; idx++) {
+      const side: -1 | 1 = idx === 0 ? -1 : 1;
       ctx.save();
       ctx.translate(eyeXs[idx], eyeY);
 
@@ -5038,43 +6711,56 @@ export class KuroCatEngine {
         ctx.lineWidth = 2.9;
         ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(-13.5, -0.5);
-        ctx.quadraticCurveTo(0, 5.2, 13.5, -0.5);
+        ctx.moveTo(-13.5 * eScale, -0.5);
+        ctx.quadraticCurveTo(0, 5.2 * eScale, 13.5 * eScale, -0.5);
         ctx.stroke();
         ctx.restore();
         continue;
       }
 
-      if (this.squintAmount > 0.38 && blinkVal < 0.3) {
+      if (yawnClose > 0.48 || stretchClose > 0.52 || (this.chinAmount > 0.36 && blinkVal < 0.3)) {
+        ctx.strokeStyle = s.squintColor;
+        ctx.lineWidth = 2.9;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(-12.5 * eScale, 2.2);
+        ctx.quadraticCurveTo(0, -4.8 * eScale, 12.5 * eScale, 2.2);
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
+
+      if ((this.squintAmount > 0.38 || groomClose > 0.48) && blinkVal < 0.3) {
         if (s.squintGlowColor) {
           ctx.strokeStyle = s.squintGlowColor;
           ctx.lineWidth = 4.4;
           ctx.lineCap = 'round';
           ctx.beginPath();
-          ctx.moveTo(-12.5, 0.2);
-          ctx.quadraticCurveTo(0, 2.2, 12.5, 1.8);
+          ctx.moveTo(-12.5 * eScale, 0.2);
+          ctx.quadraticCurveTo(0, 2.2 * eScale, 12.5 * eScale, 1.8);
           ctx.stroke();
         }
         ctx.strokeStyle = s.squintColor;
         ctx.lineWidth = 2.8;
         ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(-13.5, -0.5);
-        ctx.quadraticCurveTo(0, 1.4, 13.5, 1.2);
+        ctx.moveTo(-13.5 * eScale, -0.5);
+        ctx.quadraticCurveTo(0, 1.4 * eScale, 13.5 * eScale, 1.2);
         ctx.stroke();
         ctx.restore();
         continue;
       }
 
       const openRy = Math.max(1.2, ry * (1 - closedness));
-      const curiousTilt = (idx === 0 ? -0.1 : 0.1) * (0.25 + this.typingHunch * 0.75);
-      ctx.rotate(curiousTilt);
+      const curiousTilt = (idx === 0 ? -0.1 : 0.1) * (0.25 + this.typingHunch * 0.75) * (1 - scruff * 0.8);
+      ctx.rotate(curiousTilt - side * contour.eyeTilt);
 
-      const restSquint = s.contour.eyeSquint;
-      const hasLid = cross > 0.04 || restSquint > 0.02;
+      const restSquint = contour.eyeSquint;
+      const lidEff = Math.max(cross, this.tailGlanceAmount * 0.45);
+      const hasLid = lidEff > 0.04 || restSquint > 0.02;
       const restDrop = -openRy + openRy * 1.12 * restSquint;
-      const innerDrop = Math.max(restDrop, -openRy + openRy * 0.90 * cross);
-      const outerDrop = Math.max(restDrop, -openRy + openRy * 0.56 * cross);
+      const innerDrop = Math.max(restDrop, -openRy + openRy * 0.90 * lidEff);
+      const outerDrop = Math.max(restDrop, -openRy + openRy * 0.56 * lidEff);
       const leftDrop = idx === 0 ? outerDrop : innerDrop;
       const rightDrop = idx === 0 ? innerDrop : outerDrop;
 
@@ -5090,9 +6776,11 @@ export class KuroCatEngine {
         ctx.clip();
       }
 
+      const eyeTopCol = idx === 1 ? s.rightEyeColorTop : s.eyeColorTop;
+      const eyeBotCol = idx === 1 ? s.rightEyeColorBottom : s.eyeColorBottom;
       const irisGrad = ctx.createLinearGradient(0, -openRy, 0, openRy);
-      irisGrad.addColorStop(0.0, s.eyeColorTop);
-      irisGrad.addColorStop(1.0, s.eyeColorBottom);
+      irisGrad.addColorStop(0.0, eyeTopCol);
+      irisGrad.addColorStop(1.0, eyeBotCol);
       ctx.fillStyle = irisGrad;
       ctx.beginPath();
       ctx.ellipse(0, 0, rx, openRy, 0, 0, Math.PI * 2);
@@ -5101,26 +6789,91 @@ export class KuroCatEngine {
       ctx.save();
       ctx.clip();
       if (openRy > 3.2) {
-        const pupilRx = Math.min(rx - 2.4, (6.2 + curious * 4.2 + this.typingEnergy * 0.8) * (1 - cross * 0.34));
-        const pupilRy = Math.min(openRy - 1.4, (8.8 + curious * 1.9) * (1 - cross * 0.08));
-        const maxTravelX = Math.max(2.6, rx - pupilRx - 1.0);
-        const maxTravelY = Math.max(2.2, openRy - pupilRy - 0.6);
-        const px = Math.max(-maxTravelX, Math.min(maxTravelX, this.eyeLookX * maxTravelX));
-        const py = Math.max(-maxTravelY, Math.min(maxTravelY, this.eyeLookY * maxTravelY));
+        const boopShrink = 1 - this.boopCrossEye * 0.22;
+        const pMul = contour.pupilScale * eScale;
+        const pShape = contour.pupilShape;
+        let pupilRx: number;
+        let pupilRy: number;
+        if (pShape === 'round') {
+          const rP = (7.4 + curious * 3.4 + scruff * 2.8 + this.typingEnergy * 0.6) * pMul * (1 - cross * 0.24) * boopShrink;
+          pupilRx = Math.min(rx - 2.2, rP);
+          pupilRy = Math.min(openRy - 1.4, rP);
+        } else if (pShape === 'slit') {
+          pupilRx = Math.min(
+            rx - 2.4,
+            (2.8 + curious * 4.6 + scruff * 3.8 + this.typingEnergy * 0.4) * pMul * (1 - cross * 0.35) * boopShrink,
+          );
+          pupilRy = Math.min(
+            openRy - 1.0,
+            (9.8 + curious * 1.4 + scruff * 1.6) * pMul * eAspect * boopShrink,
+          );
+        } else if (pShape === 'dot') {
+          const rDot = (4.0 + curious * 1.8 + scruff * 1.6) * pMul * boopShrink;
+          pupilRx = Math.min(rx - 2.4, rDot);
+          pupilRy = Math.min(openRy - 1.4, rDot);
+        } else {
+          pupilRx = Math.min(
+            rx - 2.4,
+            (6.2 + curious * 4.2 + scruff * 3.4 + this.typingEnergy * 0.8) * pMul * (1 - cross * 0.34) * boopShrink,
+          );
+          pupilRy = Math.min(
+            openRy - 1.4,
+            (8.8 + curious * 1.9 + scruff * 2.2) * pMul * eAspect * (1 - cross * 0.08) * boopShrink,
+          );
+        }
+        const maxTravelX = Math.max(2.0, rx - pupilRx - 1.0);
+        const maxTravelY = Math.max(1.8, openRy - pupilRy - 0.6);
+        const crossEyeDir = idx === 0 ? 1 : -1;
+        const gazeXEff =
+          this.eyeLookX * (1 - this.boopCrossEye) + crossEyeDir * 0.94 * this.boopCrossEye;
+        const gazeYEff =
+          this.eyeLookY * (1 - this.boopCrossEye) + 0.42 * this.boopCrossEye;
+        const px = Math.max(-maxTravelX, Math.min(maxTravelX, gazeXEff * maxTravelX));
+        const py = Math.max(-maxTravelY, Math.min(maxTravelY, gazeYEff * maxTravelY));
         ctx.fillStyle = s.pupilColor;
         ctx.beginPath();
-        ctx.ellipse(px, py, pupilRx, pupilRy, 0, 0, Math.PI * 2);
+        if (pShape === 'slit') {
+          ctx.moveTo(px, py - pupilRy);
+          ctx.quadraticCurveTo(px + pupilRx * 1.35, py, px, py + pupilRy);
+          ctx.quadraticCurveTo(px - pupilRx * 1.35, py, px, py - pupilRy);
+          ctx.closePath();
+        } else {
+          ctx.ellipse(px, py, pupilRx, pupilRy, 0, 0, Math.PI * 2);
+        }
         ctx.fill();
 
-        if (s.eyeCatchlight || curious > 0.25) {
-          const ca = s.eyeCatchlight ? 0.94 : Math.min(0.92, curious * 0.95);
+        if (pShape === 'star') {
+          const sr = Math.max(2.6, Math.min(pupilRx, pupilRy) * 0.82);
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+          ctx.beginPath();
+          for (let k = 0; k < 8; k++) {
+            const ang = (k / 8) * Math.PI * 2 - Math.PI / 2;
+            const rad = k % 2 === 0 ? sr : sr * 0.32;
+            const sx = px + Math.cos(ang) * rad;
+            const sy = py + Math.sin(ang) * rad;
+            if (k === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          }
+          ctx.closePath();
+          ctx.fill();
+        }
+
+        const sparkleBoost = Math.max(curious, scruff * 0.75, this.boopCrossEye * 0.65);
+        if (s.eyeCatchlight || sparkleBoost > 0.25) {
+          const ca = s.eyeCatchlight ? 0.94 : Math.min(0.92, sparkleBoost * 0.95);
           ctx.fillStyle = `rgba(255, 255, 255, ${ca.toFixed(2)})`;
           ctx.beginPath();
-          ctx.arc(px - 3.6 - curious * 0.8, py - 4.0 - curious * 0.5, 2.5 + curious * 0.7, 0, Math.PI * 2);
+          ctx.arc(
+            px - (3.6 + sparkleBoost * 0.8) * eScale,
+            py - (4.0 + sparkleBoost * 0.5) * eScale,
+            (2.5 + sparkleBoost * 0.7) * Math.max(0.7, eScale),
+            0,
+            Math.PI * 2,
+          );
           ctx.fill();
           ctx.fillStyle = `rgba(255, 255, 255, ${(ca * 0.76).toFixed(2)})`;
           ctx.beginPath();
-          ctx.arc(px + 3.2, py + 3.2, 1.2 + curious * 0.4, 0, Math.PI * 2);
+          ctx.arc(px + 3.2 * eScale, py + 3.2 * eScale, (1.2 + sparkleBoost * 0.4) * Math.max(0.7, eScale), 0, Math.PI * 2);
           ctx.fill();
         }
       }
@@ -5152,6 +6905,40 @@ export class KuroCatEngine {
       }
 
       ctx.restore();
+
+      // Optional sculpted eyebrows (soft / thick Shiba dots / angry / worried)
+      if (contour.eyebrowStyle !== 'none') {
+        ctx.save();
+        const browY = eyeY - ry - 5.5;
+        ctx.translate(eyeXs[idx], browY);
+        ctx.fillStyle = s.eyebrowColor;
+        ctx.strokeStyle = s.eyebrowColor;
+        ctx.lineCap = 'round';
+        if (contour.eyebrowStyle === 'thick') {
+          ctx.beginPath();
+          ctx.ellipse(side * -1.5, 0, 5.4 * eScale, 3.3 * eScale, side * -0.18, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (contour.eyebrowStyle === 'angry') {
+          ctx.lineWidth = 2.6;
+          ctx.beginPath();
+          ctx.moveTo(side * -9.5 * eScale, 2.8);
+          ctx.lineTo(side * 9.5 * eScale, -3.0);
+          ctx.stroke();
+        } else if (contour.eyebrowStyle === 'worried') {
+          ctx.lineWidth = 2.3;
+          ctx.beginPath();
+          ctx.moveTo(side * -9.0 * eScale, -2.6);
+          ctx.quadraticCurveTo(0, -1.0, side * 9.5 * eScale, 2.8);
+          ctx.stroke();
+        } else {
+          ctx.lineWidth = 2.0;
+          ctx.beginPath();
+          ctx.moveTo(side * -9.5 * eScale, 1.2);
+          ctx.quadraticCurveTo(0, -3.4, side * 9.5 * eScale, 1.4);
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
     }
   }
 
@@ -5293,7 +7080,7 @@ export class KuroCatEngine {
 
     // Mitten paw ball
     ctx.save();
-    if (!isSmear && !s.isDarkBase) {
+    if (!isSmear && !s.isDarkBase && !this.chromaKeyBg) {
       ctx.shadowColor = 'rgba(36, 32, 30, 0.22)';
       ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.shadowOffsetY = 1.5;

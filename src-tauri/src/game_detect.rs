@@ -24,6 +24,34 @@ pub fn is_game_active() -> bool {
 pub struct GameActivePayload {
     pub active: bool,
     pub game_name: Option<String>,
+    pub needs_admin: bool,
+}
+
+/// Kernel anti-cheat titles where we recommend "Pause & Hide (Anti-Cheat Safe Mode)"
+/// rather than prompting the user to elevate KuroCat as Administrator.
+const KERNEL_ANTICHEAT_EXES: &[&str] = &[
+    "valorant-win64-shipping.exe",
+    "deltaforceclient-win64-shipping.exe",
+    "df_client.exe",
+    "league of legends.exe",
+];
+
+/// Pure, unit-testable policy for whether to emit the non-intrusive "elevate as admin" hint.
+pub fn should_suggest_admin_elevation(
+    exe_path: &str,
+    game_detected: bool,
+    target_elevated: bool,
+    self_elevated: bool,
+) -> bool {
+    if !game_detected || !target_elevated || self_elevated {
+        return false;
+    }
+    let path_lower = exe_path.trim().replace('/', "\\").to_ascii_lowercase();
+    let exe_name = path_lower.rsplit('\\').next().unwrap_or("");
+    if exe_name.is_empty() || KERNEL_ANTICHEAT_EXES.contains(&exe_name) {
+        return false;
+    }
+    true
 }
 
 /// Known non-game apps (browsers, video players, office, chat, IDEs, streaming tools) that must
@@ -400,6 +428,7 @@ pub fn start_game_detection_watcher(
     std::thread::spawn(move || {
         let mut active = false;
         let mut active_name: Option<String> = None;
+        let mut active_needs_admin = false;
         let mut clear_streak: u8 = 0;
         // ~8s Alt-Tab grace window (4 ticks * 2000ms) so quick Alt-Tabs don't flicker Eco Mode / headphones
         const CLEAR_GRACE_TICKS: u8 = 4;
@@ -415,6 +444,7 @@ pub fn start_game_detection_watcher(
                 if active {
                     active = false;
                     active_name = None;
+                    active_needs_admin = false;
                     clear_streak = 0;
                     GAME_ACTIVE.store(false, Ordering::Relaxed);
                     let _ = app.emit(
@@ -422,6 +452,7 @@ pub fn start_game_detection_watcher(
                         GameActivePayload {
                             active: false,
                             game_name: None,
+                            needs_admin: false,
                         },
                     );
                 }
@@ -429,23 +460,28 @@ pub fn start_game_detection_watcher(
             }
 
             #[cfg(windows)]
-            let detected = win_impl::detect_foreground_game_cached(&mut fg_cache);
+            let (detected, needs_admin) = win_impl::detect_foreground_game_cached(&mut fg_cache);
             #[cfg(target_os = "macos")]
-            let detected = mac_impl::detect_foreground_game();
+            let (detected, needs_admin) = (mac_impl::detect_foreground_game(), false);
             #[cfg(all(not(windows), not(target_os = "macos")))]
-            let detected: Option<String> = None;
+            let (detected, needs_admin): (Option<String>, bool) = (None, false);
 
             if let Some(game_name) = detected {
                 clear_streak = 0;
-                if !active || active_name.as_deref() != Some(game_name.as_str()) {
+                if !active
+                    || active_name.as_deref() != Some(game_name.as_str())
+                    || active_needs_admin != needs_admin
+                {
                     active = true;
                     active_name = Some(game_name.clone());
+                    active_needs_admin = needs_admin;
                     GAME_ACTIVE.store(true, Ordering::Relaxed);
                     let _ = app.emit(
                         "kuro-game-active",
                         GameActivePayload {
                             active: true,
                             game_name: Some(game_name),
+                            needs_admin,
                         },
                     );
                 }
@@ -454,6 +490,7 @@ pub fn start_game_detection_watcher(
                 if clear_streak >= CLEAR_GRACE_TICKS {
                     active = false;
                     active_name = None;
+                    active_needs_admin = false;
                     clear_streak = 0;
                     GAME_ACTIVE.store(false, Ordering::Relaxed);
                     let _ = app.emit(
@@ -461,6 +498,7 @@ pub fn start_game_detection_watcher(
                         GameActivePayload {
                             active: false,
                             game_name: None,
+                            needs_admin: false,
                         },
                     );
                 }
@@ -471,8 +509,11 @@ pub fn start_game_detection_watcher(
 
 #[cfg(windows)]
 mod win_impl {
-    use super::classify_windows_foreground;
-    use windows_sys::Win32::Foundation::CloseHandle;
+    use super::{classify_windows_foreground, should_suggest_admin_elevation};
+    use std::ffi::c_void;
+    use windows_sys::Win32::Foundation::{
+        BOOL, CloseHandle, ERROR_ACCESS_DENIED, GetLastError, HANDLE,
+    };
     use windows_sys::Win32::System::Threading::{
         OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION,
     };
@@ -483,21 +524,69 @@ mod win_impl {
         GetForegroundWindow, GetWindowTextW, GetWindowThreadProcessId,
     };
 
+    #[link(name = "advapi32")]
+    extern "system" {
+        fn OpenProcessToken(
+            process_handle: HANDLE,
+            desired_access: u32,
+            token_handle: *mut HANDLE,
+        ) -> BOOL;
+        fn GetTokenInformation(
+            token_handle: HANDLE,
+            token_information_class: u32,
+            token_information: *mut c_void,
+            token_information_length: u32,
+            return_length: *mut u32,
+        ) -> BOOL;
+    }
+
+    const TOKEN_QUERY: u32 = 0x0008;
+    const TOKEN_ELEVATION_CLASS: u32 = 20;
+
+    #[repr(C)]
+    struct TokenElevation {
+        token_is_elevated: u32,
+    }
+
+    /// Read-only check whether a foreground process runs at a higher privilege level than us.
+    /// From a non-elevated (Medium-IL) process, `OpenProcessToken(TOKEN_QUERY)` on a High-IL
+    /// (Administrator) process fails with `ERROR_ACCESS_DENIED`, while on a Medium-IL process
+    /// it succeeds with `token_is_elevated == 0`.
+    unsafe fn is_process_elevated(hproc: HANDLE) -> bool {
+        let mut token: HANDLE = std::ptr::null_mut();
+        if OpenProcessToken(hproc, TOKEN_QUERY, &mut token) == 0 || token.is_null() {
+            return GetLastError() == ERROR_ACCESS_DENIED;
+        }
+        let mut elevation = TokenElevation {
+            token_is_elevated: 0,
+        };
+        let mut ret_len: u32 = 0;
+        let ok = GetTokenInformation(
+            token,
+            TOKEN_ELEVATION_CLASS,
+            (&mut elevation as *mut TokenElevation).cast(),
+            std::mem::size_of::<TokenElevation>() as u32,
+            &mut ret_len,
+        );
+        let _ = CloseHandle(token);
+        ok != 0 && elevation.token_is_elevated != 0
+    }
+
     #[derive(Default)]
     pub struct ForegroundCache {
         last_fg: isize,
         last_d3d_fs: bool,
-        last_result: Option<String>,
+        last_result: (Option<String>, bool),
     }
 
-    pub fn detect_foreground_game_cached(cache: &mut ForegroundCache) -> Option<String> {
+    pub fn detect_foreground_game_cached(cache: &mut ForegroundCache) -> (Option<String>, bool) {
         unsafe {
             let fg = GetForegroundWindow();
             if fg.is_null() {
                 cache.last_fg = 0;
                 cache.last_d3d_fs = false;
-                cache.last_result = None;
-                return None;
+                cache.last_result = (None, false);
+                return (None, false);
             }
 
             let mut quns: i32 = 0;
@@ -513,27 +602,27 @@ mod win_impl {
             if pid == 0 {
                 cache.last_fg = fg_id;
                 cache.last_d3d_fs = is_d3d_fs;
-                cache.last_result = None;
-                return None;
+                cache.last_result = (None, false);
+                return (None, false);
             }
 
             let hproc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
             if hproc.is_null() {
                 cache.last_fg = fg_id;
                 cache.last_d3d_fs = is_d3d_fs;
-                cache.last_result = None;
-                return None;
+                cache.last_result = (None, false);
+                return (None, false);
             }
 
             let mut path_buf = [0u16; 512];
             let mut path_len: u32 = path_buf.len() as u32;
             let ok = QueryFullProcessImageNameW(hproc, 0, path_buf.as_mut_ptr(), &mut path_len);
-            CloseHandle(hproc);
             if ok == 0 || path_len == 0 {
+                CloseHandle(hproc);
                 cache.last_fg = fg_id;
                 cache.last_d3d_fs = is_d3d_fs;
-                cache.last_result = None;
-                return None;
+                cache.last_result = (None, false);
+                return (None, false);
             }
             let exe_path = String::from_utf16_lossy(&path_buf[..path_len as usize]);
 
@@ -546,10 +635,25 @@ mod win_impl {
             };
 
             let result = classify_windows_foreground(&exe_path, &window_title, is_d3d_fs);
+            let self_elevated = crate::win_is_elevated();
+            let target_elevated = if result.is_some() && !self_elevated {
+                is_process_elevated(hproc)
+            } else {
+                false
+            };
+            CloseHandle(hproc);
+
+            let needs_admin = should_suggest_admin_elevation(
+                &exe_path,
+                result.is_some(),
+                target_elevated,
+                self_elevated,
+            );
+
             cache.last_fg = fg_id;
             cache.last_d3d_fs = is_d3d_fs;
-            cache.last_result = result.clone();
-            result
+            cache.last_result = (result.clone(), needs_admin);
+            (result, needs_admin)
         }
     }
 }
@@ -591,7 +695,43 @@ mod mac_impl {
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_macos_foreground, classify_windows_foreground};
+    use super::{
+        classify_macos_foreground, classify_windows_foreground, should_suggest_admin_elevation,
+    };
+
+    #[test]
+    fn suggests_admin_hint_only_for_elevated_non_kernel_anticheat_games() {
+        assert!(should_suggest_admin_elevation(
+            r"D:\Games\Genshin Impact\YuanShen.exe",
+            true,
+            true,
+            false
+        ));
+        assert!(!should_suggest_admin_elevation(
+            r"D:\Games\Genshin Impact\YuanShen.exe",
+            true,
+            true,
+            true
+        ));
+        assert!(!should_suggest_admin_elevation(
+            r"D:\SteamLibrary\steamapps\common\Hades\Hades.exe",
+            true,
+            false,
+            false
+        ));
+        assert!(!should_suggest_admin_elevation(
+            r"C:\Riot Games\VALORANT\live\ShooterGame\Binaries\Win64\VALORANT-Win64-Shipping.exe",
+            true,
+            true,
+            false
+        ));
+        assert!(!should_suggest_admin_elevation(
+            r"D:\WeGameApps\DeltaForce\DeltaForceClient-Win64-Shipping.exe",
+            true,
+            true,
+            false
+        ));
+    }
 
     #[test]
     fn recognizes_known_games_and_engine_paths() {

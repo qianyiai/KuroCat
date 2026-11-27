@@ -172,6 +172,55 @@ pub fn configure_fullscreen(window: &WebviewWindow, always_on_top: bool) {
     });
 }
 
+/// Checks whether the frontmost macOS application is a Remote Desktop / screen-sharing client
+/// so KuroCat can temporarily yield beneath it without hiding (#40 cross-platform parity).
+pub fn frontmost_is_remote_desktop() -> bool {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    unsafe {
+        let Some(cls) = AnyClass::get(c"NSWorkspace") else {
+            return false;
+        };
+        let ws: *mut AnyObject = msg_send![cls, sharedWorkspace];
+        if ws.is_null() {
+            return false;
+        }
+        let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+        if app.is_null() {
+            return false;
+        }
+        let bid_obj: *const NSString = msg_send![app, bundleIdentifier];
+        let name_obj: *const NSString = msg_send![app, localizedName];
+        let bid = if !bid_obj.is_null() {
+            (*bid_obj).to_string()
+        } else {
+            String::new()
+        };
+        let name = if !name_obj.is_null() {
+            (*name_obj).to_string()
+        } else {
+            String::new()
+        };
+        crate::macos_is_remote_desktop_app(&bid, &name)
+    }
+}
+
+/// Smoothly yields KuroCat from `NSStatusWindowLevel` down to `NSNormalWindowLevel` while a
+/// Remote Desktop app is active, then restores `NSStatusWindowLevel` when switching away (#40).
+pub fn set_yielded_below_remote_desktop(window: &WebviewWindow, yielded: bool) {
+    let window = window.clone();
+    let _ = window.clone().run_on_main_thread(move || {
+        let _ = with_native_window(&window, |_, native| {
+            native.setLevel(if yielded {
+                NSNormalWindowLevel
+            } else {
+                NSStatusWindowLevel
+            });
+        });
+    });
+}
+
 pub fn create_display_menu(app: &AppHandle) -> tauri::Result<Submenu<tauri::Wry>> {
     let menu = Submenu::with_id(app, "mac_display_menu", "选择显示器", true)?;
     app.manage(DisplayMenu(menu.clone()));
@@ -288,6 +337,143 @@ pub fn handle_display_menu(app: &AppHandle, item_id: &str) {
     let _ = app.emit("kuro-settings", updated);
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScreenRects {
+    /// Full `NSScreen::frame()` in AppKit logical points (Y-up): `(x, y, w, h)`.
+    pub frame: (f64, f64, f64, f64),
+    /// Usable `NSScreen::visibleFrame()` (excluding menu bar & Dock) in AppKit logical points (Y-up).
+    pub visible_frame: (f64, f64, f64, f64),
+}
+
+#[derive(Debug, Clone)]
+pub struct DragSnapshot {
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub width: f64,
+    pub height: f64,
+    pub min_x: f64,
+    pub max_x: f64,
+    pub min_y: f64,
+    pub max_y: f64,
+    /// Height of the primary `NSScreen` (origin `(0, 0)`) in AppKit logical points,
+    /// used to convert Quartz Y-down cursor coordinates into AppKit Y-up points.
+    pub primary_height: f64,
+    /// Per-screen `(frame, visibleFrame)` rectangles in AppKit logical points (Y-up).
+    pub screens: Vec<ScreenRects>,
+}
+
+#[allow(dead_code)]
+pub fn clamp_drag_origin(
+    x: f64,
+    y: f64,
+    win_w: f64,
+    win_h: f64,
+    bounds: NSRect,
+) -> (f64, f64) {
+    let (min_x, max_x, min_y, max_y) = crate::macos_drag_bounds(
+        win_w,
+        win_h,
+        bounds.origin.x,
+        bounds.origin.y,
+        bounds.origin.x + bounds.size.width,
+        bounds.origin.y + bounds.size.height,
+    );
+    (x.clamp(min_x, max_x), y.clamp(min_y, max_y))
+}
+
+fn query_drag_snapshot_on_main(app: &AppHandle) -> Option<DragSnapshot> {
+    let window = app.get_webview_window("main")?;
+    with_native_window(&window, |mtm, native| {
+        let frame = native.frame();
+        let screens: Vec<ScreenRects> = NSScreen::screens(mtm)
+            .iter()
+            .map(|screen| {
+                let rect = screen.frame();
+                let vis = screen.visibleFrame();
+                ScreenRects {
+                    frame: (
+                        rect.origin.x,
+                        rect.origin.y,
+                        rect.size.width,
+                        rect.size.height,
+                    ),
+                    visible_frame: (vis.origin.x, vis.origin.y, vis.size.width, vis.size.height),
+                }
+            })
+            .collect();
+        let screen_frames: Vec<(f64, f64, f64, f64)> = screens.iter().map(|s| s.frame).collect();
+        let primary_height = screens
+            .iter()
+            .find(|s| s.frame.0.abs() < 0.5 && s.frame.1.abs() < 0.5)
+            .or_else(|| screens.first())
+            .map(|s| s.frame.3)
+            .unwrap_or(900.0);
+        let (u_min_x, u_min_y, u_max_x, u_max_y) = crate::macos_screens_union(&screen_frames)?;
+        let (min_x, max_x, min_y, max_y) = crate::macos_drag_bounds(
+            frame.size.width,
+            frame.size.height,
+            u_min_x,
+            u_min_y,
+            u_max_x,
+            u_max_y,
+        );
+        Some(DragSnapshot {
+            origin_x: frame.origin.x,
+            origin_y: frame.origin.y,
+            width: frame.size.width,
+            height: frame.size.height,
+            min_x,
+            max_x,
+            min_y,
+            max_y,
+            primary_height,
+            screens,
+        })
+    })
+    .flatten()
+}
+
+pub fn drag_snapshot(app: &AppHandle) -> Option<DragSnapshot> {
+    if MainThreadMarker::new().is_some() {
+        return query_drag_snapshot_on_main(app);
+    }
+    let (tx, rx) = std::sync::mpsc::sync_channel(1);
+    let handle = app.clone();
+    if app
+        .run_on_main_thread(move || {
+            let _ = tx.send(query_drag_snapshot_on_main(&handle));
+        })
+        .is_err()
+    {
+        return None;
+    }
+    rx.recv_timeout(std::time::Duration::from_millis(250))
+        .ok()
+        .flatten()
+}
+
+pub fn set_window_origin(app: &AppHandle, x: f64, y: f64) {
+    if !x.is_finite() || !y.is_finite() {
+        return;
+    }
+    if MainThreadMarker::new().is_some() {
+        if let Some(window) = app.get_webview_window("main") {
+            let _ = with_native_window(&window, |_, native| {
+                native.setFrameOrigin(NSPoint::new(x, y));
+            });
+        }
+        return;
+    }
+    let handle = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(window) = handle.get_webview_window("main") {
+            let _ = with_native_window(&window, |_, native| {
+                native.setFrameOrigin(NSPoint::new(x, y));
+            });
+        }
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,6 +483,21 @@ mod tests {
         let visible = NSRect::new(NSPoint::new(-2304.0, 120.0), NSSize::new(2304.0, 1250.0));
         let frame = bottom_right_frame(visible, NSSize::new(260.0, 410.0));
         assert_eq!(frame.origin, NSPoint::new(-288.0, 136.0));
+    }
+
+    #[test]
+    fn drag_origin_clamp_respects_appkit_y_up_headroom_and_margins() {
+        let union = NSRect::new(NSPoint::new(-2304.0, 0.0), NSSize::new(3816.0, 1416.0));
+        let (x, y_top) = clamp_drag_origin(200.0, 2000.0, 420.0, 440.0, union);
+        assert_eq!(x, 200.0);
+        // 1416 - 440 + round(440 * 0.17) = 1051
+        assert_eq!(y_top, 1051.0);
+
+        let (x_left, y_bottom) = clamp_drag_origin(-5000.0, -900.0, 420.0, 440.0, union);
+        // -2304 - round(420 * 0.28) = -2422 (allows >=24% deliberate Edge-Peek push)
+        assert_eq!(x_left, -2422.0);
+        // 0 + round(440 * 0.68) - 440 = -141
+        assert_eq!(y_bottom, -141.0);
     }
 
     #[test]

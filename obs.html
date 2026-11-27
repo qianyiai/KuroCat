@@ -15,17 +15,127 @@
         width: 100%;
         height: 100%;
         overflow: hidden;
-        background: transparent !important;
+        background: transparent;
+      }
+      body.live-mode {
+        cursor: grab;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      body.live-mode:active {
+        cursor: grabbing;
       }
       #obs-canvas,
       #obs-canvas-3d {
         display: block;
         width: 100vw;
         height: 100vh;
-        background: transparent !important;
+        background: transparent;
       }
       .hidden {
         display: none !important;
+      }
+      #live-toolbar {
+        position: fixed;
+        top: 10px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 4px 7px 4px 10px;
+        border-radius: 999px;
+        background: rgba(16, 18, 24, 0.84);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.36);
+        color: rgba(244, 246, 252, 0.92);
+        font-family: 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1;
+        white-space: nowrap;
+        z-index: 80;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 150ms ease;
+      }
+      body:hover #live-toolbar {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .live-grip {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        cursor: grab;
+        letter-spacing: 0.01em;
+      }
+      .live-grip-dots {
+        opacity: 0.55;
+        font-size: 11px;
+        letter-spacing: -1px;
+      }
+      .live-sep {
+        width: 1px;
+        height: 12px;
+        background: rgba(255, 255, 255, 0.16);
+        flex-shrink: 0;
+      }
+      .live-swatches {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      .live-swatch {
+        width: 14px;
+        height: 14px;
+        border-radius: 50%;
+        border: 1.5px solid rgba(255, 255, 255, 0.38);
+        padding: 0;
+        cursor: pointer;
+        outline: none;
+        transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
+      }
+      .live-swatch:hover {
+        transform: scale(1.12);
+        border-color: rgba(255, 255, 255, 0.85);
+      }
+      .live-swatch.active {
+        border-color: #ffffff;
+        box-shadow: 0 0 0 1.5px rgba(16, 18, 24, 0.92), 0 0 0 3px #ffffff;
+        transform: scale(1.06);
+      }
+      .live-swatch[data-chroma='blue'] {
+        background: #0047ff;
+      }
+      .live-swatch[data-chroma='green'] {
+        background: #00b140;
+      }
+      .live-swatch[data-chroma='magenta'] {
+        background: #ff00ff;
+      }
+      .live-close-btn {
+        width: 20px;
+        height: 20px;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        color: rgba(244, 246, 252, 0.78);
+        font-size: 15px;
+        font-weight: 500;
+        line-height: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        outline: none;
+        transition: background 120ms ease, color 120ms ease;
+      }
+      .live-close-btn:hover {
+        background: rgba(255, 86, 86, 0.28);
+        color: #ff9c9c;
       }
       .agent-bubble {
         position: fixed;
@@ -59,6 +169,47 @@
   <body>
     <canvas id="obs-canvas" aria-label="KuroCat OBS Transparent Source"></canvas>
     <canvas id="obs-canvas-3d" class="hidden" aria-label="KuroCat OBS 3D Transparent Source"></canvas>
+    <div id="live-toolbar" class="hidden" role="toolbar" aria-label="KuroCat Live Chroma Controls">
+      <span class="live-grip" title="拖动窗口">
+        <span class="live-grip-dots" aria-hidden="true">⋮⋮</span>
+        <span>KuroCat Live</span>
+      </span>
+      <span class="live-sep" aria-hidden="true"></span>
+      <div class="live-swatches" role="group" aria-label="Chroma Key Background">
+        <button
+          type="button"
+          class="live-swatch"
+          data-chroma="blue"
+          aria-label="Chroma Blue (#0047FF)"
+          aria-pressed="false"
+          title="蓝幕 #0047FF"
+        ></button>
+        <button
+          type="button"
+          class="live-swatch"
+          data-chroma="green"
+          aria-label="Chroma Green (#00B140)"
+          aria-pressed="false"
+          title="绿幕 #00B140"
+        ></button>
+        <button
+          type="button"
+          class="live-swatch"
+          data-chroma="magenta"
+          aria-label="Chroma Magenta (#FF00FF)"
+          aria-pressed="false"
+          title="品红幕 #FF00FF"
+        ></button>
+      </div>
+      <span class="live-sep" aria-hidden="true"></span>
+      <button
+        type="button"
+        id="live-close-btn"
+        class="live-close-btn"
+        aria-label="Close KuroCat Live"
+        title="关闭直播采集窗口"
+      >×</button>
+    </div>
     <div id="agent-bubble" class="agent-bubble hidden" role="status" aria-live="polite"></div>
     <script type="module" src="/src/obsMain.ts"></script>
   </body>

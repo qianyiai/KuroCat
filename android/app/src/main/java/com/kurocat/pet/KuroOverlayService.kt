@@ -9,10 +9,12 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import android.provider.Settings
 import android.view.Gravity
 import android.view.MotionEvent
@@ -42,6 +44,7 @@ class KuroOverlayService : Service(), KuroPetListener {
         const val ACTION_TOGGLE_LOCK = "com.kurocat.pet.ACTION_TOGGLE_LOCK"
         const val ACTION_NEXT_SKIN = "com.kurocat.pet.ACTION_NEXT_SKIN"
         const val ACTION_TOGGLE_VISIBLE = "com.kurocat.pet.ACTION_TOGGLE_VISIBLE"
+        const val ACTION_RESET_POS = "com.kurocat.pet.ACTION_RESET_POS"
 
         fun start(ctx: Context) {
             val intent = Intent(ctx, KuroOverlayService::class.java).setAction(ACTION_START)
@@ -63,6 +66,7 @@ class KuroOverlayService : Service(), KuroPetListener {
     private var layoutParams: WindowManager.LayoutParams? = null
     private var pageReady = false
     private var petHidden = false
+    private var lastNotifKey: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -98,7 +102,28 @@ class KuroOverlayService : Service(), KuroPetListener {
             ACTION_TOGGLE_VISIBLE -> {
                 petHidden = !petHidden
                 rootView?.visibility = if (petHidden) View.GONE else View.VISIBLE
+                if (petHidden) {
+                    webView?.onPause()
+                } else {
+                    webView?.onResume()
+                }
                 updateNotification()
+                return START_STICKY
+            }
+            ACTION_RESET_POS -> {
+                val (wPx, hPx) = computeOverlaySizePx()
+                val (defaultX, defaultY) = computeDefaultOverlayPos(wPx, hPx)
+                KuroPrefs.setOverlayPos(this, defaultX, defaultY)
+                val root = rootView
+                val lp = layoutParams
+                if (root != null && lp != null) {
+                    lp.x = defaultX
+                    lp.y = defaultY
+                    try {
+                        windowManager.updateViewLayout(root, lp)
+                    } catch (_: Throwable) {
+                    }
+                }
                 return START_STICKY
             }
         }
@@ -113,6 +138,7 @@ class KuroOverlayService : Service(), KuroPetListener {
         } else {
             petHidden = false
             rootView?.visibility = View.VISIBLE
+            webView?.onResume()
             applyOverlayWindowFlags()
             applyOverlaySize()
             syncSettingsToJs()
@@ -120,6 +146,25 @@ class KuroOverlayService : Service(), KuroPetListener {
         }
         KuroEventBus.postOverlayStateChanged(true)
         return START_STICKY
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        val root = rootView ?: return
+        val lp = layoutParams ?: return
+        val dm = resources.displayMetrics
+        val maxX = (dm.widthPixels - lp.width).coerceAtLeast(0)
+        val maxY = (dm.heightPixels - lp.height).coerceAtLeast(0)
+        val clampedX = lp.x.coerceIn(0, maxX)
+        val clampedY = lp.y.coerceIn(0, maxY)
+        if (clampedX != lp.x || clampedY != lp.y) {
+            lp.x = clampedX
+            lp.y = clampedY
+            try {
+                windowManager.updateViewLayout(root, lp)
+            } catch (_: Throwable) {
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -192,7 +237,14 @@ class KuroOverlayService : Service(), KuroPetListener {
             .build()
     }
 
+    private fun currentNotifKey(): String {
+        val locked = KuroPrefs.isTouchThroughLocked(this)
+        val breed = KuroPrefs.getBreed(this)
+        return "$petHidden|$locked|$breed"
+    }
+
     private fun startForegroundWithNotification() {
+        lastNotifKey = currentNotifKey()
         val notif = buildNotification()
         val fgsType = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
@@ -203,6 +255,9 @@ class KuroOverlayService : Service(), KuroPetListener {
     }
 
     private fun updateNotification() {
+        val key = currentNotifKey()
+        if (key == lastNotifKey) return
+        lastNotifKey = key
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         nm.notify(NOTIF_ID, buildNotification())
     }
@@ -218,12 +273,18 @@ class KuroOverlayService : Service(), KuroPetListener {
         return w to h
     }
 
+    private fun computeDefaultOverlayPos(wPx: Int, hPx: Int): Pair<Int, Int> {
+        val dm = resources.displayMetrics
+        val defaultX = (dm.widthPixels - wPx - (12 * dm.density).roundToInt()).coerceAtLeast(0)
+        val defaultY = (dm.heightPixels - hPx - (160 * dm.density).roundToInt()).coerceAtLeast(0)
+        return defaultX to defaultY
+    }
+
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
     private fun attachOverlayWindow() {
         val dm = resources.displayMetrics
         val (wPx, hPx) = computeOverlaySizePx()
-        val defaultX = (dm.widthPixels - wPx - (12 * dm.density).roundToInt()).coerceAtLeast(0)
-        val defaultY = (dm.heightPixels - hPx - (160 * dm.density).roundToInt()).coerceAtLeast(0)
+        val (defaultX, defaultY) = computeDefaultOverlayPos(wPx, hPx)
         val initX = KuroPrefs.getOverlayX(this, defaultX).coerceIn(0, (dm.widthPixels - wPx).coerceAtLeast(0))
         val initY = KuroPrefs.getOverlayY(this, defaultY).coerceIn(0, (dm.heightPixels - hPx).coerceAtLeast(0))
 
@@ -293,10 +354,12 @@ class KuroOverlayService : Service(), KuroPetListener {
         val dragSlop = 10f * dm.density
         var downRawX = 0f
         var downRawY = 0f
+        var prevRawX = 0f
         var startX = 0
         var startY = 0
         var dragging = false
         var lastTapAt = 0L
+        var lastDragVelMs = 0L
 
         container.setOnTouchListener { _, ev ->
             val curLp = layoutParams ?: return@setOnTouchListener false
@@ -304,9 +367,11 @@ class KuroOverlayService : Service(), KuroPetListener {
                 MotionEvent.ACTION_DOWN -> {
                     downRawX = ev.rawX
                     downRawY = ev.rawY
+                    prevRawX = ev.rawX
                     startX = curLp.x
                     startY = curLp.y
                     dragging = false
+                    lastDragVelMs = 0L
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -314,6 +379,9 @@ class KuroOverlayService : Service(), KuroPetListener {
                     val dy = ev.rawY - downRawY
                     if (!dragging && (abs(dx) > dragSlop || abs(dy) > dragSlop)) {
                         dragging = true
+                        prevRawX = ev.rawX
+                        lastDragVelMs = 0L
+                        evalJs("window.KuroAndroid && window.KuroAndroid.setDragging(true, 0);")
                     }
                     if (dragging) {
                         val metrics = resources.displayMetrics
@@ -325,11 +393,22 @@ class KuroOverlayService : Service(), KuroPetListener {
                             windowManager.updateViewLayout(container, curLp)
                         } catch (_: Throwable) {
                         }
+                        val nowMs = SystemClock.uptimeMillis()
+                        if (nowMs - lastDragVelMs >= 20L) {
+                            val vx = ((ev.rawX - prevRawX) / metrics.widthPixels.coerceAtLeast(1)) * 68f
+                            prevRawX = ev.rawX
+                            lastDragVelMs = nowMs
+                            if (vx.isFinite()) {
+                                evalJs("window.KuroAndroid && window.KuroAndroid.updateDragVelocity($vx);")
+                            }
+                        }
                     }
                     true
                 }
                 MotionEvent.ACTION_UP -> {
                     if (dragging) {
+                        dragging = false
+                        evalJs("window.KuroAndroid && window.KuroAndroid.setDragging(false, 0);")
                         KuroPrefs.setOverlayPos(this@KuroOverlayService, curLp.x, curLp.y)
                     } else {
                         val now = System.currentTimeMillis()
@@ -342,9 +421,19 @@ class KuroOverlayService : Service(), KuroPetListener {
                             )
                         } else {
                             lastTapAt = now
-                            // Single tap pets the cat / whale-girl!
-                            evalJs("window.KuroAndroid && window.KuroAndroid.petHead();")
+                            // Single tap dispatches zone-aware tapAt(nx, ny)
+                            val nx = (ev.x / container.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                            val ny = (ev.y / container.height.coerceAtLeast(1)).coerceIn(0f, 1f)
+                            evalJs("window.KuroAndroid && window.KuroAndroid.tapAt($nx, $ny);")
                         }
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    if (dragging) {
+                        dragging = false
+                        evalJs("window.KuroAndroid && window.KuroAndroid.setDragging(false, 0);")
+                        KuroPrefs.setOverlayPos(this@KuroOverlayService, curLp.x, curLp.y)
                     }
                     true
                 }
@@ -372,6 +461,7 @@ class KuroOverlayService : Service(), KuroPetListener {
         }
         if (wv != null) {
             try {
+                wv.onPause()
                 wv.stopLoading()
                 wv.destroy()
             } catch (_: Throwable) {

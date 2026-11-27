@@ -546,7 +546,8 @@ pub fn run_hook_cli(args: &[String]) {
 }
 
 fn cat_skin_properties_schema() -> Value {
-    json!({
+    let mut map = serde_json::Map::new();
+    let core = json!({
         "id": { "type": "string", "description": "Unique lowercase slug ID, e.g. 'bengal-tiger', 'tibetan-fox', 'my-calico'" },
         "name": { "type": "string", "description": "Display name shown in menu, e.g. '霸气小老虎', '淡定藏狐'" },
         "emoji": { "type": "string", "description": "Optional emoji badge, e.g. '🐯', '🦊'" },
@@ -555,13 +556,6 @@ fn cat_skin_properties_schema() -> Value {
         "outlineColor": { "type": "string", "description": "Outer stroke hex color for light coats, e.g. '#5d5148'" },
         "legLineColor": { "type": "string" },
         "pattern": { "type": "string", "enum": ["solid", "bicolor", "tuxedo", "tabby", "calico", "siamese"] },
-        "faceShape": { "type": "string", "enum": ["round", "square", "wide", "fox", "oval"], "description": "Head silhouette: round (cat), square (Tibetan fox), wide (tiger/bear), fox (pointed chin), oval (bunny/capybara)" },
-        "headWidth": { "type": "number", "minimum": 0.78, "maximum": 1.32, "description": "Horizontal head width multiplier (default 1.0)" },
-        "jawSquareness": { "type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Jawline & cheek squareness (0.0 round .. 1.0 boxy square face)" },
-        "earShape": { "type": "string", "enum": ["cat", "round", "tall", "small", "wide"], "description": "Ear silhouette: cat, round (tiger/bear/panda), tall (fox/bunny), small (Tibetan fox), wide (fennec)" },
-        "earScale": { "type": "number", "minimum": 0.55, "maximum": 1.55, "description": "Ear size multiplier (default 1.0)" },
-        "eyeSquint": { "type": "number", "minimum": 0.0, "maximum": 0.75, "description": "Resting upper-eyelid droop for deadpan/cool gaze (e.g. 0.50 for Tibetan fox)" },
-        "bodyChubbiness": { "type": "number", "minimum": 0.80, "maximum": 1.25, "description": "Torso chubbiness multiplier (default 1.0)" },
         "maskColor": { "type": "string" },
         "foreheadBridgeColor": { "type": "string" },
         "flankColor": { "type": "string" },
@@ -578,6 +572,8 @@ fn cat_skin_properties_schema() -> Value {
         "tailStripes": { "type": "boolean" },
         "eyeColorTop": { "type": "string" },
         "eyeColorBottom": { "type": "string" },
+        "rightEyeColorTop": { "type": "string", "description": "Heterochromia (odd-eyed): optional viewer-right eye top iris hex color" },
+        "rightEyeColorBottom": { "type": "string", "description": "Heterochromia (odd-eyed): optional viewer-right eye bottom iris hex color" },
         "pupilColor": { "type": "string" },
         "eyeCatchlight": { "type": "boolean" },
         "eyeRimColor": { "type": "string" },
@@ -587,12 +583,41 @@ fn cat_skin_properties_schema() -> Value {
         "mouthColor": { "type": "string" },
         "blushColor": { "type": "string" },
         "whiskerColor": { "type": "string" },
+        "eyebrowColor": { "type": "string", "description": "Optional eyebrow CSS color" },
         "armColor": { "type": "string" },
         "pawColor": { "type": "string" },
         "pawOutlineColor": { "type": "string" },
         "armCreaseColor": { "type": "string" },
         "accentColor": { "type": "string", "description": "Pressed key & clicked mouse highlight hex color" },
-        "accentSideColor": { "type": "string" },
+        "accentSideColor": { "type": "string" }
+    });
+    let sculpting = json!({
+        "faceShape": { "type": "string", "enum": ["round", "square", "wide", "fox", "oval"], "description": "Head silhouette: round (cat), square (Tibetan fox), wide (tiger/bear), fox (pointed chin), oval (bunny/capybara)" },
+        "headWidth": { "type": "number", "minimum": 0.78, "maximum": 1.32, "description": "Horizontal head width multiplier (default 1.0)" },
+        "jawSquareness": { "type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Jawline & cheek squareness (0.0 round .. 1.0 boxy square face)" },
+        "earShape": { "type": "string", "enum": ["cat", "round", "tall", "small", "wide", "folded", "floppy"], "description": "Ear silhouette: cat, round (tiger/bear/panda), tall (fox/bunny/corgi), small (Tibetan fox), wide (fennec), folded (Scottish Fold), floppy (puppy/lop bunny)" },
+        "earScale": { "type": "number", "minimum": 0.55, "maximum": 1.55, "description": "Ear size multiplier (default 1.0)" },
+        "earSpacing": { "type": "number", "minimum": 0.70, "maximum": 1.35, "description": "Horizontal ear spread multiplier (default 1.0)" },
+        "earTilt": { "type": "number", "minimum": -0.45, "maximum": 0.65, "description": "Extra outward ear tilt in radians (-0.45 upright .. +0.65 outward/droopy)" },
+        "eyeSquint": { "type": "number", "minimum": 0.0, "maximum": 0.75, "description": "Resting upper-eyelid droop for deadpan/cool gaze (e.g. 0.50 for Tibetan fox)" },
+        "eyeScale": { "type": "number", "minimum": 0.55, "maximum": 1.45, "description": "Overall eye size multiplier (default 1.0)" },
+        "eyeAspect": { "type": "number", "minimum": 0.60, "maximum": 1.40, "description": "Eye height/width ratio (<1.0 sleek narrow almond, >1.0 big tall round eyes)" },
+        "eyeSpacing": { "type": "number", "minimum": 0.72, "maximum": 1.35, "description": "Horizontal distance between eyes (0.72 close-set .. 1.35 wide-set)" },
+        "eyeOffsetY": { "type": "number", "minimum": -1.0, "maximum": 1.0, "description": "Vertical eye placement (-1.0 higher .. +1.0 lower cute baby face)" },
+        "eyeTilt": { "type": "number", "minimum": -0.50, "maximum": 0.50, "description": "Outer eye corner slant in radians (-0.50 droopy puppy .. +0.50 upturned fox)" },
+        "pupilShape": { "type": "string", "enum": ["oval", "round", "slit", "dot", "star"], "description": "Pupil style: oval (classic cat), round (big anime/puppy), slit (sharp vertical cat slit), dot (tiny kawaii bead), star (4-point star sparkle)" },
+        "pupilScale": { "type": "number", "minimum": 0.40, "maximum": 1.45, "description": "Pupil size multiplier (default 1.0)" },
+        "noseShape": { "type": "string", "enum": ["cat", "round", "wide", "small", "none"], "description": "Nose shape: cat (triangle), round (dog/bear button), wide (tiger/capybara), small (tiny dot), none (hidden)" },
+        "noseScale": { "type": "number", "minimum": 0.50, "maximum": 1.80, "description": "Nose size multiplier (default 1.0)" },
+        "noseOffsetY": { "type": "number", "minimum": -1.0, "maximum": 1.0, "description": "Vertical nose placement (-1.0 higher .. +1.0 lower)" },
+        "mouthShape": { "type": "string", "enum": ["w", "smile", "flat", "open", "blep", "none"], "description": "Mouth style: w (classic :3 cat), smile (curved U), flat (deadpan straight), open (tiny o), blep (:3 with cute pink tongue), none (hidden)" },
+        "mouthScale": { "type": "number", "minimum": 0.55, "maximum": 1.70, "description": "Mouth size/width multiplier (default 1.0)" },
+        "mouthOffsetY": { "type": "number", "minimum": -1.0, "maximum": 1.0, "description": "Vertical mouth placement (-1.0 higher .. +1.0 lower)" },
+        "whiskerLength": { "type": "number", "minimum": 0.0, "maximum": 1.60, "description": "Whisker length multiplier (0.0 hides whiskers for dogs/bears/anime .. 1.60 long whiskers)" },
+        "eyebrowStyle": { "type": "string", "enum": ["none", "soft", "thick", "angry", "worried"], "description": "Eyebrow style: none, soft (thin arch), thick (Shiba dot brows), angry (fierce), worried (droopy inner)" },
+        "blushAlways": { "type": "boolean", "description": "Keep soft rosy cheek blush permanently visible even when not being petted" },
+        "blushScale": { "type": "number", "minimum": 0.50, "maximum": 1.60, "description": "Cheek blush size multiplier (default 1.0)" },
+        "bodyChubbiness": { "type": "number", "minimum": 0.80, "maximum": 1.25, "description": "Torso chubbiness multiplier (default 1.0)" },
         "spots": {
             "type": "array",
             "description": "Custom pet markings/spots (up to 16 in 3D, unlimited in 2D). rx/ry are in 2D canvas px (recommended 6..42).",
@@ -611,7 +636,14 @@ fn cat_skin_properties_schema() -> Value {
                 }
             }
         }
-    })
+    });
+    if let Value::Object(m) = core {
+        map.extend(m);
+    }
+    if let Value::Object(m) = sculpting {
+        map.extend(m);
+    }
+    Value::Object(map)
 }
 
 fn tool_definitions() -> Value {
@@ -628,7 +660,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "get_cat_schema",
-            "description": "Get the full CatSkinConfig JSON schema including faceShape/earShape/eyeSquint contour customization, pattern presets, spot coordinate & pixel units, and Tiger / Tibetan Fox examples.",
+            "description": "Get the full CatSkinConfig JSON schema including faceShape, earShape (incl. folded/floppy), full eye/pupil/heterochromia/nose/mouth/eyebrow/whisker/blush sculpting, spots[], and Tiger / Tibetan Fox / Scottish Fold / Shiba Inu examples.",
             "inputSchema": {
                 "type": "object",
                 "properties": {},
@@ -637,7 +669,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "upsert_cat",
-            "description": "Create a new custom cat/animal or update an existing one (coat colors, pattern, faceShape, jawSquareness, earShape, eyeSquint, tail, eyes, whiskers, accent color, spots[]). Hot-reloads live in both 2D & 3D! Set merge: true to patch only supplied fields on an existing cat.",
+            "description": "Create a new custom cat/animal or update an existing one (coat colors, pattern, faceShape, jawSquareness, earShape/earSpacing/earTilt, eyeScale/eyeAspect/eyeSpacing/eyeOffsetY/eyeTilt/eyeSquint, pupilShape/pupilScale, heterochromia rightEyeColorTop/Bottom, noseShape/mouthShape/eyebrowStyle/whiskerLength/blushAlways, tail, accent color, spots[]). Hot-reloads live in both 2D & 3D! Set merge: true to patch only supplied fields.",
             "inputSchema": {
                 "type": "object",
                 "required": ["cat"],
@@ -705,7 +737,7 @@ fn tool_definitions() -> Value {
         },
         {
             "name": "get_settings",
-            "description": "Read current KuroCat desktop pet settings (active pet, 3D/2D mode, scale, bubbles, purr sound, always-on-top, click-through lock, fpsCap, language, privacy guard, OBS, MCP).",
+            "description": "Read current KuroCat desktop pet settings (active pet, 3D/2D mode, scale, bubbles, purr sound, typing sound, always-on-top, click-through lock, fpsCap, language, privacy guard, OBS, Live Capture window, MCP).",
             "inputSchema": {
                 "type": "object",
                 "properties": {},
@@ -723,6 +755,7 @@ fn tool_definitions() -> Value {
                     "collarColor": { "type": "string", "enum": ["none", "red", "blue", "pink", "green"], "description": "Optional 3D collar & gold bell color." },
                     "headphoneMode": { "type": "string", "enum": ["auto", "on", "off"], "description": "Gaming headset mode." },
                     "scale": { "type": "number", "minimum": 0.2, "maximum": 1.5 },
+                    "opacity": { "type": "number", "minimum": 0.2, "maximum": 1.0, "description": "Desktop pet overall opacity from 0.2 (20%) to 1.0 (100%, default)." },
                     "keyboardLayout": { "type": "string", "enum": ["65", "108"] },
                     "keyboardOrientation": { "type": "string", "enum": ["cat", "viewer"] },
                     "tailKeyMode": { "type": "string", "enum": ["smart", "custom", "edge", "off"] },
@@ -732,6 +765,7 @@ fn tool_definitions() -> Value {
                     },
                     "showKeyBubbles": { "type": "boolean" },
                     "soundEnabled": { "type": "boolean" },
+                    "typingSoundEnabled": { "type": "boolean" },
                     "alwaysOnTop": { "type": "boolean" },
                     "clickThroughLocked": { "type": "boolean" },
                     "privacyPasswordGuard": { "type": "boolean" },
@@ -740,6 +774,9 @@ fn tool_definitions() -> Value {
                     "obsEnabled": { "type": "boolean" },
                     "obsPort": { "type": "integer", "minimum": 1024, "maximum": 65535 },
                     "obsHidePet": { "type": "boolean" },
+                    "liveCaptureEnabled": { "type": "boolean", "description": "Enable/open the borderless chroma-key capture window ('KuroCat Live') for Live Companion Window Capture." },
+                    "liveChromaColor": { "type": "string", "enum": ["blue", "green", "magenta"], "description": "Chroma-key background color for the KuroCat Live capture window ('blue', 'green', or 'magenta')." },
+                    "liveHidePet": { "type": "boolean", "description": "Hide the desktop pet while the KuroCat Live capture window is active." },
                     "autostart": { "type": "boolean" }
                 }
             }
@@ -955,6 +992,9 @@ fn execute_tool(
             if let Some(scale) = args.get("scale").and_then(|v| v.as_f64()) {
                 s.scale = scale.clamp(0.20, 1.50);
             }
+            if let Some(opacity) = args.get("opacity").and_then(|v| v.as_f64()) {
+                s.opacity = crate::config::normalize_opacity(opacity);
+            }
             if let Some(rm) = args.get("renderMode").and_then(|v| v.as_str()) {
                 s.render_mode = crate::config::normalize_render_mode(rm);
             }
@@ -986,6 +1026,9 @@ fn execute_tool(
             if let Some(b) = args.get("soundEnabled").and_then(|v| v.as_bool()) {
                 s.sound_enabled = b;
             }
+            if let Some(b) = args.get("typingSoundEnabled").and_then(|v| v.as_bool()) {
+                s.typing_sound_enabled = b;
+            }
             if let Some(b) = args.get("alwaysOnTop").and_then(|v| v.as_bool()) {
                 s.always_on_top = b;
             }
@@ -1014,6 +1057,18 @@ fn execute_tool(
             }
             if let Some(b) = args.get("obsHidePet").and_then(|v| v.as_bool()) {
                 s.obs_hide_pet = s.obs_enabled && b;
+            }
+            if let Some(b) = args.get("liveCaptureEnabled").and_then(|v| v.as_bool()) {
+                s.live_capture_enabled = b;
+                if !b {
+                    s.live_hide_pet = false;
+                }
+            }
+            if let Some(color) = args.get("liveChromaColor").and_then(|v| v.as_str()) {
+                s.live_chroma_color = crate::config::normalize_live_chroma_color(color);
+            }
+            if let Some(b) = args.get("liveHidePet").and_then(|v| v.as_bool()) {
+                s.live_hide_pet = s.live_capture_enabled && b;
             }
             if let Some(b) = args.get("autostart").and_then(|v| v.as_bool()) {
                 if set_windows_autostart(b).is_ok() {
@@ -1579,5 +1634,49 @@ mod tests {
         let mut cursor = BufReader::new(&wire[..]);
         let body = read_chunked_body(&mut cursor, 1024).unwrap();
         assert_eq!(std::str::from_utf8(&body).unwrap(), "{\"ok\": true}");
+    }
+
+    #[test]
+    fn update_settings_schema_includes_live_capture_fields() {
+        let tools = tool_definitions();
+        let arr = tools.as_array().expect("tool_definitions should be array");
+        let update = arr
+            .iter()
+            .find(|t| t.get("name").and_then(|n| n.as_str()) == Some("update_settings"))
+            .expect("update_settings tool missing");
+        let props = update
+            .get("inputSchema")
+            .and_then(|s| s.get("properties"))
+            .expect("properties missing");
+        assert_eq!(
+            props
+                .get("liveCaptureEnabled")
+                .and_then(|p| p.get("type"))
+                .and_then(|t| t.as_str()),
+            Some("boolean")
+        );
+        assert_eq!(
+            props
+                .get("liveHidePet")
+                .and_then(|p| p.get("type"))
+                .and_then(|t| t.as_str()),
+            Some("boolean")
+        );
+        assert_eq!(
+            props
+                .get("opacity")
+                .and_then(|p| p.get("type"))
+                .and_then(|t| t.as_str()),
+            Some("number")
+        );
+        let chroma_enum: Vec<&str> = props
+            .get("liveChromaColor")
+            .and_then(|p| p.get("enum"))
+            .and_then(|e| e.as_array())
+            .expect("liveChromaColor enum missing")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        assert_eq!(chroma_enum, vec!["blue", "green", "magenta"]);
     }
 }

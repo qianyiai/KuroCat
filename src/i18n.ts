@@ -130,20 +130,21 @@ export function localizeBreedName(id: string, fallbackName: string, builtin?: bo
 
 export function applyDomTranslations(root: Document | HTMLElement = document): void {
   const isMac = isMacPlatform();
+  const resolveKey = (rawKey: string) =>
+    rawKey === 'menu.toggle_lock'
+      ? isMac
+        ? 'menu.toggle_lock_macos'
+        : 'menu.toggle_lock_windows'
+      : rawKey;
+
   root.querySelectorAll<HTMLElement>('[data-i18n]').forEach((el) => {
     const rawKey = el.dataset.i18n;
     if (!rawKey) return;
-    const key =
-      rawKey === 'menu.toggle_lock'
-        ? isMac
-          ? 'menu.toggle_lock_macos'
-          : 'menu.toggle_lock_windows'
-        : rawKey;
-    el.textContent = t(key);
+    el.textContent = t(resolveKey(rawKey));
   });
   root.querySelectorAll<HTMLElement>('[data-i18n-title]').forEach((el) => {
     const rawKey = el.dataset.i18nTitle;
     if (!rawKey) return;
-    el.title = t(rawKey);
+    el.title = t(resolveKey(rawKey));
   });
 }

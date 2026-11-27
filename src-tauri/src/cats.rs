@@ -25,7 +25,7 @@ fn default_opacity() -> f64 {
     0.85
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatSkinConfig {
     pub id: String,
@@ -120,7 +120,7 @@ pub struct CatSkinConfig {
     #[serde(default)]
     pub accent_side_color: Option<String>,
 
-    // Optional contour & facial silhouette overrides (v5.1.3+; omit to keep classic round cat!)
+    // Optional contour & full facial sculpting overrides (v5.1.3+; omit to keep classic round cat!)
     // faceShape: "round" | "square" | "wide" | "fox" | "oval"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub face_shape: Option<String>,
@@ -130,15 +130,79 @@ pub struct CatSkinConfig {
     // Cheek/jawline squareness (0.0..=1.0; e.g. 0.85-0.95 for Tibetan fox square face)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub jaw_squareness: Option<f64>,
-    // earShape: "cat" | "round" | "tall" | "small" | "wide"
+    // earShape: "cat" | "round" | "tall" | "small" | "wide" | "folded" | "floppy"
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ear_shape: Option<String>,
     // Ear size scale multiplier (0.55..=1.55, default 1.0)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ear_scale: Option<f64>,
+    // Horizontal ear spread multiplier (0.70..=1.35, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ear_spacing: Option<f64>,
+    // Extra outward ear tilt in radians (-0.45..=0.65, default 0.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ear_tilt: Option<f64>,
     // Resting upper-eyelid droop / half-lidded cool gaze (0.0..=0.75; e.g. 0.45 for Tibetan fox)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub eye_squint: Option<f64>,
+    // Overall eye size multiplier (0.55..=1.45, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eye_scale: Option<f64>,
+    // Eye height/width aspect ratio (0.60..=1.40; <1 narrow almond, >1 tall round)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eye_aspect: Option<f64>,
+    // Horizontal eye spacing multiplier (0.72..=1.35, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eye_spacing: Option<f64>,
+    // Vertical eye placement offset (-1.0 higher .. +1.0 lower, default 0.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eye_offset_y: Option<f64>,
+    // Outer eye corner slant in radians (-0.50 droopy puppy .. +0.50 upturned fox, default 0.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eye_tilt: Option<f64>,
+    // pupilShape: "oval" | "round" | "slit" | "dot" | "star"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pupil_shape: Option<String>,
+    // Pupil size multiplier (0.40..=1.45, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pupil_scale: Option<f64>,
+    // Heterochromia: optional viewer-right eye iris gradient override
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right_eye_color_top: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right_eye_color_bottom: Option<String>,
+    // noseShape: "cat" | "round" | "wide" | "small" | "none"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nose_shape: Option<String>,
+    // Nose size multiplier (0.50..=1.80, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nose_scale: Option<f64>,
+    // Vertical nose offset (-1.0 higher .. +1.0 lower, default 0.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nose_offset_y: Option<f64>,
+    // mouthShape: "w" | "smile" | "flat" | "open" | "blep" | "none"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mouth_shape: Option<String>,
+    // Mouth width/size multiplier (0.55..=1.70, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mouth_scale: Option<f64>,
+    // Vertical mouth offset (-1.0 higher .. +1.0 lower, default 0.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mouth_offset_y: Option<f64>,
+    // Whisker length multiplier (0.0 hides whiskers .. 1.60 long whiskers, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub whisker_length: Option<f64>,
+    // eyebrowStyle: "none" | "soft" | "thick" | "angry" | "worried"
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eyebrow_style: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub eyebrow_color: Option<String>,
+    // Permanent soft rosy cheeks even when not being petted
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blush_always: Option<bool>,
+    // Blush size multiplier (0.50..=1.60, default 1.0)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blush_scale: Option<f64>,
     // Torso chubbiness multiplier (0.80..=1.25, default 1.0)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub body_chubbiness: Option<f64>,
@@ -220,14 +284,7 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             arm_crease_color: Some("rgba(216, 218, 222, 0.64)".to_string()),
             accent_color: Some("#d2f244".to_string()),
             accent_side_color: Some("#8cb014".to_string()),
-            face_shape: None,
-            head_width: None,
-            jaw_squareness: None,
-            ear_shape: None,
-            ear_scale: None,
-            eye_squint: None,
-            body_chubbiness: None,
-            spots: vec![],
+            ..Default::default()
         },
         CatSkinConfig {
             id: "ragdoll".to_string(),
@@ -270,14 +327,7 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             arm_crease_color: None,
             accent_color: Some("#7ac7ff".to_string()),
             accent_side_color: Some("#4690d8".to_string()),
-            face_shape: None,
-            head_width: None,
-            jaw_squareness: None,
-            ear_shape: None,
-            ear_scale: None,
-            eye_squint: None,
-            body_chubbiness: None,
-            spots: vec![],
+            ..Default::default()
         },
         CatSkinConfig {
             id: "orange-tabby".to_string(),
@@ -320,14 +370,7 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             arm_crease_color: None,
             accent_color: Some("#ffb347".to_string()),
             accent_side_color: Some("#cc7a16".to_string()),
-            face_shape: None,
-            head_width: None,
-            jaw_squareness: None,
-            ear_shape: None,
-            ear_scale: None,
-            eye_squint: None,
-            body_chubbiness: None,
-            spots: vec![],
+            ..Default::default()
         },
         CatSkinConfig {
             id: "calico".to_string(),
@@ -370,14 +413,7 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             arm_crease_color: None,
             accent_color: Some("#ffa6c1".to_string()),
             accent_side_color: Some("#cc6c8b".to_string()),
-            face_shape: None,
-            head_width: None,
-            jaw_squareness: None,
-            ear_shape: None,
-            ear_scale: None,
-            eye_squint: None,
-            body_chubbiness: None,
-            spots: vec![],
+            ..Default::default()
         },
         CatSkinConfig {
             id: "tuxedo".to_string(),
@@ -420,14 +456,7 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             arm_crease_color: Some("rgba(216, 218, 222, 0.56)".to_string()),
             accent_color: Some("#7ee8a6".to_string()),
             accent_side_color: Some("#3aa666".to_string()),
-            face_shape: None,
-            head_width: None,
-            jaw_squareness: None,
-            ear_shape: None,
-            ear_scale: None,
-            eye_squint: None,
-            body_chubbiness: None,
-            spots: vec![],
+            ..Default::default()
         },
         CatSkinConfig {
             id: "siamese".to_string(),
@@ -470,14 +499,7 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             arm_crease_color: Some("rgba(220, 208, 194, 0.45)".to_string()),
             accent_color: Some("#72c4ff".to_string()),
             accent_side_color: Some("#3a84c8".to_string()),
-            face_shape: None,
-            head_width: None,
-            jaw_squareness: None,
-            ear_shape: None,
-            ear_scale: None,
-            eye_squint: None,
-            body_chubbiness: None,
-            spots: vec![],
+            ..Default::default()
         },
         CatSkinConfig {
             id: "dafeiyu".to_string(),
@@ -520,14 +542,7 @@ pub fn builtin_cats() -> Vec<CatSkinConfig> {
             arm_crease_color: None,
             accent_color: Some("#5cc8ff".to_string()),
             accent_side_color: Some("#2563eb".to_string()),
-            face_shape: None,
-            head_width: None,
-            jaw_squareness: None,
-            ear_shape: None,
-            ear_scale: None,
-            eye_squint: None,
-            body_chubbiness: None,
-            spots: vec![],
+            ..Default::default()
         },
     ]
 }
@@ -624,9 +639,56 @@ pub fn normalize_ear_shape(raw: &str) -> Option<String> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "cat" | "default" | "pointed" => Some("cat".to_string()),
         "round" | "bear" | "tiger" | "panda" => Some("round".to_string()),
-        "tall" | "fox" | "rabbit" | "bunny" | "long" => Some("tall".to_string()),
-        "small" | "short" | "tiny" | "folded" => Some("small".to_string()),
+        "tall" | "fox" | "rabbit" | "bunny" | "long" | "corgi" => Some("tall".to_string()),
+        "small" | "short" | "tiny" => Some("small".to_string()),
         "wide" | "fennec" | "flare" => Some("wide".to_string()),
+        "folded" | "fold" | "scottish-fold" | "scottish" => Some("folded".to_string()),
+        "floppy" | "droopy" | "lop" | "dog" | "puppy" => Some("floppy".to_string()),
+        _ => None,
+    }
+}
+
+pub fn normalize_pupil_shape(raw: &str) -> Option<String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "oval" | "default" | "cat" => Some("oval".to_string()),
+        "round" | "circle" | "big" | "anime" => Some("round".to_string()),
+        "slit" | "narrow" | "vertical" | "sharp" => Some("slit".to_string()),
+        "dot" | "bead" | "button" | "small" => Some("dot".to_string()),
+        "star" | "sparkle" | "diamond" => Some("star".to_string()),
+        _ => None,
+    }
+}
+
+pub fn normalize_nose_shape(raw: &str) -> Option<String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "cat" | "default" | "triangle" => Some("cat".to_string()),
+        "round" | "button" | "dot" | "dog" | "puppy" => Some("round".to_string()),
+        "wide" | "broad" | "bear" | "tiger" | "snout" => Some("wide".to_string()),
+        "small" | "tiny" | "mini" => Some("small".to_string()),
+        "none" | "hidden" | "off" => Some("none".to_string()),
+        _ => None,
+    }
+}
+
+pub fn normalize_mouth_shape(raw: &str) -> Option<String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "w" | "default" | "cat" | "omega" => Some("w".to_string()),
+        "smile" | "happy" | "u" => Some("smile".to_string()),
+        "flat" | "straight" | "neutral" | "serious" | "line" => Some("flat".to_string()),
+        "open" | "o" | "surprised" => Some("open".to_string()),
+        "blep" | "tongue" | "derp" => Some("blep".to_string()),
+        "none" | "hidden" | "off" => Some("none".to_string()),
+        _ => None,
+    }
+}
+
+pub fn normalize_eyebrow_style(raw: &str) -> Option<String> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "none" | "default" | "off" => Some("none".to_string()),
+        "soft" | "arched" | "gentle" | "thin" => Some("soft".to_string()),
+        "thick" | "dot" | "shiba" | "bold" | "oval" => Some("thick".to_string()),
+        "angry" | "fierce" | "sharp" | "grumpy" => Some("angry".to_string()),
+        "worried" | "sad" | "droopy" | "innocent" => Some("worried".to_string()),
         _ => None,
     }
 }
@@ -673,6 +735,8 @@ pub fn sanitize_and_validate_cat(cat: &mut CatSkinConfig) -> Result<(), String> 
     validate_opt_color("tailColor", &mut cat.tail_color)?;
     validate_opt_color("tailTipColor", &mut cat.tail_tip_color)?;
     validate_opt_color("eyeColorBottom", &mut cat.eye_color_bottom)?;
+    validate_opt_color("rightEyeColorTop", &mut cat.right_eye_color_top)?;
+    validate_opt_color("rightEyeColorBottom", &mut cat.right_eye_color_bottom)?;
     validate_opt_color("pupilColor", &mut cat.pupil_color)?;
     validate_opt_color("eyeRimColor", &mut cat.eye_rim_color)?;
     validate_opt_color("squintColor", &mut cat.squint_color)?;
@@ -681,6 +745,7 @@ pub fn sanitize_and_validate_cat(cat: &mut CatSkinConfig) -> Result<(), String> 
     validate_opt_color("mouthColor", &mut cat.mouth_color)?;
     validate_opt_color("blushColor", &mut cat.blush_color)?;
     validate_opt_color("whiskerColor", &mut cat.whisker_color)?;
+    validate_opt_color("eyebrowColor", &mut cat.eyebrow_color)?;
     validate_opt_color("armColor", &mut cat.arm_color)?;
     validate_opt_color("pawColor", &mut cat.paw_color)?;
     validate_opt_color("pawOutlineColor", &mut cat.paw_outline_color)?;
@@ -721,8 +786,56 @@ pub fn sanitize_and_validate_cat(cat: &mut CatSkinConfig) -> Result<(), String> 
             cat.ear_shape = Some(norm);
         } else {
             return Err(format!(
-                "Invalid earShape '{}'. Expected one of: cat, round, tall, small, wide.",
+                "Invalid earShape '{}'. Expected one of: cat, round, tall, small, wide, folded, floppy.",
                 es_raw
+            ));
+        }
+    }
+    if let Some(ps_raw) = cat.pupil_shape.as_deref() {
+        if ps_raw.trim().is_empty() {
+            cat.pupil_shape = None;
+        } else if let Some(norm) = normalize_pupil_shape(ps_raw) {
+            cat.pupil_shape = Some(norm);
+        } else {
+            return Err(format!(
+                "Invalid pupilShape '{}'. Expected one of: oval, round, slit, dot, star.",
+                ps_raw
+            ));
+        }
+    }
+    if let Some(ns_raw) = cat.nose_shape.as_deref() {
+        if ns_raw.trim().is_empty() {
+            cat.nose_shape = None;
+        } else if let Some(norm) = normalize_nose_shape(ns_raw) {
+            cat.nose_shape = Some(norm);
+        } else {
+            return Err(format!(
+                "Invalid noseShape '{}'. Expected one of: cat, round, wide, small, none.",
+                ns_raw
+            ));
+        }
+    }
+    if let Some(ms_raw) = cat.mouth_shape.as_deref() {
+        if ms_raw.trim().is_empty() {
+            cat.mouth_shape = None;
+        } else if let Some(norm) = normalize_mouth_shape(ms_raw) {
+            cat.mouth_shape = Some(norm);
+        } else {
+            return Err(format!(
+                "Invalid mouthShape '{}'. Expected one of: w, smile, flat, open, blep, none.",
+                ms_raw
+            ));
+        }
+    }
+    if let Some(eb_raw) = cat.eyebrow_style.as_deref() {
+        if eb_raw.trim().is_empty() {
+            cat.eyebrow_style = None;
+        } else if let Some(norm) = normalize_eyebrow_style(eb_raw) {
+            cat.eyebrow_style = Some(norm);
+        } else {
+            return Err(format!(
+                "Invalid eyebrowStyle '{}'. Expected one of: none, soft, thick, angry, worried.",
+                eb_raw
             ));
         }
     }
@@ -730,7 +843,21 @@ pub fn sanitize_and_validate_cat(cat: &mut CatSkinConfig) -> Result<(), String> 
     cat.head_width = cat.head_width.map(|v| v.clamp(0.78, 1.32));
     cat.jaw_squareness = cat.jaw_squareness.map(|v| v.clamp(0.0, 1.0));
     cat.ear_scale = cat.ear_scale.map(|v| v.clamp(0.55, 1.55));
+    cat.ear_spacing = cat.ear_spacing.map(|v| v.clamp(0.70, 1.35));
+    cat.ear_tilt = cat.ear_tilt.map(|v| v.clamp(-0.45, 0.65));
     cat.eye_squint = cat.eye_squint.map(|v| v.clamp(0.0, 0.75));
+    cat.eye_scale = cat.eye_scale.map(|v| v.clamp(0.55, 1.45));
+    cat.eye_aspect = cat.eye_aspect.map(|v| v.clamp(0.60, 1.40));
+    cat.eye_spacing = cat.eye_spacing.map(|v| v.clamp(0.72, 1.35));
+    cat.eye_offset_y = cat.eye_offset_y.map(|v| v.clamp(-1.0, 1.0));
+    cat.eye_tilt = cat.eye_tilt.map(|v| v.clamp(-0.50, 0.50));
+    cat.pupil_scale = cat.pupil_scale.map(|v| v.clamp(0.40, 1.45));
+    cat.nose_scale = cat.nose_scale.map(|v| v.clamp(0.50, 1.80));
+    cat.nose_offset_y = cat.nose_offset_y.map(|v| v.clamp(-1.0, 1.0));
+    cat.mouth_scale = cat.mouth_scale.map(|v| v.clamp(0.55, 1.70));
+    cat.mouth_offset_y = cat.mouth_offset_y.map(|v| v.clamp(-1.0, 1.0));
+    cat.whisker_length = cat.whisker_length.map(|v| v.clamp(0.0, 1.60));
+    cat.blush_scale = cat.blush_scale.map(|v| v.clamp(0.50, 1.60));
     cat.body_chubbiness = cat.body_chubbiness.map(|v| v.clamp(0.80, 1.25));
 
     for (idx, spot) in cat.spots.iter_mut().enumerate() {
@@ -826,15 +953,50 @@ pub fn cat_schema_guide() -> serde_json::Value {
                 "values": ["round", "square", "wide", "fox", "oval"],
                 "guide": "round = classic chubby cat; square = boxy Tibetan fox (藏狐方脸); wide = bold broad tiger/bear/lion cheeks (老虎宽腮); fox = sleek tapered fox/shiba chin; oval = taller bunny/capybara face"
             },
-            "headWidth": "Optional horizontal head width multiplier (0.78..1.32, default 1.0)",
-            "jawSquareness": "Optional jaw/cheek angularity (0.0..1.0; 0.85..0.95 creates a crisp square face)",
+            "headWidth": "Horizontal head width multiplier (0.78..1.32, default 1.0)",
+            "jawSquareness": "Jaw/cheek angularity (0.0..1.0; 0.85..0.95 creates a crisp square face)",
             "earShape": {
-                "values": ["cat", "round", "tall", "small", "wide"],
-                "guide": "cat = classic pointed cat ears; round = tiger/panda/bear/capybara round ears; tall = fox/bunny/corgi tall ears; small = Tibetan fox compact low ears; wide = fennec/caracal flared ears"
+                "values": ["cat", "round", "tall", "small", "wide", "folded", "floppy"],
+                "guide": "cat = pointed cat ears; round = tiger/panda/bear round ears; tall = fox/bunny/corgi tall ears; small = Tibetan fox compact ears; wide = fennec flared ears; folded = Scottish Fold bent ears (折耳猫); floppy = puppy/lop-bunny hanging ears (垂耳狗/兔)"
             },
-            "earScale": "Optional ear size multiplier (0.55..1.55, default 1.0)",
-            "eyeSquint": "Optional resting upper-eyelid droop (0.0..0.75; e.g. 0.45..0.55 for Tibetan fox deadpan half-lidded gaze, 0.18 for cool tiger)",
-            "bodyChubbiness": "Optional torso fullness multiplier (0.80..1.25, default 1.0)"
+            "earScale": "Ear size multiplier (0.55..1.55, default 1.0)",
+            "earSpacing": "Horizontal ear spread multiplier (0.70..1.35, default 1.0)",
+            "earTilt": "Extra outward ear tilt in radians (-0.45 upright .. +0.65 outward/droopy, default 0.0)",
+            "bodyChubbiness": "Torso fullness multiplier (0.80..1.25, default 1.0)"
+        },
+        "facialFeatureOptions": {
+            "eyeScale": "Overall eye size multiplier (0.55..1.45, default 1.0)",
+            "eyeAspect": "Eye height/width ratio (0.60 sleek narrow almond .. 1.40 big tall round eyes, default 1.0)",
+            "eyeSpacing": "Horizontal eye distance multiplier (0.72 close-set .. 1.35 wide-set, default 1.0)",
+            "eyeOffsetY": "Vertical eye placement (-1.0 higher on forehead .. +1.0 lower cute baby face, default 0.0)",
+            "eyeTilt": "Outer eye corner slant in radians (-0.50 droopy puppy eyes .. +0.50 upturned fox eyes, default 0.0)",
+            "eyeSquint": "Resting upper-eyelid droop (0.0..0.75; e.g. 0.50 for Tibetan fox deadpan gaze)",
+            "pupilShape": {
+                "values": ["oval", "round", "slit", "dot", "star"],
+                "guide": "oval = classic cat oval; round = big anime/puppy pupil; slit = sharp vertical cat slit; dot = tiny kawaii bead/button eyes (Shiba/hamster/Snoopy); star = sparkling 4-point star pupil"
+            },
+            "pupilScale": "Pupil size multiplier (0.40..1.45, default 1.0)",
+            "heterochromia": "Set rightEyeColorTop (and optional rightEyeColorBottom) differently from eyeColorTop/eyeColorBottom for odd-eyed pets (异瞳/鸳鸯眼)!",
+            "noseShape": {
+                "values": ["cat", "round", "wide", "small", "none"],
+                "guide": "cat = inverted triangle; round = dog/bear button nose; wide = tiger/capybara snout; small = tiny cute dot; none = hide nose"
+            },
+            "noseScale": "Nose size multiplier (0.50..1.80, default 1.0)",
+            "noseOffsetY": "Vertical nose placement (-1.0 higher .. +1.0 lower, default 0.0)",
+            "mouthShape": {
+                "values": ["w", "smile", "flat", "open", "blep", "none"],
+                "guide": "w = classic :3 cat mouth; smile = cheerful curved U smile; flat = deadpan straight line; open = tiny surprised o; blep = :3 with tiny sticking-out pink tongue (吐舌呆萌); none = hide mouth"
+            },
+            "mouthScale": "Mouth size/width multiplier (0.55..1.70, default 1.0)",
+            "mouthOffsetY": "Vertical mouth placement (-1.0 higher .. +1.0 lower, default 0.0)",
+            "whiskerLength": "Whisker length multiplier (0.0 hides whiskers for dogs/bears/anime .. 1.60 long whiskers, default 1.0)",
+            "eyebrowStyle": {
+                "values": ["none", "soft", "thick", "angry", "worried"],
+                "guide": "none = hidden; soft = thin arched brows; thick = adorable Shiba/husky dot-oval brows (豆豆眉); angry = fierce slanted brows; worried = sympathetic upturned-inner brows (八字眉)"
+            },
+            "eyebrowColor": "Optional eyebrow CSS color",
+            "blushAlways": "true keeps soft rosy cheeks permanently visible even when not being petted",
+            "blushScale": "Blush size multiplier (0.50..1.60, default 1.0)"
         },
         "spotsGuide": {
             "maxIn3D": 16,
@@ -938,6 +1100,78 @@ pub fn cat_schema_guide() -> serde_json::Value {
                 "pawColor": "#fcfaf5",
                 "accentColor": "#ffa6c1",
                 "accentSideColor": "#cc6c8b"
+            },
+            "scottishFoldOddEye": {
+                "id": "scottish-fold-odd-eye",
+                "name": "异瞳折耳吐舌猫",
+                "emoji": "🤍",
+                "pattern": "solid",
+                "faceShape": "round",
+                "headWidth": 1.10,
+                "earShape": "folded",
+                "earScale": 0.92,
+                "eyeScale": 1.20,
+                "eyeAspect": 1.08,
+                "eyeOffsetY": 0.16,
+                "pupilShape": "round",
+                "pupilScale": 1.08,
+                "furColor": "#fcfaf5",
+                "outlineColor": "#5c544e",
+                "earInnerColor": "#f4c8d0",
+                "eyeColorTop": "#2c7be5",
+                "eyeColorBottom": "#8ad4ff",
+                "rightEyeColorTop": "#d9921c",
+                "rightEyeColorBottom": "#ffe066",
+                "eyeCatchlight": true,
+                "noseShape": "small",
+                "noseColor": "#f498a8",
+                "mouthShape": "blep",
+                "mouthColor": "#5c4d4a",
+                "blushColor": "#f7a0b2",
+                "blushAlways": true,
+                "blushScale": 1.15,
+                "accentColor": "#8ad4ff",
+                "accentSideColor": "#4690d8"
+            },
+            "shibaInu": {
+                "id": "shiba-inu",
+                "name": "豆豆眉柴犬",
+                "emoji": "🐕",
+                "pattern": "bicolor",
+                "faceShape": "fox",
+                "headWidth": 1.08,
+                "earShape": "tall",
+                "earScale": 0.96,
+                "earSpacing": 1.08,
+                "eyeScale": 0.86,
+                "eyeAspect": 0.92,
+                "eyeSpacing": 1.06,
+                "eyeTilt": 0.10,
+                "pupilShape": "dot",
+                "pupilScale": 0.95,
+                "eyebrowStyle": "thick",
+                "eyebrowColor": "#fff7e8",
+                "whiskerLength": 0.0,
+                "noseShape": "round",
+                "noseScale": 1.32,
+                "noseColor": "#282220",
+                "mouthShape": "smile",
+                "mouthScale": 1.18,
+                "mouthColor": "#443730",
+                "blushColor": "#f49aa6",
+                "blushAlways": true,
+                "furColor": "#e39848",
+                "maskColor": "#e39848",
+                "bellyBibColor": "#fff8ec",
+                "outlineColor": "#593b1d",
+                "earInnerColor": "#f0c8b0",
+                "tailFluffy": true,
+                "eyeColorTop": "#3b2c20",
+                "eyeColorBottom": "#5c4532",
+                "eyeCatchlight": true,
+                "pawColor": "#fff8ec",
+                "accentColor": "#f5b041",
+                "accentSideColor": "#ba7318"
             }
         }
     })
@@ -952,19 +1186,53 @@ mod tests {
         let mut cat = builtin_cats().remove(0);
         cat.id = "tibetan-fox".to_string();
         cat.face_shape = Some("SQUARE".to_string());
-        cat.ear_shape = Some("Small".to_string());
+        cat.ear_shape = Some("Floppy".to_string());
+        cat.pupil_shape = Some("SLIT".to_string());
+        cat.nose_shape = Some("Wide".to_string());
+        cat.mouth_shape = Some("BLEP".to_string());
+        cat.eyebrow_style = Some("Shiba".to_string());
+        cat.right_eye_color_top = Some("#2c7be5".to_string());
+        cat.eyebrow_color = Some("#fff7e8".to_string());
         cat.head_width = Some(2.5);
         cat.jaw_squareness = Some(1.4);
         cat.ear_scale = Some(0.1);
+        cat.ear_spacing = Some(2.0);
+        cat.ear_tilt = Some(1.5);
         cat.eye_squint = Some(0.95);
+        cat.eye_scale = Some(3.0);
+        cat.eye_aspect = Some(0.1);
+        cat.eye_spacing = Some(2.0);
+        cat.eye_offset_y = Some(-5.0);
+        cat.eye_tilt = Some(2.0);
+        cat.pupil_scale = Some(0.1);
+        cat.nose_scale = Some(3.0);
+        cat.mouth_scale = Some(0.1);
+        cat.whisker_length = Some(-1.0);
+        cat.blush_scale = Some(4.0);
         cat.body_chubbiness = Some(2.0);
         sanitize_and_validate_cat(&mut cat).expect("valid custom cat should pass");
         assert_eq!(cat.face_shape.as_deref(), Some("square"));
-        assert_eq!(cat.ear_shape.as_deref(), Some("small"));
+        assert_eq!(cat.ear_shape.as_deref(), Some("floppy"));
+        assert_eq!(cat.pupil_shape.as_deref(), Some("slit"));
+        assert_eq!(cat.nose_shape.as_deref(), Some("wide"));
+        assert_eq!(cat.mouth_shape.as_deref(), Some("blep"));
+        assert_eq!(cat.eyebrow_style.as_deref(), Some("thick"));
         assert_eq!(cat.head_width, Some(1.32));
         assert_eq!(cat.jaw_squareness, Some(1.0));
         assert_eq!(cat.ear_scale, Some(0.55));
+        assert_eq!(cat.ear_spacing, Some(1.35));
+        assert_eq!(cat.ear_tilt, Some(0.65));
         assert_eq!(cat.eye_squint, Some(0.75));
+        assert_eq!(cat.eye_scale, Some(1.45));
+        assert_eq!(cat.eye_aspect, Some(0.60));
+        assert_eq!(cat.eye_spacing, Some(1.35));
+        assert_eq!(cat.eye_offset_y, Some(-1.0));
+        assert_eq!(cat.eye_tilt, Some(0.50));
+        assert_eq!(cat.pupil_scale, Some(0.40));
+        assert_eq!(cat.nose_scale, Some(1.80));
+        assert_eq!(cat.mouth_scale, Some(0.55));
+        assert_eq!(cat.whisker_length, Some(0.0));
+        assert_eq!(cat.blush_scale, Some(1.60));
         assert_eq!(cat.body_chubbiness, Some(1.25));
 
         cat.fur_color = "not-a-color".to_string();
