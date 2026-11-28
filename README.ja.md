@@ -257,3 +257,7 @@ npm run tauri:build
 
 - **🐳 大肥魚（クジラ娘）** 素材は MIT ライセンスの [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（派生元 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu)）に基づいています（`src/assets/dafeiyu/LICENSE-MIT.txt`）。
 - **コントリビューター**：[@XYZliang](https://github.com/XYZliang), [@CandySunPlus](https://github.com/CandySunPlus) (#51), [@Jack-GPT](https://github.com/Jack-GPT) (#47, #64), [@Mangome](https://github.com/Mangome) (#67, #68), [@Zyred9](https://github.com/Zyred9) (#42, #48), [@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao) (#65), [@hacksmo](https://github.com/hacksmo) (#45), [@LiMuhua](https://github.com/LiMuhua) (#75) の皆様に感謝いたします。
+
+---
+
+📩 **ビジネスのお問い合わせ**：[kevinhao999@gmail.com](mailto:kevinhao999@gmail.com)

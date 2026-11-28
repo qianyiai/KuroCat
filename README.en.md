@@ -284,3 +284,7 @@ Released under the [MIT License](LICENSE). Completely free and open source — i
 
 - **🐳 BigFish (Whale-Girl)** runtime assets are adapted from the MIT-licensed project [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) (derived from [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu)); see `src/assets/dafeiyu/LICENSE-MIT.txt`.
 - **Contributors**: Special thanks to [@XYZliang](https://github.com/XYZliang), [@CandySunPlus](https://github.com/CandySunPlus) (#51), [@Jack-GPT](https://github.com/Jack-GPT) (#47, #64), [@Mangome](https://github.com/Mangome) (#67, #68), [@Zyred9](https://github.com/Zyred9) (#42, #48), [@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao) (#65), [@hacksmo](https://github.com/hacksmo) (#45), and [@LiMuhua](https://github.com/LiMuhua) (#75).
+
+---
+
+📩 **Business Inquiries**: [kevinhao999@gmail.com](mailto:kevinhao999@gmail.com)

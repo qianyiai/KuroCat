@@ -286,3 +286,7 @@ gh secret set MACOS_SIGNING_CERT_PASSWORD < /path/outside/repo/kurocat-signing/k
 
 - **🐳 大肥鱼（鲸鱼娘）** 运行时素材基于 MIT 开源项目 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（衍生自 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu)），详见 `src/assets/dafeiyu/LICENSE-MIT.txt`。
 - **社区贡献者**：特别感谢 [@XYZliang](https://github.com/XYZliang)、[@CandySunPlus](https://github.com/CandySunPlus)（#51）、[@Jack-GPT](https://github.com/Jack-GPT)（#47, #64）、[@Mangome](https://github.com/Mangome)（#67, #68）、[@Zyred9](https://github.com/Zyred9)（#42, #48）、[@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao)（#65）、[@hacksmo](https://github.com/hacksmo)（#45）、[@LiMuhua](https://github.com/LiMuhua)（#75）。
+
+---
+
+📩 **商务联系**：[kevinhao999@gmail.com](mailto:kevinhao999@gmail.com)
