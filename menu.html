@@ -293,6 +293,17 @@
               <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
             </button>
           </section>
+          <section class="menu-card typing-stats-card">
+            <div class="card-head">
+              <span class="card-title" data-i18n="menu.section_typing_stats">打字统计</span>
+            </div>
+            <div class="setting-row typing-stats-row">
+              <span class="setting-label" data-i18n="menu.today_keys">今日击键</span>
+              <strong id="daily-key-count" class="typing-stats-count">0</strong>
+              <button id="clear-daily-key-count" class="footer-btn danger typing-stats-clear" type="button" data-i18n="menu.clear_daily_keys" disabled>清零</button>
+            </div>
+            <span id="daily-key-clear-error" class="typing-stats-error" role="alert" data-i18n="menu.clear_daily_keys_error" hidden>清零失败，请重试。</span>
+          </section>
         </div>
 
         <!-- Tab 3: System, AI/MCP & OBS -->

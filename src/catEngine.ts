@@ -694,6 +694,17 @@ export class KuroCatEngine {
     };
   }
 
+  public getDailyKeyCountAnchor(): Vec2 | null {
+    if (this.catBreed === 'dafeiyu') {
+      const top = this.dafeiyu.getHeadTopPoint(performance.now(), this.buildDaFeiYuLayout());
+      return this.logicalToCssPoint(top.x, top.y - 9);
+    }
+    if (this.asleep) return null;
+    const { head } = this.getCatHitZonesLogical();
+    const headsetClearance = this.headphonesOn ? 9 : 0;
+    return this.logicalToCssPoint(head.x, head.y - head.ry - 18 - headsetClearance);
+  }
+
   public hitTestCatZoneLogical(lx: number, ly: number): CatHitZone {
     if (this.catBreed === 'dafeiyu') {
       if (this.peekAmount > 0.35) {
@@ -1328,6 +1339,10 @@ export class KuroCatEngine {
     this.directRafPrevMs = 0;
     this.lastRenderMs = 0;
     this.lastRenderPerfMs = 0;
+  }
+
+  public requestRender(): void {
+    this.wakeAction();
   }
 
   public releaseCachedResources(): void {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn default_cat_breed() -> String {
@@ -342,12 +342,15 @@ pub fn save_settings(settings: &AppSettings) {
 }
 
 pub fn try_save_settings(settings: &AppSettings) -> std::io::Result<()> {
+    write_json_atomically(&config_path(), settings)
+}
+
+pub(crate) fn write_json_atomically(path: &Path, value: &impl Serialize) -> std::io::Result<()> {
     static NEXT_WRITE: AtomicUsize = AtomicUsize::new(0);
-    let path = config_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(settings).map_err(std::io::Error::other)?;
+    let json = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
     let write_id = NEXT_WRITE.fetch_add(1, Ordering::Relaxed);
     let temporary_path = path.with_extension(format!("json.{}.{write_id}.tmp", std::process::id()));
     let result = fs::write(&temporary_path, json).and_then(|()| fs::rename(&temporary_path, path));

@@ -12,6 +12,7 @@ import {
 import { catAudio } from './audio';
 import { AgentCompanionController, type AgentCompanionEvent } from './agentCompanion';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
+import { DailyKeyCounter, type CounterBounds, type DailyKeyCount } from './dailyKeyCounter';
 import {
   getKeyboardLayout,
   resolveKeyByVk,
@@ -200,6 +201,7 @@ const btnTailCancelEl = document.getElementById('btn-tail-cancel') as HTMLButton
 const tailModeBadgeEl = document.getElementById('tail-mode-badge') as HTMLSpanElement;
 const tailKeysCountEl = document.getElementById('tail-keys-count') as HTMLSpanElement;
 const agentBubbleEl = document.getElementById('agent-bubble') as HTMLDivElement | null;
+const dailyKeyCountCanvas3d = document.getElementById('daily-key-count-3d') as HTMLCanvasElement;
 const engine = new KuroCatEngine(canvas);
 engine.onDeepSleep = () => {
   void invoke('trim_idle_memory').catch(() => {});
@@ -215,6 +217,64 @@ let isWin7Ulw = false;
 let active3d = false;
 let privacyActive = false;
 let gameActive = false;
+
+const dailyKeyCounter = new DailyKeyCounter();
+const dailyKeyCountCtx2d = canvas.getContext('2d');
+const dailyKeyCountCtx3d = dailyKeyCountCanvas3d.getContext('2d');
+let dailyKeyCountBounds: CounterBounds | undefined;
+let presentWin7PetFrame: (() => void) | undefined;
+
+function canDrawDailyKeyCount(): boolean {
+  return dailyKeyCounter.visible && !privacyActive && !tailPickerOpen &&
+    (!agentBubbleEl || agentBubbleEl.classList.contains('hidden'));
+}
+
+function updateDailyKeyCount(snapshot: DailyKeyCount, animate: boolean): void {
+  if (!dailyKeyCounter.accept(snapshot, animate)) return;
+  if (active3d && engine3d) engine3d.requestRender();
+  else engine.requestRender();
+}
+
+function drawDailyKeyCount(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  anchor: { x: number; y: number },
+): CounterBounds | undefined {
+  if (width < 2 || height < 2) return;
+  ctx.save();
+  ctx.setTransform(ctx.canvas.width / width, 0, 0, ctx.canvas.height / height, 0, 0);
+  const bounds = dailyKeyCounter.draw(ctx, { ...anchor, width, height, scale: settings.scale });
+  ctx.restore();
+  return bounds;
+}
+
+engine.onAfterRender = () => {
+  if (!dailyKeyCountCanvas3d.hidden) dailyKeyCountCanvas3d.hidden = true;
+  const anchor = canDrawDailyKeyCount() ? engine.getDailyKeyCountAnchor() : null;
+  dailyKeyCountBounds = anchor && dailyKeyCountCtx2d
+    ? drawDailyKeyCount(dailyKeyCountCtx2d, canvas.clientWidth, canvas.clientHeight, anchor)
+    : undefined;
+  presentWin7PetFrame?.();
+};
+
+function renderDailyKeyCount3d(): void {
+  const anchor = canDrawDailyKeyCount() ? engine3d?.getDailyKeyCountAnchor() : null;
+  if (!anchor || !dailyKeyCountCtx3d) {
+    if (!dailyKeyCountCanvas3d.hidden) dailyKeyCountCanvas3d.hidden = true;
+    return;
+  }
+  const width = canvas3d.clientWidth;
+  const height = canvas3d.clientHeight;
+  const dpr = Math.min(1.5, window.devicePixelRatio || 1);
+  const pixelWidth = Math.round(width * dpr);
+  const pixelHeight = Math.round(height * dpr);
+  if (dailyKeyCountCanvas3d.width !== pixelWidth) dailyKeyCountCanvas3d.width = pixelWidth;
+  if (dailyKeyCountCanvas3d.height !== pixelHeight) dailyKeyCountCanvas3d.height = pixelHeight;
+  dailyKeyCountCtx3d.clearRect(0, 0, pixelWidth, pixelHeight);
+  drawDailyKeyCount(dailyKeyCountCtx3d, width, height, anchor);
+  if (dailyKeyCountCanvas3d.hidden) dailyKeyCountCanvas3d.hidden = false;
+}
 
 const agentCompanion = new AgentCompanionController({
   bubbleEl: agentBubbleEl,
@@ -422,6 +482,7 @@ function activateRenderEngine(): void {
           throw new Error('WebGL context lost immediately after creation');
         }
         engine3d = created;
+        engine3d.onAfterRender = renderDailyKeyCount3d;
         engine3d.onDeepSleep = () => {
           void invoke('trim_idle_memory').catch(() => {});
         };
@@ -515,6 +576,7 @@ function applyPetOpacity(opacityVal: number | undefined): void {
   const cssOpacity = isWin7Ulw ? '1' : clamped.toFixed(3);
   canvas.style.opacity = cssOpacity;
   canvas3d.style.opacity = cssOpacity;
+  dailyKeyCountCanvas3d.style.opacity = cssOpacity;
 }
 
 let adminStatus: { supported: boolean; elevated: boolean } = { supported: false, elevated: false };
@@ -1119,6 +1181,10 @@ async function triggerManualUpdateCheck(): Promise<void> {
 
 async function bootstrap(): Promise<void> {
   engine.start();
+  void listen<DailyKeyCount>('kuro-daily-key-count', (ev) => updateDailyKeyCount(ev.payload, true))
+    .then(() => invoke<DailyKeyCount>('get_daily_key_count'))
+    .then((initial) => updateDailyKeyCount(initial, false))
+    .catch(() => {});
 
   // Hide Windows-only desktop shortcut button on macOS
   if (/Mac/i.test(navigator.platform) || /Macintosh/i.test(navigator.userAgent)) {
@@ -2033,14 +2099,14 @@ async function bootstrap(): Promise<void> {
           imgData.data.byteOffset,
           imgData.data.byteLength,
         );
-        void invoke('win7_present_frame', payload, {
-          headers: { 'x-w': String(w), 'x-h': String(h) },
-        }).finally(() => {
+        const headers: Record<string, string> = { 'x-w': String(w), 'x-h': String(h) };
+        if (dailyKeyCountBounds) headers['x-kuro-hud-rect'] = dailyKeyCountBounds.join(',');
+        void invoke('win7_present_frame', payload, { headers }).finally(() => {
           frameBusy = false;
         });
       };
 
-      engine.onAfterRender = presentWin7Frame;
+      presentWin7PetFrame = presentWin7Frame;
       // Kick initial presentation immediately & keep overlay bounds in sync if toast/menu resizes
       setTimeout(presentWin7Frame, 30);
       setInterval(() => syncWin7Overlay(false), 200);

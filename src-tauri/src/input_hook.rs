@@ -1,3 +1,4 @@
+use crate::daily_key_count::{self, DailyKeyStats};
 use serde::Serialize;
 #[cfg(windows)]
 use std::sync::atomic::{AtomicI32, AtomicU32};
@@ -5,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -51,6 +52,7 @@ enum RawHookMsg {
         vk: u32,
         scan: u32,
         source: KeySource,
+        count_for_stats: bool,
     },
     KeyUp {
         vk: u32,
@@ -398,6 +400,9 @@ pub fn start_global_hooks(app: AppHandle) {
         let mut last_mouse_xy: Option<(i32, i32)> = None;
         let mut mouse_down = [false; 3]; // 0: left, 1: right, 2: middle
         let mut last_reconcile = Instant::now();
+        let daily_stats = app.state::<DailyKeyStats>();
+        let mut last_stats_refresh = Instant::now();
+        let mut last_stats_flush = Instant::now();
 
         let btn_index = |btn: &str| -> Option<usize> {
             match btn {
@@ -516,6 +521,18 @@ pub fn start_global_hooks(app: AppHandle) {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
 
+            if last_stats_refresh.elapsed() >= Duration::from_secs(1) {
+                last_stats_refresh = Instant::now();
+                let (snapshot, rolled_over) = daily_stats.refresh();
+                if rolled_over {
+                    let _ = app.emit(daily_key_count::EVENT, snapshot);
+                }
+            }
+            if last_stats_flush.elapsed() >= Duration::from_secs(2) {
+                last_stats_flush = Instant::now();
+                let _ = daily_stats.flush();
+            }
+
             if HOOKS_PAUSED.load(Ordering::Relaxed) {
                 release_all_held(&app, &mut dedup, &mut mouse_down);
                 continue;
@@ -523,7 +540,12 @@ pub fn start_global_hooks(app: AppHandle) {
 
             if let Some(msg) = msg {
                 match msg {
-                    RawHookMsg::KeyDown { vk, scan, source } => {
+                    RawHookMsg::KeyDown {
+                        vk,
+                        scan,
+                        source,
+                        count_for_stats,
+                    } => {
                         if is_alt_vk(vk) {
                             ALT_HELD.store(true, Ordering::Relaxed);
                         }
@@ -541,6 +563,18 @@ pub fn start_global_hooks(app: AppHandle) {
                                 KEY_EVENTS_RECEIVED.fetch_add(1, Ordering::Relaxed);
                             }
                             emit_input(&app, InputEvent::KeyDown { vk, scan, repeat });
+                            #[cfg(not(windows))]
+                            let count_for_stats = count_for_stats
+                                && daily_key_count::is_printable_key(vk)
+                                && !daily_key_count::has_typing_shortcut_modifier(&dedup.logical_pressed);
+                            if !repeat && count_for_stats {
+                                if let Some((rollover, snapshot)) = daily_stats.record() {
+                                    if let Some(rollover) = rollover {
+                                        let _ = app.emit(daily_key_count::EVENT, rollover);
+                                    }
+                                    let _ = app.emit(daily_key_count::EVENT, snapshot);
+                                }
+                            }
                         }
                     }
                     RawHookMsg::KeyUp { vk, scan, source } => {
@@ -690,6 +724,37 @@ fn normalize_screen_point(_x: i32, _y: i32) -> (f64, f64) {
 }
 
 #[cfg(windows)]
+thread_local! {
+    static WIN_TYPING_MODIFIERS: std::cell::Cell<daily_key_count::WindowsTypingModifiers> =
+        std::cell::Cell::new(daily_key_count::WindowsTypingModifiers::default());
+}
+
+#[cfg(windows)]
+fn win_is_countable_key(vk: u32, scan: u32, flags: u32, pressed: bool) -> bool {
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        GetAsyncKeyState, VK_LCONTROL, VK_LMENU, VK_LWIN, VK_RCONTROL, VK_RMENU, VK_RWIN,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::LLKHF_INJECTED;
+
+    // The hook runs before Windows updates the current key. Modifier states already applied
+    // include keys held before the hook was installed and do not race the input dispatcher.
+    let key_down = |key: u16| unsafe { (GetAsyncKeyState(key as i32) as u16 & 0x8000) != 0 };
+    WIN_TYPING_MODIFIERS.with(|modifiers| {
+        if vk == u32::from(VK_LCONTROL) || vk == u32::from(VK_RMENU) {
+            let mut state = modifiers.get();
+            state.observe(vk, scan, pressed, key_down(VK_LCONTROL));
+            modifiers.set(state);
+        }
+        pressed
+            && flags & LLKHF_INJECTED == 0
+            && daily_key_count::is_printable_key(vk)
+            && !key_down(vk as u16)
+            && modifiers.get().permits_typing(key_down(VK_LCONTROL), key_down(VK_RMENU))
+            && ![VK_RCONTROL, VK_LMENU, VK_LWIN, VK_RWIN].into_iter().any(key_down)
+    })
+}
+
+#[cfg(windows)]
 unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: usize, lparam: isize) -> isize {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, KBDLLHOOKSTRUCT, WM_KEYDOWN, WM_KEYUP, WM_SYSKEYDOWN, WM_SYSKEYUP,
@@ -711,9 +776,11 @@ unsafe extern "system" fn keyboard_hook_proc(code: i32, wparam: usize, lparam: i
                         vk: mapped_vk,
                         scan: kb.scanCode,
                         source: KeySource::Primary,
+                        count_for_stats: win_is_countable_key(mapped_vk, kb.scanCode, kb.flags, true),
                     });
                 }
                 WM_KEYUP | WM_SYSKEYUP => {
+                    win_is_countable_key(mapped_vk, kb.scanCode, kb.flags, false);
                     let _ = tx.send(RawHookMsg::KeyUp {
                         vk: mapped_vk,
                         scan: kb.scanCode,
@@ -820,6 +887,7 @@ fn run_windows_hook_loop() {
             if msg.message == WM_KURO_PAUSE_TOGGLE {
                 let pause = msg.wParam != 0;
                 if pause {
+                    WIN_TYPING_MODIFIERS.with(|modifiers| modifiers.set(Default::default()));
                     if !kb_hook.is_null() {
                         UnhookWindowsHookEx(kb_hook);
                         kb_hook = std::ptr::null_mut();
@@ -1084,7 +1152,9 @@ pub mod macos_hook {
     const K_CG_EVENT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFFFFFF;
     const K_CF_RUN_LOOP_RUN_FINISHED: i32 = 1;
 
+    const K_CG_KEYBOARD_EVENT_AUTOREPEAT: u32 = 8;
     const K_CG_KEYBOARD_EVENT_KEYCODE: u32 = 9;
+    const K_CG_EVENT_SOURCE_UNIX_PROCESS_ID: u32 = 41;
     const K_CG_SCROLL_WHEEL_EVENT_DELTA_AXIS_1: u32 = 11;
 
     const K_CG_HID_EVENT_TAP: u32 = 0;
@@ -1331,6 +1401,14 @@ pub mod macos_hook {
                             vk,
                             scan: kc as u32,
                             source: KeySource::AppKit,
+                            count_for_stats: !ev_ref.isARepeat()
+                                && ev_ref.CGEvent().is_none_or(|event| unsafe {
+                                    let event = std::ptr::from_ref(&*event).cast_mut().cast();
+                                    CGEventGetIntegerValueField(
+                                        event,
+                                        K_CG_EVENT_SOURCE_UNIX_PROCESS_ID,
+                                    ) == 0
+                                }),
                         });
                     }
                     NSEventType::KeyUp => {
@@ -1348,6 +1426,7 @@ pub mod macos_hook {
                                 vk,
                                 scan: kc as u32,
                                 source: KeySource::AppKit,
+                                count_for_stats: true,
                             });
                         } else {
                             let _ = tx.send(RawHookMsg::KeyUp {
@@ -1866,6 +1945,14 @@ pub mod macos_hook {
                                 vk,
                                 scan: kc as u32,
                                 source: KeySource::Primary,
+                                count_for_stats: CGEventGetIntegerValueField(
+                                    event,
+                                    K_CG_KEYBOARD_EVENT_AUTOREPEAT,
+                                ) == 0
+                                    && CGEventGetIntegerValueField(
+                                        event,
+                                        K_CG_EVENT_SOURCE_UNIX_PROCESS_ID,
+                                    ) == 0,
                             });
                         }
                     }
@@ -1892,6 +1979,7 @@ pub mod macos_hook {
                                     vk,
                                     scan: kc as u32,
                                     source: KeySource::Primary,
+                                    count_for_stats: true,
                                 });
                             } else {
                                 let _ = tx.send(RawHookMsg::KeyUp {
@@ -2001,6 +2089,7 @@ pub mod macos_hook {
                         vk,
                         scan: usage,
                         source: KeySource::Hid,
+                        count_for_stats: true,
                     });
                 } else {
                     let _ = tx.send(RawHookMsg::KeyUp {
@@ -2958,8 +3047,17 @@ pub mod linux_hook {
         X11_ALT_HELD.load(Ordering::Relaxed)
     }
 
+    fn x11_key_timestamp(event: &[u8], swapped: bool) -> u32 {
+        let time = u32::from_ne_bytes(event[4..8].try_into().unwrap());
+        if swapped {
+            time.swap_bytes()
+        } else {
+            time
+        }
+    }
+
     unsafe extern "C" fn record_callback(
-        _closure: *mut c_void,
+        closure: *mut c_void,
         intercept: *mut XRecordInterceptData,
     ) {
         if intercept.is_null() {
@@ -2973,6 +3071,7 @@ pub mod linux_hook {
             let byte_len = (data_ref.data_len as usize).saturating_mul(4);
             let full = std::slice::from_raw_parts(data_ref.data, byte_len);
             let swapped = data_ref.client_swapped != 0;
+            let last_key_release = &mut *closure.cast::<[Option<u32>; 256]>();
 
             if let Some(tx) = HOOK_TX.get() {
                 let mut off = 0usize;
@@ -2986,10 +3085,16 @@ pub mod linux_hook {
                             // X11 KeyPress (Xorg evdev keycodes are offset by +8)
                             if detail >= 8 {
                                 if let Some(vk) = linux_evdev_to_vk((detail - 8) as u16) {
+                                    let time = x11_key_timestamp(raw, swapped);
                                     let _ = tx.send(RawHookMsg::KeyDown {
                                         vk,
                                         scan: detail as u32,
                                         source: KeySource::Primary,
+                                        count_for_stats: crate::daily_key_count::count_x11_press(
+                                            &mut last_key_release[detail as usize],
+                                            time,
+                                            raw[0] & 0x80 != 0,
+                                        ),
                                     });
                                 }
                             }
@@ -2998,6 +3103,8 @@ pub mod linux_hook {
                             // X11 KeyRelease
                             if detail >= 8 {
                                 if let Some(vk) = linux_evdev_to_vk((detail - 8) as u16) {
+                                    last_key_release[detail as usize] =
+                                        Some(x11_key_timestamp(raw, swapped));
                                     let _ = tx.send(RawHookMsg::KeyUp {
                                         vk,
                                         scan: detail as u32,
@@ -3123,7 +3230,10 @@ pub mod linux_hook {
             (x11.sync)(ctrl_dpy, 0);
 
             // Blocks until context is disabled or display disconnects
-            let ok = (xrec.enable_context)(data_dpy, ctx, record_callback, std::ptr::null_mut());
+            // Core X11 auto-repeat can emit release/press pairs with one server timestamp.
+            let mut last_key_release: [Option<u32>; 256] = [None; 256];
+            let closure = (&mut last_key_release as *mut [Option<u32>; 256]).cast::<c_void>();
+            let ok = (xrec.enable_context)(data_dpy, ctx, record_callback, closure);
 
             (xrec.free_context)(ctrl_dpy, ctx);
             (x11.close_display)(data_dpy);
@@ -3219,6 +3329,7 @@ pub mod linux_hook {
                                                         vk,
                                                         scan: code as u32,
                                                         source: KeySource::Primary,
+                                                        count_for_stats: val == 1,
                                                     });
                                                 } else if val == 0 {
                                                     let _ = tx.send(RawHookMsg::KeyUp {

@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { DEFAULT_TAIL_KEY_IDS, type KeyboardOrientation, type TailKeyMode } from './catEngine';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
+import type { DailyKeyCount } from './dailyKeyCounter';
 import type { KeyboardLayoutId } from './keyboardLayout';
 import {
   applyDomTranslations,
@@ -114,6 +115,8 @@ let updateBusy = false;
 let activeTab: MenuTabId = 'appearance';
 let settingsPatchSeq = 0;
 let adminStatus: AdminStatus = { supported: false, elevated: false, macInputDiag: false };
+let dailyKeyCount: DailyKeyCount | null = null;
+let dailyKeyClearBusy = false;
 
 const menuEl = document.getElementById('context-menu') as HTMLDivElement;
 const tabBodyEl = document.getElementById('menu-tab-body') as HTMLDivElement | null;
@@ -138,6 +141,42 @@ const obsPortPillEl = document.getElementById('obs-port-pill') as HTMLSpanElemen
 const liveCardBodyEl = document.getElementById('live-card-body') as HTMLDivElement | null;
 const btnCheckUpdateEl = document.getElementById('btn-check-update') as HTMLButtonElement | null;
 const lockKbdEl = document.getElementById('lock-kbd') as HTMLElement | null;
+const dailyKeyCountEl = document.getElementById('daily-key-count') as HTMLElement;
+const dailyKeyClearBtn = document.getElementById('clear-daily-key-count') as HTMLButtonElement;
+const dailyKeyClearError = document.getElementById('daily-key-clear-error') as HTMLElement;
+const dailyKeyCountFormatter = new Intl.NumberFormat('en-US');
+
+function renderDailyKeyClear(): void {
+  dailyKeyClearBtn.disabled = !dailyKeyCount?.count || dailyKeyClearBusy;
+}
+
+function updateDailyKeyCount(next: DailyKeyCount): void {
+  if (dailyKeyCount && next.revision <= dailyKeyCount.revision) return;
+  dailyKeyCount = next;
+  dailyKeyCountEl.textContent = dailyKeyCountFormatter.format(next.count);
+  renderDailyKeyClear();
+}
+
+function refreshDailyKeyCount(): void {
+  void invoke<DailyKeyCount>('get_daily_key_count').then(updateDailyKeyCount).catch(() => {});
+}
+
+async function clearDailyKeyCount(): Promise<void> {
+  if (!dailyKeyCount?.count || dailyKeyClearBusy) return;
+  const { date } = dailyKeyCount;
+  dailyKeyClearError.hidden = true;
+  dailyKeyClearBusy = true;
+  renderDailyKeyClear();
+  try {
+    updateDailyKeyCount(await invoke<DailyKeyCount>('clear_daily_key_count', { date }));
+  } catch {
+    dailyKeyClearError.hidden = false;
+    refreshDailyKeyCount();
+  } finally {
+    dailyKeyClearBusy = false;
+    renderDailyKeyClear();
+  }
+}
 
 function formatBreedPillLabel(cat: CatSkinConfig): string {
   const displayName = localizeBreedName(cat.id, cat.name, cat.builtin);
@@ -868,6 +907,8 @@ async function bootstrap(): Promise<void> {
 
   document.getElementById('btn-close-menu')?.addEventListener('click', () => closeMenu());
 
+  dailyKeyClearBtn.addEventListener('click', () => void clearDailyKeyCount());
+
   window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeMenu();
   });
@@ -935,6 +976,9 @@ async function bootstrap(): Promise<void> {
 
   if (!inTauri) return;
 
+  await listen<DailyKeyCount>('kuro-daily-key-count', (ev) => updateDailyKeyCount(ev.payload));
+  refreshDailyKeyCount();
+
   await listen<AppSettings>('kuro-settings', (ev) => {
     settings = ev.payload;
     syncUI();
@@ -968,6 +1012,8 @@ async function bootstrap(): Promise<void> {
   });
 
   await listen('kuro-menu-opened', async () => {
+    dailyKeyClearError.hidden = true;
+    refreshDailyKeyCount();
     try {
       const [latestSettings, latestCats, cachedUpd, resolvedLoc] = await Promise.all([
         invoke<AppSettings>('get_settings'),

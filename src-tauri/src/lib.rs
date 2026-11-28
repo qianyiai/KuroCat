@@ -2,6 +2,7 @@
 
 mod cats;
 mod config;
+mod daily_key_count;
 mod game_detect;
 mod i18n;
 mod input_hook;
@@ -467,6 +468,7 @@ pub fn shutdown_pet_windows() {
     APP_SHUTTING_DOWN.store(true, Ordering::SeqCst);
     obs::shutdown_obs_server();
     if let Some(app) = APP_HANDLE_FOR_SHUTDOWN.get() {
+        let _ = app.state::<daily_key_count::DailyKeyStats>().finish();
         if let Some(w) = app.get_webview_window("live") {
             let _ = w.destroy();
         }
@@ -741,6 +743,29 @@ struct TailPickerBounds {
 #[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> AppSettings {
     state.settings.lock().unwrap().clone()
+}
+
+#[tauri::command]
+fn get_daily_key_count(
+    app: AppHandle,
+    stats: State<'_, daily_key_count::DailyKeyStats>,
+) -> daily_key_count::DailyKeyCount {
+    let (snapshot, rolled_over) = stats.refresh();
+    if rolled_over {
+        let _ = app.emit(daily_key_count::EVENT, &snapshot);
+    }
+    snapshot
+}
+
+#[tauri::command]
+fn clear_daily_key_count(
+    app: AppHandle,
+    stats: State<'_, daily_key_count::DailyKeyStats>,
+    date: chrono::NaiveDate,
+) -> Result<daily_key_count::DailyKeyCount, String> {
+    let snapshot = stats.clear_today(date).map_err(|error| error.to_string())?;
+    let _ = app.emit(daily_key_count::EVENT, &snapshot);
+    Ok(snapshot)
 }
 
 #[tauri::command]
@@ -3949,6 +3974,7 @@ pub fn win_restart_as_admin(app: AppHandle) {
         std::mem::forget(reset_guard);
         APP_SHUTTING_DOWN.store(true, Ordering::SeqCst);
         crate::input_hook::set_hooks_paused(true);
+        let _ = app.state::<daily_key_count::DailyKeyStats>().finish();
         obs::shutdown_obs_server();
         if win_needs_win7_ulw() {
             win7_layered::shutdown();
@@ -4729,7 +4755,13 @@ fn start_hit_test_loop(
             } else if effective_locked {
                 true
             } else if is_win7_ulw {
-                false
+                #[cfg(windows)]
+                {
+                    // Layered windows receive mouse input on painted pixels, including the HUD.
+                    !over_interactive && win7_layered::typing_hud_contains(rx, ry)
+                }
+                #[cfg(not(windows))]
+                unreachable!()
             } else {
                 !over_interactive
             };
@@ -4989,7 +5021,12 @@ fn win7_present_frame(request: tauri::ipc::Request<'_>) {
             return;
         }
         if let tauri::ipc::InvokeBody::Raw(bytes) = request.body() {
-            win7_layered::submit_rgba_frame(w, h, bytes);
+            let hud_rect = request
+                .headers()
+                .get("x-kuro-hud-rect")
+                .and_then(|header| header.to_str().ok())
+                .and_then(win7_layered::parse_hud_rect);
+            win7_layered::submit_rgba_frame(w, h, bytes, hud_rect);
         }
     }
     #[cfg(not(windows))]
@@ -5744,6 +5781,9 @@ pub fn run() {
     let paused_for_setup = paused_guard.clone();
 
     let run_result = tauri::Builder::default()
+        .manage(daily_key_count::DailyKeyStats::load(
+            config::app_data_dir().join("typing-stats.json"),
+        ))
         .manage(AppState {
             settings: settings_arc,
             menu_open,
@@ -5955,6 +5995,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_settings,
+            get_daily_key_count,
+            clear_daily_key_count,
             get_resolved_locale,
             trim_idle_memory,
             get_cats,
@@ -5994,7 +6036,14 @@ pub fn run() {
             open_release_page,
             quit_app,
         ])
-        .run(tauri::generate_context!());
+        .build(tauri::generate_context!())
+        .map(|app| {
+            app.run(|handle, event| {
+                if matches!(event, tauri::RunEvent::Exit) {
+                    let _ = handle.state::<daily_key_count::DailyKeyStats>().finish();
+                }
+            });
+        });
 
     if let Err(err) = run_result {
         #[cfg(windows)]

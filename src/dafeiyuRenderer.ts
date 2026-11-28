@@ -519,6 +519,10 @@ export class DaFeiYuRenderer {
     }
   }
 
+  public getHeadTopPoint(now: number, layout: DaFeiYuLayout): { x: number; y: number } {
+    return this.computeGeom(now, layout).spritePointToWorld(0.49, 0.015);
+  }
+
   private computeGeom(now: number, layout: DaFeiYuLayout) {
     const charX = layout.is108 ? 268 : 192;
     const baseCharY = layout.is108 ? 366 : 364;

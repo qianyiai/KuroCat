@@ -971,9 +971,11 @@ export class KuroCatEngine3D {
   private readonly tmpMat4 = new THREE.Matrix4();
   private readonly tmpPeekC1 = new THREE.Vector3();
   private readonly tmpPeekC2 = new THREE.Vector3();
+  private readonly keyCountAnchor = new THREE.Vector3();
   private fpsCap = 0;
   private sleepTrimSent = false;
   public onDeepSleep: (() => void) | null = null;
+  public onAfterRender: (() => void) | null = null;
   private readonly handleContextRestored = (): void => {
     this.applyChromaKeyState();
     this.wakeRendering();
@@ -2247,6 +2249,10 @@ export class KuroCatEngine3D {
     this.isIdlePacing = false;
   }
 
+  public requestRender(): void {
+    this.wakeRendering();
+  }
+
   public setGameActive(active: boolean): void {
     this.gameActive = Boolean(active);
   }
@@ -2315,6 +2321,7 @@ export class KuroCatEngine3D {
     this.lastFrameMs = nowMs;
     this.update(dt);
     this.renderer.render(this.scene, this.camera);
+    this.onAfterRender?.();
 
     if (this.rafId !== frameId) return;
 
@@ -2889,6 +2896,18 @@ export class KuroCatEngine3D {
       this.sSquash.kick(0.55);
     }
     return zone;
+  }
+
+  public getDailyKeyCountAnchor(): { x: number; y: number } | null {
+    if (this.asleep) return null;
+    const p = this.keyCountAnchor.set(0, 0.71, -0.015)
+      .applyMatrix4(this.headMount.matrixWorld)
+      .project(this.camera);
+    const headsetClearance = this.headsetOn ? 3 : 0;
+    return {
+      x: (p.x * 0.5 + 0.5) * this.canvas.clientWidth,
+      y: (-p.y * 0.5 + 0.5) * this.canvas.clientHeight - headsetClearance,
+    };
   }
 
   public getHitZoneScreenMarkers(): Array<{ zone: CatHitZone; x: number; y: number }> {

@@ -44,6 +44,14 @@ html.win7-ulw-mode .tail-picker-bar {
   display: none !important;
 }
 
+#daily-key-count-3d {
+  position: absolute;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+}
+
 #pet-canvas.pet-hover,
 #pet-canvas-3d.pet-hover {
   cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='26' height='26' viewBox='0 0 24 24'%3E%3Cpath fill='%2316171a' stroke='%23ffffff' stroke-width='1.65' stroke-linejoin='round' d='M9 11V5.5a1.5 1.5 0 0 1 3 0V10m0-5.5a1.5 1.5 0 0 1 3 0V10m0-4a1.5 1.5 0 0 1 3 0V11m0-2.5a1.5 1.5 0 0 1 3 0V14a7 7 0 0 1-7 7h-1.5a6.5 6.5 0 0 1-5.4-2.9l-2.6-4.1a1.5 1.5 0 0 1 2.4-1.8L7 14V7.5a1.5 1.5 0 0 1 2 0Z'/%3E%3C/svg%3E") 12 12, grab;
@@ -1268,6 +1276,38 @@ html.win7-ulw-mode .floating-side-menu.scheme-a-menu {
 
 .menu-card-compact {
   padding: 4.5px 10px;
+}
+
+.typing-stats-card {
+  padding-bottom: 9px;
+}
+
+.setting-row.typing-stats-row {
+  justify-content: flex-start;
+  gap: 10px;
+}
+
+.typing-stats-count {
+  color: #c8f538;
+  font: 700 18px/1 "Cascadia Mono", Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.typing-stats-clear {
+  margin-left: auto;
+  min-width: 52px;
+  flex-shrink: 0;
+}
+
+.typing-stats-clear:disabled {
+  opacity: 0.45;
+  cursor: default;
+  pointer-events: none;
+}
+
+.typing-stats-error {
+  color: #ff8080;
+  font-size: 11.5px;
 }
 
 .menu-card.hidden {

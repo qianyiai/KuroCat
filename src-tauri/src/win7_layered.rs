@@ -38,6 +38,7 @@ struct PendingFrame {
     width: u32,
     height: u32,
     bgra: Vec<u8>,
+    hud_rect: Option<[f64; 4]>,
     has_frame: bool,
 }
 
@@ -54,6 +55,7 @@ struct Win7LayeredHub {
     presented_frames: AtomicIsize,
     dumped_once: AtomicBool,
     pending: Mutex<PendingFrame>,
+    presented_hud_rect: Mutex<Option<[f64; 4]>>,
     app: Mutex<Option<AppHandle>>,
 }
 
@@ -76,8 +78,10 @@ fn hub() -> &'static Win7LayeredHub {
             width: 0,
             height: 0,
             bgra: Vec::new(),
+            hud_rect: None,
             has_frame: false,
         }),
+        presented_hud_rect: Mutex::new(None),
         app: Mutex::new(None),
     })
 }
@@ -289,15 +293,16 @@ fn present_latest_on_thread(hwnd: HWND) {
     if !h.visible.load(Ordering::Relaxed) {
         return;
     }
-    let (w, h_px, buf) = {
+    let (w, h_px, buf, hud_rect) = {
         let guard = h.pending.lock().unwrap();
         if !guard.has_frame || guard.width == 0 || guard.height == 0 || guard.bgra.is_empty() {
             return;
         }
-        (guard.width, guard.height, guard.bgra.clone())
+        (guard.width, guard.height, guard.bgra.clone(), guard.hud_rect)
     };
     let ok = PRESENTER.with(|cell| cell.borrow_mut().present(hwnd, w, h_px, &buf));
     if ok {
+        *h.presented_hud_rect.lock().unwrap() = hud_rect;
         let count = h.presented_frames.fetch_add(1, Ordering::Relaxed) + 1;
         // Optional diagnostic frame dump for automated visual verification (only when env var set)
         if count >= 6 && !h.dumped_once.load(Ordering::Relaxed) {
@@ -631,7 +636,30 @@ pub fn init(app: AppHandle, x: i32, y: i32, w: u32, h: u32, always_on_top: bool)
     let _ = ready_rx.recv_timeout(std::time::Duration::from_secs(3));
 }
 
-pub fn submit_rgba_frame(w: u32, h: u32, rgba: &[u8]) {
+pub fn parse_hud_rect(header: &str) -> Option<[f64; 4]> {
+    let mut values = header.split(',');
+    let mut bounds = [0.0; 4];
+    for value in &mut bounds {
+        *value = values.next()?.parse().ok()?;
+        if !(0.0..=1.0).contains(value) {
+            return None;
+        }
+    }
+    let [left, top, right, bottom] = bounds;
+    (values.next().is_none() && left < right && top < bottom).then_some(bounds)
+}
+
+pub fn typing_hud_contains(x: f64, y: f64) -> bool {
+    hub()
+        .presented_hud_rect
+        .lock()
+        .unwrap()
+        .is_some_and(|[left, top, right, bottom]| {
+            (left..=right).contains(&x) && (top..=bottom).contains(&y)
+        })
+}
+
+pub fn submit_rgba_frame(w: u32, h: u32, rgba: &[u8], hud_rect: Option<[f64; 4]>) {
     if w == 0 || h == 0 || w > 4096 || h > 4096 {
         return;
     }
@@ -654,6 +682,7 @@ pub fn submit_rgba_frame(w: u32, h: u32, rgba: &[u8]) {
         rgba_to_premultiplied_bgra(rgba, &mut guard.bgra);
         guard.width = w;
         guard.height = h;
+        guard.hud_rect = hud_rect;
         guard.has_frame = true;
     }
 
@@ -783,6 +812,23 @@ pub fn get_rect() -> Option<(i32, i32, i32, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn validates_normalized_typing_hud_rect() {
+        assert_eq!(
+            parse_hud_rect("0.3,0.1,0.6,0.2"),
+            Some([0.3, 0.1, 0.6, 0.2])
+        );
+        for header in [
+            "0.3,0.1,0.6",
+            "0.3,0.1,0.6,0.2,0.7",
+            "0.3,NaN,0.6,0.2",
+            "0.3,0.1,1.5,0.2",
+            "0.6,0.1,0.3,0.2",
+        ] {
+            assert_eq!(parse_hud_rect(header), None, "{header}");
+        }
+    }
 
     #[test]
     fn premultiplies_straight_rgba_to_bgra_accurately() {
