@@ -756,7 +756,7 @@ fn tool_definitions() -> Value {
                     "headphoneMode": { "type": "string", "enum": ["auto", "on", "off"], "description": "Gaming headset mode." },
                     "scale": { "type": "number", "minimum": 0.2, "maximum": 1.5 },
                     "opacity": { "type": "number", "minimum": 0.2, "maximum": 1.0, "description": "Desktop pet overall opacity from 0.2 (20%) to 1.0 (100%, default)." },
-                    "keyboardLayout": { "type": "string", "enum": ["65", "108"] },
+                    "keyboardLayout": { "type": "string", "enum": ["65", "87", "108"] },
                     "keyboardOrientation": { "type": "string", "enum": ["cat", "viewer"] },
                     "tailKeyMode": { "type": "string", "enum": ["smart", "custom", "edge", "off"] },
                     "tailKeyIds": {

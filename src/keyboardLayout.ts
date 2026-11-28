@@ -1,4 +1,4 @@
-export type KeyboardLayoutId = '65' | '108';
+export type KeyboardLayoutId = '65' | '87' | '108';
 
 export interface KeySpec {
   id: string;
@@ -225,6 +225,9 @@ export const KEYBOARD_KEYS_108: KeySpec[] = [
   { id: 'np_dot', label: '.', bubble: 'Num.', row: 5, rowY: 5.25, uStart: NUM_X + 2, uWidth: 1, vkCodes: [0x6e] },
 ];
 
+// Authentic 87-key TKL: the 108-key board minus numpad & media keys (16+17+17+13+13+11 = 87 keys!)
+export const KEYBOARD_KEYS_87: KeySpec[] = KEYBOARD_KEYS_108.filter((k) => k.uStart < NUM_X);
+
 export const KEYBOARD_KEYS = KEYBOARD_KEYS_65;
 
 export const KEYBOARD_LAYOUTS: Record<KeyboardLayoutId, KeyboardLayoutDef> = {
@@ -233,6 +236,12 @@ export const KEYBOARD_LAYOUTS: Record<KeyboardLayoutId, KeyboardLayoutDef> = {
     totalUnits: 15,
     totalRows: 5,
     keys: KEYBOARD_KEYS_65,
+  },
+  '87': {
+    id: '87',
+    totalUnits: NAV_X + 3,
+    totalRows: 6.25,
+    keys: KEYBOARD_KEYS_87,
   },
   '108': {
     id: '108',
@@ -244,10 +253,11 @@ export const KEYBOARD_LAYOUTS: Record<KeyboardLayoutId, KeyboardLayoutDef> = {
 
 const vkLookups: Record<KeyboardLayoutId, Map<number, KeySpec>> = {
   '65': new Map<number, KeySpec>(),
+  '87': new Map<number, KeySpec>(),
   '108': new Map<number, KeySpec>(),
 };
 
-for (const layoutId of ['65', '108'] as const) {
+for (const layoutId of ['65', '87', '108'] as const) {
   for (const key of KEYBOARD_LAYOUTS[layoutId].keys) {
     for (const vk of key.vkCodes) {
       vkLookups[layoutId].set(vk, key);
@@ -257,6 +267,10 @@ for (const layoutId of ['65', '108'] as const) {
 
 export function getKeyboardLayout(layoutId: KeyboardLayoutId): KeyboardLayoutDef {
   return KEYBOARD_LAYOUTS[layoutId] ?? KEYBOARD_LAYOUTS['65'];
+}
+
+export function normalizeKeyboardLayoutId(raw: unknown): KeyboardLayoutId {
+  return raw === '87' ? '87' : raw === '108' ? '108' : '65';
 }
 
 export function resolveKeyByVk(vk: number, layoutId: KeyboardLayoutId = '65'): KeySpec | null {

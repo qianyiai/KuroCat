@@ -7,7 +7,7 @@ import {
 import { catAudio } from './audio';
 import { AgentCompanionController, type AgentCompanionEvent } from './agentCompanion';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
-import type { KeyboardLayoutId } from './keyboardLayout';
+import { normalizeKeyboardLayoutId, type KeyboardLayoutId } from './keyboardLayout';
 import type { CollarColorId, KuroCatEngine3D } from './catEngine3d';
 
 type ObsRenderMode = '2d' | '3d';
@@ -113,7 +113,11 @@ const overrideHeadphones: ObsHeadphoneMode | null =
   overrideHeadphoneRaw === 'auto' || overrideHeadphoneRaw === 'on' || overrideHeadphoneRaw === 'off'
     ? overrideHeadphoneRaw
     : null;
-const overrideLayout = params.get('layout') === '108' ? '108' : params.get('layout') === '65' ? '65' : null;
+const overrideLayoutRaw = params.get('layout');
+const overrideLayout: KeyboardLayoutId | null =
+  overrideLayoutRaw === '65' || overrideLayoutRaw === '87' || overrideLayoutRaw === '108'
+    ? overrideLayoutRaw
+    : null;
 const overrideOrient = params.get('orient') === 'viewer' ? 'viewer' : params.get('orient') === 'cat' ? 'cat' : null;
 const overrideBubbles = params.has('bubbles') ? params.get('bubbles') !== '0' && params.get('bubbles') !== 'false' : null;
 const rawScaleParam = params.get('scale');
@@ -337,7 +341,7 @@ function applyState(): void {
   const breedId = overrideBreed || currentSettings.catBreed || 'black';
   const activeCat = catList.find((c) => c.id === breedId) ?? catList[0];
   const layout: KeyboardLayoutId =
-    overrideLayout || (currentSettings.keyboardLayout === '108' ? '108' : '65');
+    overrideLayout || normalizeKeyboardLayoutId(currentSettings.keyboardLayout);
   const orient: KeyboardOrientation =
     overrideOrient || (currentSettings.keyboardOrientation === 'viewer' ? 'viewer' : 'cat');
   const tailMode: TailKeyMode =

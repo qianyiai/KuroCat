@@ -2,6 +2,24 @@ import idleUrl from './assets/dafeiyu/notail_idle.png';
 import blinkUrl from './assets/dafeiyu/notail_blink.png';
 import shyUrl from './assets/dafeiyu/notail_shy.png';
 import happyUrl from './assets/dafeiyu/notail_happy2.png';
+import type { KeyboardLayoutId } from './keyboardLayout';
+
+const FISH_GEOM: Record<
+  KeyboardLayoutId,
+  {
+    charX: number;
+    baseCharY: number;
+    drawW: number;
+    handShift: number;
+    mouseShift: number;
+    swayShift: number;
+    mouseReach: number;
+  }
+> = {
+  '65': { charX: 192, baseCharY: 364, drawW: 262, handShift: -38, mouseShift: -38, swayShift: 13, mouseReach: 88 },
+  '87': { charX: 226, baseCharY: 366, drawW: 265, handShift: -62, mouseShift: -80, swayShift: 17, mouseReach: 92 },
+  '108': { charX: 268, baseCharY: 366, drawW: 268, handShift: -88, mouseShift: -125, swayShift: 22, mouseReach: 96 },
+};
 
 export interface DaFeiYuLayout {
   logicalW: number;
@@ -21,7 +39,7 @@ export interface DaFeiYuLayout {
   petEnergy: number;
   privacyMode: boolean;
   privacyTypingAt: number;
-  is108: boolean;
+  layoutId: KeyboardLayoutId;
   peekAmount?: number;
 }
 
@@ -228,7 +246,7 @@ export class DaFeiYuRenderer {
     this.keyTimes.push(now);
     this.bodyBob = Math.min(1.1, this.bodyBob + 0.72);
 
-    const charX = layout.is108 ? 268 : 192;
+    const charX = FISH_GEOM[layout.layoutId].charX;
     const normX = Math.max(-1, Math.min(1, (pt.x - layout.kbCenterX) / (layout.kbWidth * 0.46)));
     const mouseBusy = layout.mouseLeft || layout.mouseRight || now - layout.mouseActiveAt < 900;
     const isLeftSide = pt.x < layout.kbCenterX - 2;
@@ -250,7 +268,7 @@ export class DaFeiYuRenderer {
       this.spawnParticles(pt.x, pt.y - 8, 3, true);
     } else if (mouseBusy) {
       // Simultaneous mouse + keyboard: left hand stays glued on mouse, right hand taps main keyboard!
-      const shiftBase = layout.is108 ? -88 : -38;
+      const shiftBase = FISH_GEOM[layout.layoutId].handShift;
       const curCharX = charX + shiftBase;
       const comfortX = Math.max(curCharX - 10, Math.min(curCharX + 92, pt.x));
       const comfortY = Math.min(layout.kbCenterY + 6, pt.y);
@@ -262,7 +280,7 @@ export class DaFeiYuRenderer {
     } else {
       // Cozy two-handed typing with gentle micro-sway (±5.5°)
       this.bodyTiltTarget = normX * 0.095;
-      this.bodyShiftTarget = normX * (layout.is108 ? 22 : 13);
+      this.bodyShiftTarget = normX * FISH_GEOM[layout.layoutId].swayShift;
       const comfortX =
         charX +
         this.bodyShiftTarget +
@@ -373,7 +391,7 @@ export class DaFeiYuRenderer {
       this.nextBlinkAt = now + 4500 + Math.random() * 2700;
     }
 
-    const charX = layout.is108 ? 268 : 192;
+    const charX = FISH_GEOM[layout.layoutId].charX;
     if (isHappy && Math.random() < 0.06) {
       this.spawnParticles(charX + this.bodyShiftX, 120, 1, false);
     } else if (!layout.privacyMode && this.moodTier === 2 && Math.random() < 0.025) {
@@ -397,7 +415,7 @@ export class DaFeiYuRenderer {
       this.bodyTiltTarget = shySway;
       this.bodyDiveY *= Math.exp(-9 * dt);
     } else if (mouseMode) {
-      const baseShift = layout.is108 ? -125 : -38;
+      const baseShift = FISH_GEOM[layout.layoutId].mouseShift;
       this.bodyShiftTarget = baseShift + (layout.mouseNX - 0.5) * 12;
       this.bodyTiltTarget = -0.10;
       this.bodyDiveY += (8 - this.bodyDiveY) * (1 - Math.exp(-10 * dt));
@@ -520,12 +538,13 @@ export class DaFeiYuRenderer {
   }
 
   private computeGeom(now: number, layout: DaFeiYuLayout) {
-    const charX = layout.is108 ? 268 : 192;
-    const baseCharY = layout.is108 ? 366 : 364;
+    const geom = FISH_GEOM[layout.layoutId];
+    const charX = geom.charX;
+    const baseCharY = geom.baseCharY;
     const breath = Math.sin(now * 0.0034) * 2.2 + this.bodyBob * 3.8 + this.bodyDiveY;
     const charCenterX = charX + this.bodyShiftX;
     const charBaseY = baseCharY + breath;
-    const drawW = layout.is108 ? 268 : 262;
+    const drawW = geom.drawW;
     const drawH = drawW * (278 / 224);
     const pivotOff = 48;
     const pivotY = charBaseY - pivotOff;
@@ -982,7 +1001,7 @@ export class DaFeiYuRenderer {
     this.leftHand.squash *= Math.exp(-14 * dt);
     this.rightHand.squash *= Math.exp(-14 * dt);
 
-    const maxMouseReach = layout.is108 ? 96 : 88;
+    const maxMouseReach = FISH_GEOM[layout.layoutId].mouseReach;
     this.drawChubbyArm(
       ctx,
       shL.x,

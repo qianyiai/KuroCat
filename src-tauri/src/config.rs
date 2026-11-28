@@ -125,10 +125,10 @@ pub fn default_keyboard_layout() -> String {
 }
 
 pub fn normalize_keyboard_layout(raw: &str) -> String {
-    if raw.trim() == "108" {
-        "108".to_string()
-    } else {
-        "65".to_string()
+    match raw.trim() {
+        "108" => "108".to_string(),
+        "87" => "87".to_string(),
+        _ => "65".to_string(),
     }
 }
 

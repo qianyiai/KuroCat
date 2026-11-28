@@ -67,6 +67,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
 
     private val skinButtons = mutableMapOf<String, TextView>()
     private lateinit var btnLayout65: TextView
+    private lateinit var btnLayout87: TextView
     private lateinit var btnLayout108: TextView
     private lateinit var btnOrientCat: TextView
     private lateinit var btnOrientViewer: TextView
@@ -425,6 +426,11 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
         }
+        btnLayout87 = makeSegButton("87 TKL") {
+            KuroPrefs.setLayout(this, "87")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
         btnLayout108 = makeSegButton("108 全尺寸") {
             KuroPrefs.setLayout(this, "108")
             KuroEventBus.postSettingsChanged()
@@ -441,6 +447,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             refreshAllUi()
         }
         segRow.addView(btnLayout65)
+        segRow.addView(btnLayout87)
         segRow.addView(btnLayout108)
         segRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(8), 1) })
         segRow.addView(btnOrientCat)
@@ -1017,9 +1024,10 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             }
         }
 
-        val is108 = KuroPrefs.getLayout(this) == "108"
-        styleSeg(btnLayout65, !is108)
-        styleSeg(btnLayout108, is108)
+        val layoutId = KuroPrefs.getLayout(this)
+        styleSeg(btnLayout65, layoutId == "65")
+        styleSeg(btnLayout87, layoutId == "87")
+        styleSeg(btnLayout108, layoutId == "108")
         val isViewer = KuroPrefs.getOrientation(this) == "viewer"
         styleSeg(btnOrientCat, !isViewer)
         styleSeg(btnOrientViewer, isViewer)

@@ -34,6 +34,8 @@ use tauri::{AppHandle, Emitter, Listener, LogicalSize, Manager, PhysicalPosition
 
 pub const BASE_WIDTH: f64 = 420.0;
 pub const BASE_HEIGHT: f64 = 440.0;
+pub const BASE_WIDTH_87: f64 = 470.0;
+pub const BASE_HEIGHT_87: f64 = 456.0;
 pub const BASE_WIDTH_108: f64 = 540.0;
 pub const BASE_HEIGHT_108: f64 = 456.0;
 pub const MIN_WINDOW_WIDTH: f64 = 100.0;
@@ -44,10 +46,10 @@ pub const WIN7_MIN_WINDOW_WIDTH: f64 = 260.0;
 pub const WIN7_MIN_WINDOW_HEIGHT: f64 = 410.0;
 
 pub fn base_dimensions(layout: &str) -> (f64, f64) {
-    if layout == "108" {
-        (BASE_WIDTH_108, BASE_HEIGHT_108)
-    } else {
-        (BASE_WIDTH, BASE_HEIGHT)
+    match layout {
+        "108" => (BASE_WIDTH_108, BASE_HEIGHT_108),
+        "87" => (BASE_WIDTH_87, BASE_HEIGHT_87),
+        _ => (BASE_WIDTH, BASE_HEIGHT),
     }
 }
 
@@ -1029,7 +1031,7 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     patch
 }
 
-const SIDE_MENU_LOGICAL_W: f64 = 298.0;
+const SIDE_MENU_LOGICAL_W: f64 = 320.0;
 
 /// Computes a non-overlapping physical position `(mx, my)` for the floating menu popover
 /// beside the cat window: prefers LEFT (since the cat defaults to bottom-right), then RIGHT,
@@ -4035,7 +4037,7 @@ fn win_wait_for_previous_pid_if_requested() -> WinStartupHandoff {
     result
 }
 
-fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool, peek_edge: &str) -> (bool, bool) {
+fn is_over_interactive_silhouette(rx: f64, ry: f64, layout: &str, peek_edge: &str) -> (bool, bool) {
     if peek_edge == "left" {
         let dx = (rx - 0.16) / 0.28;
         let dy = (ry - 0.50) / 0.34;
@@ -4049,25 +4051,31 @@ fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool, peek_edge: &st
         return (over_head, over_head);
     }
 
-    // Cat body/head oval centered around (0.48, 0.49) for 65% or (0.51, 0.48) for 108-key
-    let (cat_cx, cat_rx) = if is_108 { (0.51, 0.21) } else { (0.48, 0.25) };
+    // Cat body/head oval centered around (0.48, 0.49) for 65%, (0.50, 0.49) for 87-key, (0.51, 0.48) for 108-key
+    let (cat_cx, cat_rx) = match layout {
+        "108" => (0.51, 0.21),
+        "87" => (0.50, 0.23),
+        _ => (0.48, 0.25),
+    };
     let dx_cat = (rx - cat_cx) / cat_rx;
     let dy_cat = (ry - 0.49) / 0.27;
     let over_cat = (dx_cat * dx_cat + dy_cat * dy_cat) <= 1.0;
 
     // Tail curve extending to the right of the cat's hip so users can poke the tail without click-through
-    let over_tail = if is_108 {
-        rx >= 0.64 && rx <= 0.85 && ry >= 0.48 && ry <= 0.72
-    } else {
-        rx >= 0.64 && rx <= 0.90 && ry >= 0.48 && ry <= 0.72
+    let tail_right = match layout {
+        "108" => 0.85,
+        "87" => 0.88,
+        _ => 0.90,
     };
+    let over_tail = rx >= 0.64 && rx <= tail_right && ry >= 0.48 && ry <= 0.72;
 
     // Keyboard & mouse lower area
-    let over_desk = if is_108 {
-        rx >= 0.04 && rx <= 0.94 && ry >= 0.65 && ry <= 0.94
-    } else {
-        rx >= 0.06 && rx <= 0.92 && ry >= 0.65 && ry <= 0.91
+    let (desk_left, desk_right, desk_bottom) = match layout {
+        "108" => (0.04, 0.94, 0.94),
+        "87" => (0.05, 0.93, 0.93),
+        _ => (0.06, 0.92, 0.91),
     };
+    let over_desk = rx >= desk_left && rx <= desk_right && ry >= 0.65 && ry <= desk_bottom;
 
     (over_cat || over_tail || over_desk, over_cat)
 }
@@ -4346,16 +4354,16 @@ fn start_hit_test_loop(
             let rx = (cx - win_x) as f64 / w;
             let ry = (cy - win_y) as f64 / h;
             let inside = rx >= 0.0 && rx <= 1.0 && ry >= 0.0 && ry <= 1.0;
-            let (locked, always_on_top, is_108, cur_scale) = {
+            let (locked, always_on_top, layout, cur_scale) = {
                 let s = settings.lock().unwrap();
                 (
                     s.click_through_locked,
                     s.always_on_top,
-                    s.keyboard_layout == "108",
+                    s.keyboard_layout.clone(),
                     s.scale.clamp(0.20, 1.50),
                 )
             };
-            let layout_str = if is_108 { "108" } else { "65" };
+            let layout_str = layout.as_str();
             #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
             let _ = always_on_top;
 
@@ -4633,12 +4641,12 @@ fn start_hit_test_loop(
                 .unwrap_or_else(|_| "none".to_string());
             let (over_interactive, raw_over_cat) = if cur_peek == "left" || cur_peek == "right" {
                 if inside {
-                    is_over_interactive_silhouette(rx, ry, is_108, &cur_peek)
+                    is_over_interactive_silhouette(rx, ry, layout_str, &cur_peek)
                 } else {
                     (false, false)
                 }
             } else if inside_pet {
-                is_over_interactive_silhouette(pet_rx, pet_ry, is_108, &cur_peek)
+                is_over_interactive_silhouette(pet_rx, pet_ry, layout_str, &cur_peek)
             } else {
                 (false, false)
             };
@@ -6278,13 +6286,13 @@ mod side_menu_layout_tests {
     }
 
     #[test]
-    fn places_scheme_a_298px_side_menu_with_zero_overlap() {
-        assert!((super::SIDE_MENU_LOGICAL_W - 298.0).abs() < 1e-6);
+    fn places_scheme_a_320px_side_menu_with_zero_overlap() {
+        assert!((super::SIDE_MENU_LOGICAL_W - 320.0).abs() < 1e-6);
         let pet = (1580, 620, 315, 410);
         let work = (0, 0, 1920, 1040);
-        let menu = (298, 568);
+        let menu = (320, 568);
         let (mx, my) = compute_side_menu_pos(pet, work, menu, 10, 10);
-        assert_eq!(mx, 1580 - 298 - 10);
+        assert_eq!(mx, 1580 - 320 - 10);
         assert!(mx + menu.0 <= pet.0);
         assert_eq!(my, 620 + 410 - 568);
     }
@@ -6308,19 +6316,26 @@ mod side_menu_layout_tests {
     #[test]
     fn peek_silhouette_hitbox_covers_head_and_gripping_hands_on_both_edges() {
         // Left peek: head & gripping hands near left edge are interactive; far right is click-through
-        assert_eq!(super::is_over_interactive_silhouette(0.05, 0.50, false, "left"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.35, 0.50, false, "left"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.16, 0.25, false, "left"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.50, false, "left"), (false, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.05, 0.50, "65", "left"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.35, 0.50, "65", "left"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.16, 0.25, "65", "left"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.50, "65", "left"), (false, false));
 
         // Right peek: head & gripping hands near right edge are interactive; far left is click-through
-        assert_eq!(super::is_over_interactive_silhouette(0.95, 0.50, false, "right"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.65, 0.50, false, "right"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.84, 0.75, false, "right"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.20, 0.50, false, "right"), (false, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.95, 0.50, "65", "right"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.65, 0.50, "65", "right"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.84, 0.75, "65", "right"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.20, 0.50, "65", "right"), (false, false));
 
         // Normal stance: tail hitbox is interactive so users can poke the tail without click-through
-        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.58, false, "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.58, "65", "none"), (true, false));
+
+        // 87-key TKL: cat oval centered at 0.50, tail reaches 0.88, desk spans 0.05..0.93
+        assert_eq!(super::is_over_interactive_silhouette(0.50, 0.49, "87", "none"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.86, 0.60, "87", "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.86, 0.60, "108", "none"), (false, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.50, 0.80, "87", "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.02, 0.20, "87", "none"), (false, false));
     }
 
     #[test]
@@ -6653,6 +6668,9 @@ mod side_menu_layout_tests {
             ("65", 0.5),
             ("65", 1.0),
             ("65", 1.25),
+            ("87", 0.5),
+            ("87", 1.0),
+            ("87", 1.25),
             ("108", 0.5),
             ("108", 1.0),
             ("108", 1.25),

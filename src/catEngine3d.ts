@@ -3360,8 +3360,9 @@ export class KuroCatEngine3D {
     const az = (this.sOrbitAz.step(this.orbitAzimuthTarget, dt) * Math.PI) / 180;
     const el = (this.sOrbitEl.step(this.orbitElevTarget, dt) * Math.PI) / 180;
     const effAz = az * (1 - clamp(this.peekAmt, 0, 1));
+    // 87-key TKL shares the 65%'s framing (same 2.38 world-unit board width) -> only 108 needs the wider camera
     const is108 = this.desk.getLayoutId() === '108';
-    const camKey = `${effAz.toFixed(4)}|${el.toFixed(4)}|${is108 ? 1 : 0}|${this.camera.aspect.toFixed(4)}|${this.renderScale.toFixed(3)}`;
+    const camKey = `${effAz.toFixed(4)}|${el.toFixed(4)}|${this.desk.getLayoutId()}|${this.camera.aspect.toFixed(4)}|${this.renderScale.toFixed(3)}`;
     if (camKey !== this.lastCamKey) {
       this.lastCamKey = camKey;
       const baseDist = is108 ? 9.7 : 8.1;

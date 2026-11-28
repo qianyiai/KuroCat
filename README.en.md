@@ -89,7 +89,7 @@
 
 | Platform | Recommended Build | Size | Download |
 | --- | --- | :---: | --- |
-| **🪟 Windows 10 / 11** | x64 Installer (built-in 65% & 108-key) | 2.40 MB | [**☁️ Quark Drive**](https://pan.quark.cn/s/673684ea4103) · [**GitHub**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-5.1.3-x64-setup.exe) · [**Fast CDN**](https://kurocat.org/en/#download) |
+| **🪟 Windows 10 / 11** | x64 Installer (built-in 65% / 87 TKL / 108-key) | 2.40 MB | [**☁️ Quark Drive**](https://pan.quark.cn/s/673684ea4103) · [**GitHub**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-5.1.3-x64-setup.exe) · [**Fast CDN**](https://kurocat.org/en/#download) |
 | **🍎 macOS 10.15+** | Apple Silicon (M1–M4) & Intel Universal DMG | 6.57 MB | [**☁️ Quark Drive**](https://pan.quark.cn/s/673684ea4103) · [**GitHub**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-macos-universal.dmg) · [**Fast CDN**](https://kurocat.org/releases/v5.1.3/KuroCat-v5.1.3-macos-universal.dmg) |
 | **🐧 Linux (x86_64)** | Ubuntu 22.04+ / Debian 12+ / KylinOS V11+ | 2.66 MB | [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-amd64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-amd64.AppImage) · [**Fast CDN**](https://kurocat.org/en/#linux-download) |
 | **🐧 Linux (ARM64)** | ARM64 / Raspberry Pi / KylinOS V11+ | 2.62 MB | [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-arm64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-arm64.AppImage) · [**Fast CDN**](https://kurocat.org/en/#linux-download) |
@@ -161,7 +161,7 @@ brew install --cask qianyiai/tap/kurocat
   <tr>
     <td align="center" width="50%">
       <img src="website/public/assets/showcase-108key.webp" alt="65% Compact and 108-Key Full-Size Dual Perspective" />
-      <br /><sub>65% Compact / 108-Key Full-Size × Cat View &amp; Viewer View</sub>
+      <br /><sub>65% Compact / 87 TKL / 108-Key Full-Size × Cat View &amp; Viewer View</sub>
     </td>
     <td align="center" width="50%">
       <img src="website/public/assets/showcase-mouse.webp" alt="Independent L/R Mouse Highlights and Auto-Updater" />
@@ -173,7 +173,7 @@ brew install --cask qianyiai/tap/kurocat
 - **✨ 3D Figurine / 2D Classic Dual Engine**: GPU-instanced keycaps, automatic 30 FPS power-saving during games, 20%–150% smooth scaling, 3D collar bell &amp; auto-gaming headphones.
 - **🤖 AI Coding Companion**: Real-time reactions for **Claude Code, Codex, DeepSeek, Doubao, WorkBuddy, Cursor &amp; Antigravity** — auto-typing, tail-Enter on commands, and status notifications.
 - **🎨 7 Built-in Skins + MCP AI Studio**: 6 hand-crafted cats + **🐳 BigFish (whale-girl)** with head-petting and synthesized 24.5Hz Web Audio purring.
-- **⌨️ 65% / 108-Key &amp; Independent Mouse**: Instant layout &amp; perspective flip, customizable tail-key patting, distinct Left/Right/Middle click colors, and floating 3D key bubbles.
+- **⌨️ 65% / 87 TKL / 108-Key &amp; Independent Mouse**: Instant layout &amp; perspective flip across compact, TKL and full-size boards, customizable tail-key patting, distinct Left/Right/Middle click colors, and floating 3D key bubbles.
 - **🙈 OS-Level Password Privacy Guard**: Automatically detects Windows &amp; macOS password fields, blocks keystroke forwarding at the hook level, and makes the cat close its eyes (BigFish covers both eyes).
 - **🎥 OBS Alpha Source &amp; Silent Upgrades**: Native transparent overlay, multi-monitor pinning, macOS fullscreen Space support, and SHA-256 verified auto-updates.
 

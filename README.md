@@ -89,7 +89,7 @@
 
 | 平台 | 推荐版本 | 体积 | 下载链接 |
 | --- | --- | :---: | --- |
-| **🪟 Windows 10 / 11** | x64 经典安装版（内置 65% / 108 键切换） | 2.40 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/#download) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-5.1.3-x64-setup.exe) |
+| **🪟 Windows 10 / 11** | x64 经典安装版（内置 65% / 87 TKL / 108 键切换） | 2.40 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/#download) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-5.1.3-x64-setup.exe) |
 | **🍎 macOS 10.15+** | Apple Silicon (M1–M4) & Intel 通用 DMG | 6.57 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/releases/v5.1.3/KuroCat-v5.1.3-macos-universal.dmg) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-macos-universal.dmg) |
 | **🐧 Linux (x86_64)** | Ubuntu 22.04+ / Debian 12+ / 麒麟 V11+ | 2.66 MB | [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-amd64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-amd64.AppImage) · [**国内高速**](https://kurocat.org/#linux-download) |
 | **🐧 Linux (ARM64)** | 飞腾 / 鲲鹏 / 麒麟 V11+ / 树莓派 | 2.62 MB | [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-arm64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.3/KuroCat-v5.1.3-linux-arm64.AppImage) · [**国内高速**](https://kurocat.org/#linux-download) |
@@ -161,7 +161,7 @@ brew install --cask qianyiai/tap/kurocat
   <tr>
     <td align="center" width="50%">
       <img src="website/public/assets/showcase-108key.webp" alt="65% 紧凑 / 108 键全尺寸双视角" />
-      <br /><sub>65% 紧凑 / 108 键全尺寸 × 面向猫咪 / 面向观众双视角</sub>
+      <br /><sub>65% 紧凑 / 87 TKL / 108 键全尺寸 × 面向猫咪 / 面向观众双视角</sub>
     </td>
     <td align="center" width="50%">
       <img src="website/public/assets/showcase-mouse.webp" alt="鼠标左右键独立高亮 + 自动更新提醒" />
@@ -173,7 +173,7 @@ brew install --cask qianyiai/tap/kurocat
 - **✨ 3D 立体手办 / 2D 经典双引擎**：GPU 合批渲染与游戏自动 30 FPS 省电模式，支持 20%–150% 无级缩放、3D 项圈铃铛与游戏自动戴电竞耳机。
 - **🤖 AI 编程伴侣联动**：支持 **Claude Code / Codex / DeepSeek / 豆包工作版 / WorkBuddy / Cursor / Antigravity**，写代码自动代打、跑命令尾巴敲回车、待确认/报错/完工实时互动。
 - **🎨 7 款内置皮肤 + MCP 无限捏猫**：经典小黑猫、布偶猫、大橘猫、三花猫、奶牛猫、暹罗猫 + **🐳 大肥鱼（鲸鱼娘）**，支持摸头眯眼与 24.5Hz 呼噜声。
-- **⌨️ 65% / 108 键双视角 + 独立键鼠**：一键切换全尺寸小键盘与正反视角，支持自定义尾巴拍键，鼠标左/右/中键独立分色按压与错落 3D 按键气泡。
+- **⌨️ 65% / 87 TKL / 108 键三配列双视角 + 独立键鼠**：一键切换紧凑 / TKL / 全尺寸小键盘与正反视角，支持自定义尾巴拍键，鼠标左/右/中键独立分色按压与错落 3D 按键气泡。
 - **🙈 系统级输密码防偷窥**：自动感知 Win / Mac 密码框，底层钩子直接拦截不外传按键——猫咪闭眼、大肥鱼双手捂眼并遮蔽键帽。
 - **🎥 OBS 透明源 & 多屏无感升级**：原生 Alpha 透明直播源、多显示器工作区固定、macOS 全屏空间悬浮、SHA-256 校验一键自动更新。
 
