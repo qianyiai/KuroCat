@@ -1,0 +1,53 @@
+.kuro-work-overlay { margin:0; padding:4px; height:100vh; display:flex; align-items:flex-end; background:transparent; color:#f0f2f6; font-family:system-ui,-apple-system,sans-serif; overflow:hidden; box-sizing:border-box; pointer-events:none; }
+.kuro-work-overlay * { box-sizing:border-box; }
+#companion-bubbles { display:flex; flex-direction:column; gap:6px; width:100%; margin-inline:auto; }
+.kuro-work-bubble { background:rgba(22,26,35,.96); border:1px solid #4a5467; border-radius:14px; padding:10px 13px; box-shadow:0 3px 10px #0003; }
+.kuro-work-row { display:flex; flex-direction:column; gap:4px; padding:8px 0; border-bottom:1px solid #ffffff18; }
+.kuro-work-row:last-of-type { border-bottom:0; }
+.kuro-work-row.kuro-work-bubble { padding:11px 13px; }
+.kuro-work-label { font-size:1em; font-weight:650; line-height:1.4; min-width:0; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; }
+.kuro-work-row-heading { display:flex; justify-content:space-between; align-items:center; gap:8px; font-size:.85em; }
+.kuro-work-source-name { color:#aab7c9; font-weight:600; }
+.kuro-work-progress { color:#d1d8e3; font-size:.92em; line-height:1.45; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--kuro-work-lines,2); overflow:hidden; overflow-wrap:anywhere; }
+.kuro-work-stage { color:#b6e978; font-size:.85em; }
+.kuro-work-state { font-size:.92em; color:#c4cbd7; align-self:start; }
+.kuro-work-row[data-activity="working"] .kuro-work-state { color:#b6e978; }
+.kuro-work-row[data-activity="waiting-approval"] .kuro-work-state { color:#ffd082; }
+.kuro-work-project { grid-row:2; grid-column:1/-1; color:#b7c0ce; font-size:.92em; line-height:1.45; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:var(--kuro-work-lines,2); overflow:hidden; overflow-wrap:anywhere; }
+.kuro-work-bubble-footer { color:#c4cbd7; padding-top:7px; display:flex; justify-content:space-between; gap:8px; font-size:.9em; }
+.kuro-work-intro h2 { margin:0 0 7px; font-size:16px; color:#eef1f6; }
+.kuro-work-muted { font-size:12px; color:#b4bdcb; line-height:1.6; margin:7px 0; overflow-wrap:anywhere; }
+.kuro-work-sources { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+.kuro-work-source { display:flex; flex-direction:column; gap:5px; padding:10px; border:1px solid #495366; border-radius:9px; font-size:12px; }
+.kuro-work-source strong { color:#eaf1ff; }.kuro-work-source span { color:#b6e978; }.kuro-work-source[data-health="format"] span,.kuro-work-source[data-health="permission"] span { color:#ffd082; }
+.kuro-work-section h3 { font-size:13px; color:#eaf1ff; margin:0 0 12px; }
+.kuro-work-field { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:42px; color:#dbe1ea; font-size:12px; }
+.kuro-work-field.kuro-work-field-vertical { display:flex; flex-direction:column; align-items:stretch; gap:7px; margin:10px 0; }
+.kuro-work-field input:not([type="checkbox"]),.kuro-work-field select,.kuro-work-field textarea { border:1px solid #59657b; background:#141923; color:#f0f3fa; border-radius:6px; padding:8px; font:inherit; min-width:0; }
+.kuro-work-field input[type="number"] { width:80px; }.kuro-work-field textarea { resize:vertical; line-height:1.5; width:100%; box-sizing:border-box; }
+.kuro-work-field input[type="checkbox"],.kuro-work-session input { accent-color:#c8f538; width:18px; height:18px; flex:none; }
+.kuro-work-advanced { margin-top:10px; }.kuro-work-advanced summary { cursor:pointer; color:#d3ddeb; font-size:12px; padding:8px 0; }
+.kuro-work-actions { position:sticky; bottom:0; display:flex; align-items:center; gap:8px; padding:12px 6px; background:#171c27; border-top:1px solid #4b576d; z-index:3; }
+.kuro-work-actions button { cursor:pointer; font:inherit; font-size:12px; min-height:36px; border-radius:7px; padding:7px 12px; }
+.kuro-work-save { color:#182008; background:#c8f538; border:1px solid #d8ff62; font-weight:650; }.kuro-work-save:disabled { opacity:.55; cursor:wait; }
+.kuro-work-reset { color:#dce4ef; background:transparent; border:1px solid #647187; }
+.kuro-work-feedback { flex:1; color:#c4d2e6; font-size:11px; line-height:1.4; overflow-wrap:anywhere; }
+.kuro-work-preview { padding:5px; color:#f0f2f6; }.kuro-work-preview[data-layout="stacked"] { display:flex; flex-direction:column; gap:8px; }
+.kuro-work-session { display:flex; align-items:center; gap:8px; padding:9px 0; color:#d5deea; font-size:11px; border-bottom:1px solid #ffffff15; }
+.kuro-work-session span { flex:1; min-width:0; overflow-wrap:anywhere; }.kuro-work-session small { color:#b7c2d2; flex-shrink:0; }
+.kuro-work-form input:focus-visible,.kuro-work-form button:focus-visible,.kuro-work-form select:focus-visible,.kuro-work-form textarea:focus-visible,.kuro-work-form summary:focus-visible { outline:2px solid #c8f538; outline-offset:3px; }
+#context-menu .menu-tabs.menu-tabs-4 { grid-template-columns:repeat(4,minmax(0,1fr)); } .menu-tabs-4 .menu-tab-btn { padding-inline:5px; }
+.menu-card.kuro-work-section,.menu-card.kuro-work-intro { padding:14px; margin-bottom:10px; }
+@media(prefers-reduced-motion:reduce) { .kuro-work-form * { transition:none!important; animation:none!important; } }
+
+@keyframes kuro-work-roll-in { from { opacity:.35; transform:translateY(6px); } to { opacity:1; transform:translateY(0); } }
+.kuro-work-roll-in { animation:kuro-work-roll-in .22s ease-out; }
+@media(prefers-reduced-motion:reduce) { .kuro-work-roll-in { animation:none; } }
+
+
+/* Minimal mode remains one line at every pet scale; only its title can shrink. */
+.kuro-work-row.kuro-work-bubble.kuro-work-minimal { flex-direction:row; align-items:center; gap:7px; padding:6px 10px; border:1px solid #4a5467; border-radius:999px; line-height:1.4; }
+.kuro-work-minimal .kuro-work-source-name { flex:none; font-size:.85em; }
+.kuro-work-minimal .kuro-work-label { display:block; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+.kuro-work-minimal .kuro-work-state { flex:0 1 auto; max-width:45%; min-width:0; align-self:auto; font-size:.85em; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.kuro-work-field input:disabled { opacity:.5; }

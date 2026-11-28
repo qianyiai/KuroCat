@@ -55,6 +55,7 @@ export class AgentCompanionController {
   private readonly allowSound: () => boolean;
 
   private activeStatus: AgentStatusKind = 'idle';
+  private passiveMode = false;
   private privacyPaused = false;
   private autoTyping = false;
   private realUserInputUntil = 0;
@@ -70,6 +71,31 @@ export class AgentCompanionController {
     this.getTarget = opts.getTarget;
     this.is3DTarget = opts.is3DTarget;
     this.allowSound = opts.allowSound;
+  }
+
+  /** Passive observer controls only the animation; its bubbles live in a separate window. */
+  public setPassiveStatus(status: 'working' | 'waiting' | 'idle'): void {
+    // Existing MCP/hook events own their complete TTL, including long approval waits.
+    if (this.privacyPaused || (!this.passiveMode && this.ttlTimer !== null)) return;
+    this.handleEvent({ kind: 'status', status, autoType: status === 'working', sound: false, ttlMs: 6000 });
+    this.passiveMode = true;
+    this.hideBubble();
+  }
+
+  public clearPassiveStatus(): void {
+    if (!this.passiveMode) return;
+    this.passiveMode = false;
+    this.clearTtlTimer();
+    this.stopAutoTyping();
+    this.activeStatus = 'idle';
+    this.hideBubble();
+  }
+
+  public showWorkMood(level: number): void {
+    if (this.privacyPaused || level < 1 || (!this.passiveMode && this.ttlTimer !== null)) return;
+    const target = this.getTarget();
+    if (level >= 2) target?.triggerCrossDemo();
+    else target?.triggerCuriousDemo(this.is3DTarget() ? 1.5 : 1500);
   }
 
   public setPrivacyMode(active: boolean): void {
@@ -90,6 +116,7 @@ export class AgentCompanionController {
   public handleEvent(ev: AgentCompanionEvent): void {
     if (!ev || typeof ev !== 'object') return;
     if (this.privacyPaused) return;
+    this.passiveMode = false;
 
     this.clearTtlTimer();
     const target = this.getTarget();

@@ -518,3 +518,15 @@ mod tests {
         );
     }
 }
+
+/// Match the pet's actual native level and Spaces behavior, including remote-desktop yielding.
+/// Called on the UI thread; does not focus or activate either window.
+pub fn sync_companion_layer(parent: &WebviewWindow, companion: &WebviewWindow) {
+    let _ = with_native_window(parent, |_, native_parent| {
+        with_native_window(companion, |_, native_child| {
+            native_child.setLevel(native_parent.level());
+            native_child.setCollectionBehavior(native_parent.collectionBehavior());
+            native_child.setHidesOnDeactivate(false);
+        });
+    });
+}

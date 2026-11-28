@@ -2,6 +2,7 @@
 
 mod cats;
 mod config;
+mod companion;
 mod game_detect;
 mod i18n;
 mod input_hook;
@@ -1295,6 +1296,7 @@ fn open_tail_picker_from_menu(app: AppHandle) {
 #[tauri::command]
 fn preview_scale(app: AppHandle, scale: f64) {
     let clamped = scale.clamp(0.20, 1.50);
+    companion::preview_appearance(&app, Some(clamped), None);
     let _ = app.emit("kuro-scale-preview", clamped);
 }
 
@@ -1305,6 +1307,7 @@ fn preview_opacity(app: AppHandle, opacity: f64) {
     if win_needs_win7_ulw() {
         win7_layered::set_opacity(clamped);
     }
+    companion::preview_appearance(&app, None, Some(clamped));
     let _ = app.emit("kuro-opacity-preview", clamped);
 }
 
@@ -5863,6 +5866,7 @@ pub fn run() {
                 settings_for_setup.clone(),
                 paused_for_setup.clone(),
             );
+            companion::start(&handle, settings_for_setup.clone(), paused_for_setup.clone());
             start_hit_test_loop(
                 handle.clone(),
                 settings_for_setup,
@@ -5954,6 +5958,8 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            companion::get_companion_snapshot,
+            companion::save_companion_settings,
             get_settings,
             get_resolved_locale,
             trim_idle_memory,
