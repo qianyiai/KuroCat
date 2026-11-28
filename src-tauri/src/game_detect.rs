@@ -1435,7 +1435,7 @@ mod mac_impl {
     use objc2_foundation::NSString;
 
     pub fn detect_foreground() -> (Option<String>, Option<&'static str>, bool) {
-        unsafe {
+        objc2::rc::autoreleasepool(|_| unsafe {
             let Some(cls) = AnyClass::get(c"NSWorkspace") else {
                 return (None, None, false);
             };
@@ -1464,7 +1464,7 @@ mod mac_impl {
                 classify_macos_drawing_app(&bid, &name),
                 classify_macos_heavy_gpu_app(&bid, &name),
             )
-        }
+        })
     }
 }
 

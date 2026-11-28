@@ -1,3 +1,5 @@
+import { yieldSlice } from './yieldSlice.js';
+
 // Take pigment from the native seated body as the visible flank turns toward
 // the viewer. The same inverse projection follows the paws, chest and tail of
 // all five colored cats. The silhouette still comes from each authored pose.
@@ -8,7 +10,7 @@ function surface(width, height) {
   return canvas.getContext('2d', {willReadFrequently: true});
 }
 
-function bodyPaint(native) {
+async function bodyPaint(native) {
   // The animated head is already a separate plate. Only sample the native
   // torso below the whiskers. Extend its color into the transparent margin.
   const x = 325, y = 293, w = native.width - x, h = native.height - y;
@@ -27,13 +29,19 @@ function bodyPaint(native) {
     data[4*q+3] = 255;
     queue[end++] = q;
   }
+  let since = performance.now();
   for (let i = 0; i < end; i++) {
+    if ((i & 16383) === 16383 && performance.now() - since > 8) {
+      await yieldSlice();
+      since = performance.now();
+    }
     const p = queue[i];
     if (p%w) extend(p,p-1);
     if (p%w !== w-1) extend(p,p+1);
     if (p >= w) extend(p,p-w);
     if (p+w < w*h) extend(p,p+w);
   }
+  ctx.canvas.width = ctx.canvas.height = 1;
   return {data, w, h, originX:502.57-x, originY:560-y};
 }
 
@@ -117,14 +125,15 @@ export async function registerGuestCoat(base, rects, indices, motion, mesh, nati
   shadeClip('lower',i=>Math.max(0,1-i/5));
   const ctx=surface(wholeWidth,y+line+1);
   ctx.drawImage(base,0,0);
-  const source=bodyPaint(native);
+  const source=await bodyPaint(native);
+  let since=performance.now();
   for(const limb of legs){
+    if(performance.now()-since>8){await yieldSlice();since=performance.now();}
     shadeLegs(ctx,base,limb.target,limb.source,limb.row,limb.phase,limb.strength);
     indices[limb.row[0]]=rects.push(limb.target)-1;
   }
-  let since=performance.now();
   for(const [i,row] of frames.entries()){
-    if(performance.now()-since>8){await new Promise(resolve=>setTimeout(resolve,0));since=performance.now();}
+    if(performance.now()-since>8){await yieldSlice();since=performance.now();}
     for(let j=0;j<stride;j++) grid[j]+=changes.getInt16(2*(i*stride+j),true);
     const rect=tiles[i];
     project(ctx,rect,row,grid,mesh,source);

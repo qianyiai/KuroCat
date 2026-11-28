@@ -2054,8 +2054,8 @@ async function bootstrap(): Promise<void> {
         break;
       case 'mouseWheel':
         agentCompanion.notifyRealUserInput();
-        if (active3d && engine3d) engine3d.onMouseWheel();
-        else engine.onMouseWheel();
+        if (active3d && engine3d) engine3d.onMouseWheel(p.delta);
+        else engine.onMouseWheel(p.delta);
         break;
       case 'privacyTyping':
         if (active3d && engine3d) engine3d.onPrivacyTyping();

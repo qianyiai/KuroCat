@@ -1,4 +1,5 @@
 import { drawResidentLeg, residentFootstep, section } from './residentStep.js';
+import { yieldSlice } from './yieldSlice.js';
 
 const TOUCH = 0.72;
 const HIGH = 0.89;
@@ -224,7 +225,7 @@ async function prepareCoat(id, loadArt, edits) {
   const canvas = document.createElement('canvas');
   canvas.width = paint.width;
   canvas.height = paint.height;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(silhouette, 0, 0);
   if (edits.length) {
     const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -248,11 +249,11 @@ async function prepareCoat(id, loadArt, edits) {
 
 // The photographed profile has a lighter coat than the native black seat.
 // Grade the affected atlas rectangles once, as the resident is prepared.
-function matchBlackCoat(image, regions, frames, times, isRuff = false) {
+async function matchBlackCoat(image, regions, frames, times, isRuff = false) {
   const canvas = document.createElement('canvas');
   canvas.width = image.width;
   canvas.height = image.height;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   ctx.drawImage(image, 0, 0);
   const pixels = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const rgba = pixels.data;
@@ -263,12 +264,17 @@ function matchBlackCoat(image, regions, frames, times, isRuff = false) {
   // Whiskers are thin neutral strokes, brighter than the cheek on both sides.
   const green = isRuff ? null : new Uint8Array(canvas.width*canvas.height);
   if (green) for (let p=0; p<green.length; p++) green[p]=rgba[4*p+1];
+  let sliceStart = performance.now();
   for (const [i, frame] of frames.entries()) {
     const strength = smooth((times[i]-.75)/.15);
     for (const index of frame) {
       if (index < 0 || visited.has(index)) continue;
       visited.add(index);
       if (!strength) continue;
+      if (performance.now() - sliceStart > 10) {
+        await yieldSlice();
+        sliceStart = performance.now();
+      }
       const [x,y,w,h] = regions[index];
       for (let row=y; row<y+h; row++) {
         const end = 4*(row*canvas.width+x+w);
@@ -302,12 +308,14 @@ export async function prepareCastResident(id, loadArt, loadData, nativeBody) {
     loadArt('cast-resident/ruff.webp'), loadData('cast-resident/ruff.json')
   ]);
   const {regions, turn: breakdowns, head, front, side} = data.cast[id];
+  await yieldSlice();
   const sheet = id === 'black'
-    ? matchBlackCoat(coatImage, regions, [...breakdowns,[0]], data.times)
+    ? await matchBlackCoat(coatImage, regions, [...breakdowns,[0]], data.times)
     : coatImage;
   const furPaint = id === 'black'
-    ? matchBlackCoat(furImage, furLayout.regions, furLayout.cast[id].map(index => [index]), data.times, true)
+    ? await matchBlackCoat(furImage, furLayout.regions, furLayout.cast[id].map(index => [index]), data.times, true)
     : furImage;
+  await yieldSlice();
   const held = regions[0];
   const { sheet: heldSheet, rect: heldRect } = prepareHeldPose(sheet, held);
   // Reassemble the brief turn on integer canvas rows. This prevents the

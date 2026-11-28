@@ -1916,7 +1916,7 @@ export class KeyboardAndMouse3D {
 
   public setContacts(points: readonly PadPoint[]): void {
     if (!this.pad.enabled) return;
-    this.pad.points = points;
+    this.pad.setContacts(points);
     this.padDots.count = Math.min(16, points.length);
     for (let i = 0; i < this.padDots.count; i++) {
       const p = padPosition(points[i], false, this.padWidth * PAD_USABLE, this.padDepth * PAD_USABLE);
@@ -2248,6 +2248,9 @@ export class KeyboardAndMouse3D {
   public setMouseNormalized(nx: number, ny: number): void {
     const cx = clamp(nx, 0, 1);
     const cy = clamp(ny, 0, 1);
+    if (this.pad.enabled) {
+      this.pad.onPointerMove(cx, cy);
+    }
     this.mouseTarget.set((cx - 0.5) * 0.22, 0, (cy - 0.5) * 0.14);
     const padHalfW = (this.tabletPadW - 0.06) * 0.5;
     const padHalfD = (this.tabletPadD - 0.06) * 0.5;
@@ -2258,8 +2261,11 @@ export class KeyboardAndMouse3D {
     );
   }
 
-  public pulseScrollWheel(): void {
+  public pulseScrollWheel(delta = 0): void {
     this.wheelGlow = 1;
+    if (this.pad.enabled && delta !== 0) {
+      this.pad.onScroll(delta);
+    }
   }
 
   public mouseTopWorld(out = new THREE.Vector3()): THREE.Vector3 {

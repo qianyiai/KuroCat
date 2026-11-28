@@ -290,10 +290,13 @@ export class KuroCatEngine {
   }
   public onTrackpad(points: readonly PadPoint[]): void {
     if (!this.pad.enabled) return;
-    this.pad.points = points;
+    const now = performance.now();
+    this.pad.setContacts(points, now);
     if (points.length) {
-      this.lastMouseMoveAt = performance.now();
+      this.wakeCat(now, 'abrupt', false);
+      this.lastMouseMoveAt = now;
       this.leftPaw.mode = 'mouse';
+      this.leftPaw.lastActiveAt = now;
     }
     this.wakeAction();
   }
@@ -1252,21 +1255,26 @@ export class KuroCatEngine {
     };
     if (inEllipse(z.nose)) return 'nose';
     if (this.peekAmount < 0.55 && z.tailPts.length > 0) {
-      for (let i = 0; i < z.tailPts.length; i++) {
-        const pt = z.tailPts[i];
-        if (Math.hypot(lx - pt.x, ly - pt.y) <= 36) {
-          return 'tail';
-        }
-        if (i > 0) {
-          const prev = z.tailPts[i - 1];
-          const dx = pt.x - prev.x;
-          const dy = pt.y - prev.y;
-          const lenSq = dx * dx + dy * dy;
-          const proj = lenSq > 1e-4 ? Math.max(0, Math.min(1, ((lx - prev.x) * dx + (ly - prev.y) * dy) / lenSq)) : 0;
-          if (Math.hypot(lx - (prev.x + dx * proj), ly - (prev.y + dy * proj)) <= 36) {
-            return 'tail';
+      const hitPts = (pts: readonly Vec2[], rad: number) => {
+        for (let i = 0; i < pts.length; i++) {
+          const pt = pts[i];
+          if (Math.hypot(lx - pt.x, ly - pt.y) <= rad) return true;
+          if (i > 0) {
+            const prev = pts[i - 1];
+            const dx = pt.x - prev.x;
+            const dy = pt.y - prev.y;
+            const lenSq = dx * dx + dy * dy;
+            const proj = lenSq > 1e-4 ? Math.max(0, Math.min(1, ((lx - prev.x) * dx + (ly - prev.y) * dy) / lenSq)) : 0;
+            if (Math.hypot(lx - (prev.x + dx * proj), ly - (prev.y + dy * proj)) <= rad) return true;
           }
         }
+        return false;
+      };
+      if (
+        hitPts(z.tailPts, 36) ||
+        (this.tailLastPokePts.length > 0 && performance.now() - this.tailLastPokeAt < 3000 && hitPts(this.tailLastPokePts, 42))
+      ) {
+        return 'tail';
       }
     }
     if (inEllipse(z.chin)) return 'chin';
@@ -2023,6 +2031,8 @@ export class KuroCatEngine {
   private tailGlanceUntil = -10000;
   private tailGlanceAmount = 0;
   private tailPokeTimes: number[] = [];
+  private tailLastPokePts: Vec2[] = [];
+  private tailLastPokeAt = -10000;
   private tailYowlStartAt = -10000;
   private tailYowlAmount = 0;
   private tailYowlWidth = 1;
@@ -2783,6 +2793,10 @@ export class KuroCatEngine {
     this.idleAct = null;
     this.curiousUntil = -10000;
     this.tailPokeTimes = this.tailPokeTimes.filter((t) => now - t < 6000);
+    if (this.tailPokeTimes.length === 0 || this.tailRecoilSpring.x < 0.25) {
+      this.tailLastPokePts = this.liveTailCurvePts.map((p) => ({ x: p.x, y: p.y }));
+    }
+    this.tailLastPokeAt = now;
     this.tailPokeTimes.push(now);
     this.tailRecoilSpring.kick(5.2);
     this.tailGlanceUntil = now + 1550;
@@ -2805,7 +2819,11 @@ export class KuroCatEngine {
     if (this.tailPokeTimes.length >= 3) {
       this.tailPokeTimes = [];
       this.tailYowlStartAt = now;
-      catAudio.playTailFlick(true);
+      catAudio.playTailFlick(true, () => {
+        const ts = performance.now();
+        this.tailYowlStartAt = ts;
+        this.wakeAction(ts);
+      });
       this.triggerCrossDemo();
     } else {
       catAudio.playTailFlick(false);
@@ -3163,6 +3181,9 @@ export class KuroCatEngine {
     if (!this.embedded) {
       this.recordPointerSpeed(nx, ny, now);
     }
+    if (this.pad.enabled && !this.tabletActive) {
+      this.pad.onPointerMove(nx, ny, now);
+    }
     this.mouseTargetOffsetX = (nx - 0.5) * (this.catBreed === 'dafeiyu' ? 14 : 20);
     this.mouseTargetOffsetY = (ny - 0.5) * (this.catBreed === 'dafeiyu' ? 11 : 18);
     this.tabletTargetPenX = (Math.max(0, Math.min(1, nx)) - 0.5) * 2;
@@ -3267,9 +3288,12 @@ export class KuroCatEngine {
     }
   }
 
-  public onMouseWheel(): void {
+  public onMouseWheel(delta = 0): void {
     if (!this.mouseVisible && !this.tabletActive) return;
     const now = performance.now();
+    if (this.pad.enabled && !this.tabletActive && delta !== 0) {
+      this.pad.onScroll(delta, now);
+    }
     this.wakeCat(now, 'abrupt');
     this.mouseScrollFlash = 1;
     this.lastMouseMoveAt = now;
@@ -3739,6 +3763,7 @@ export class KuroCatEngine {
       chinActive ||
       this.treatActive ||
       this.petEnergy >= 0.15 ||
+      (this.pad.enabled && this.pad.points.length > 0) ||
       (this.idleAct !== null && ['doze', 'yawn', 'stretch', 'groom', 'knead'].includes(this.idleAct.kind));
     if (isCatMode && !this.privacyMode && !this.asleep && !blockingSleep && idleMs > sleepAfterMs) {
       this.asleep = true;
@@ -4651,6 +4676,7 @@ export class KuroCatEngine {
         this.mouseLeftDown ||
         this.mouseRightDown ||
         this.mouseMiddleDown ||
+        (this.pad.enabled && this.pad.points.length > 0) ||
         now - this.lastMouseMoveAt < 2200;
       if (!stillHolding) {
         paw.mode = heldKey ? 'poke' : 'idle';
@@ -5846,9 +5872,9 @@ export class KuroCatEngine {
       ctx.fill();
 
       // Delicate cute kitten "w" mouth (hides smoothly while big yawn / "老吴~" yowl mouth is open)
-      if (mouthOpen < 0.25) {
+      if (mouthOpen < 0.12) {
         ctx.save();
-        ctx.globalAlpha = 1 - mouthOpen / 0.25;
+        ctx.globalAlpha = 1 - mouthOpen / 0.12;
         ctx.strokeStyle = 'rgba(72, 77, 92, 0.80)';
         ctx.lineWidth = 1.35;
         ctx.lineCap = 'round';
@@ -6089,7 +6115,7 @@ export class KuroCatEngine {
     ctx.restore();
   }
 
-  /** Expressive kitten yawn (with pink tongue) or angry "老吴~" pure-red feline rounded-triangle yowl mouth (no tongue)! */
+  /** Expressive kitten yawn or angry "老吴~" feline "ω"-lipped yowl mouth (both with soft pink tongue & proper cat muzzle!). */
   private drawYawnOrLickMouth(ctx: CanvasRenderingContext2D, cx: number, rimColor: string): void {
     const mouthOpen = Math.max(this.yawnAmount, this.tailYowlAmount);
     if (mouthOpen > 0.04) {
@@ -6097,21 +6123,37 @@ export class KuroCatEngine {
       const isYowl = this.tailYowlAmount > this.yawnAmount;
       ctx.save();
       if (isYowl) {
-        // Pure-red feline rounded-triangle / cat-bell mouth: narrow peaked apex under nose, wider curved muzzle cheeks!
-        const topY = 16.0;
-        const w = (4.6 + y * 6.0) * this.tailYowlWidth;
-        const h = 2.4 + y * 11.2;
+        // Expressive feline "ω" upper lip + tapered rounded lower jaw: wide open for "老", pursing into cute "O" for "吴~"
+        const topY = 16.8;
+        const w = (4.4 + y * 5.0) * this.tailYowlWidth;
+        const h = 2.0 + y * 10.6;
         ctx.beginPath();
-        ctx.moveTo(cx, topY);
-        ctx.bezierCurveTo(cx + w * 0.34, topY + h * 0.08, cx + w * 0.82, topY + h * 0.38, cx + w, topY + h * 0.70);
-        ctx.bezierCurveTo(cx + w * 1.08, topY + h * 0.92, cx + w * 0.62, topY + h * 1.04, cx, topY + h * 0.98);
-        ctx.bezierCurveTo(cx - w * 0.62, topY + h * 1.04, cx - w * 1.08, topY + h * 0.92, cx - w, topY + h * 0.70);
-        ctx.bezierCurveTo(cx - w * 0.82, topY + h * 0.38, cx - w * 0.34, topY + h * 0.08, cx, topY);
+        ctx.moveTo(cx, topY + 1.3);
+        ctx.quadraticCurveTo(cx + w * 0.52, topY - 0.9, cx + w, topY + 1.8);
+        ctx.bezierCurveTo(cx + w * 1.06, topY + h * 0.56, cx + w * 0.68, topY + h, cx, topY + h);
+        ctx.bezierCurveTo(cx - w * 0.68, topY + h, cx - w * 1.06, topY + h * 0.56, cx - w, topY + 1.8);
+        ctx.quadraticCurveTo(cx - w * 0.52, topY - 0.9, cx, topY + 1.3);
         ctx.closePath();
-        ctx.fillStyle = '#d93848';
+        ctx.fillStyle = '#632234';
         ctx.fill();
-        ctx.strokeStyle = '#8f1e2b';
-        ctx.lineWidth = 1.05;
+
+        // Soft curved pink tongue nestled inside lower jaw
+        ctx.save();
+        ctx.clip();
+        ctx.fillStyle = '#ff8fa8';
+        ctx.beginPath();
+        ctx.ellipse(cx, topY + h * 0.86, w * 0.72, h * 0.42, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(165, 52, 82, 0.34)';
+        ctx.lineWidth = 0.85;
+        ctx.beginPath();
+        ctx.moveTo(cx, topY + h * 0.58);
+        ctx.lineTo(cx, topY + h * 0.95);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.strokeStyle = rimColor;
+        ctx.lineWidth = 1.25;
         ctx.lineJoin = 'round';
         ctx.stroke();
         ctx.restore();
@@ -8875,9 +8917,9 @@ export class KuroCatEngine {
     // Mouth (supports w / smile / flat / open / blep / none + mouthScale + mouthOffsetY)
     const mouthBaseY = 16.6 + contour.mouthOffsetY * 7.0;
     const mScale = contour.mouthScale;
-    if (s.mouthColor && contour.mouthShape !== 'none' && customMouthOpen < 0.25) {
+    if (s.mouthColor && contour.mouthShape !== 'none' && customMouthOpen < 0.12) {
       ctx.save();
-      ctx.globalAlpha = 1 - customMouthOpen / 0.25;
+      ctx.globalAlpha = 1 - customMouthOpen / 0.12;
       ctx.translate(wShift, mouthBaseY);
       ctx.scale(mScale, mScale);
       ctx.strokeStyle = s.mouthColor;

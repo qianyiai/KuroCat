@@ -2,7 +2,7 @@ use crate::{input_hook, AppState};
 use serde::Serialize;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter, Listener, Manager};
 
 #[repr(C)]
@@ -16,6 +16,7 @@ pub struct PadPoint {
 extern "C" {
     fn kc_pad_start() -> i32;
     fn kc_pad_stop();
+    fn kc_pad_device_count() -> i32;
     fn kc_pad_snapshot(out: *mut PadPoint) -> i32;
     fn kc_pad_click(out: *mut PadPoint) -> bool;
 }
@@ -38,15 +39,55 @@ pub fn watch(app: AppHandle) {
     std::thread::spawn(move || {
         let mut enabled = settings.lock().unwrap().trackpad_enabled;
         let mut active = false;
+        let mut bound_devices: i32 = -1;
+        let mut last_wall = SystemTime::now();
+        let mut last_hotplug_check = Instant::now();
         let mut previous = Vec::new();
         let mut sample = [PadPoint::default(); 16];
         loop {
+            let now = Instant::now();
+            let wall_now = SystemTime::now();
+            // Recover seamlessly after macOS sleep/wake (Instant pauses during sleep, SystemTime advances).
+            if active
+                && wall_now
+                    .duration_since(last_wall)
+                    .map(|d| d > Duration::from_secs(3))
+                    .unwrap_or(false)
+            {
+                unsafe { kc_pad_stop() };
+                active = false;
+                bound_devices = -1;
+            }
+            last_wall = wall_now;
+
             let wanted = enabled && !input_hook::trackpad_suspended();
+            // Periodically detect Bluetooth/USB Magic Trackpad connect/disconnect while idle.
+            if wanted
+                && active
+                && previous.is_empty()
+                && now.saturating_duration_since(last_hotplug_check) >= Duration::from_secs(4)
+            {
+                last_hotplug_check = now;
+                let current_devices = unsafe { kc_pad_device_count() };
+                if current_devices >= 0 && current_devices != bound_devices {
+                    unsafe { kc_pad_stop() };
+                    active = false;
+                    bound_devices = -1;
+                }
+            }
+
             if wanted && !active {
                 active = unsafe { kc_pad_start() } == 0;
+                bound_devices = if active {
+                    unsafe { kc_pad_device_count() }
+                } else {
+                    -1
+                };
+                last_hotplug_check = now;
             } else if !wanted && active {
                 unsafe { kc_pad_stop() };
                 active = false;
+                bound_devices = -1;
             }
             let unavailable = wanted && !active;
             if UNAVAILABLE.swap(unavailable, Ordering::Relaxed) != unavailable {
@@ -65,7 +106,7 @@ pub fn watch(app: AppHandle) {
                     points: previous.clone(),
                 };
                 crate::obs::broadcast_input(&event);
-                let _ = app.emit_to("main", "kuro-input", event);
+                let _ = app.emit("kuro-input", event);
             }
             if enabled {
                 let delay = if active {

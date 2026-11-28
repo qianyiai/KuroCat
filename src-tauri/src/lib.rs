@@ -387,6 +387,109 @@ fn resize_window_anchored_bottom_right(
     None
 }
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct MacWindowGeomSnapshot {
+    pub visible: bool,
+    pub scale_factor: f64,
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+    pub refreshed_at: Instant,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl MacWindowGeomSnapshot {
+    pub(crate) fn is_fresh(&self, now: Instant, max_age: Duration) -> bool {
+        now.saturating_duration_since(self.refreshed_at) < max_age
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Default)]
+struct MacWindowGeomCache {
+    snap: Option<MacWindowGeomSnapshot>,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl MacWindowGeomCache {
+    fn get_fresh(&self, now: Instant, max_age: Duration) -> Option<MacWindowGeomSnapshot> {
+        self.snap.filter(|s| s.is_fresh(now, max_age))
+    }
+
+    fn store_full(
+        &mut self,
+        visible: bool,
+        scale_factor: f64,
+        x: i32,
+        y: i32,
+        w: u32,
+        h: u32,
+        now: Instant,
+    ) {
+        self.snap = Some(MacWindowGeomSnapshot {
+            visible,
+            scale_factor,
+            x,
+            y,
+            w,
+            h,
+            refreshed_at: now,
+        });
+    }
+
+    fn update_visible(&mut self, visible: bool) {
+        if let Some(ref mut s) = self.snap {
+            s.visible = visible;
+        }
+    }
+
+    fn update_moved(&mut self, x: i32, y: i32) {
+        if let Some(ref mut s) = self.snap {
+            s.x = x;
+            s.y = y;
+        }
+    }
+
+    fn update_resized(&mut self, w: u32, h: u32) {
+        if let Some(ref mut s) = self.snap {
+            s.w = w;
+            s.h = h;
+        }
+    }
+
+    fn update_scale_factor(&mut self, sf: f64) {
+        if let Some(ref mut s) = self.snap {
+            s.scale_factor = sf;
+        }
+    }
+
+    fn invalidate(&mut self) {
+        self.snap = None;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_window_geom_cache() -> &'static Mutex<MacWindowGeomCache> {
+    static CACHE: std::sync::OnceLock<Mutex<MacWindowGeomCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(MacWindowGeomCache::default()))
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn invalidate_macos_window_geom_cache() {
+    if let Ok(mut g) = macos_window_geom_cache().lock() {
+        g.invalidate();
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn update_macos_window_visible_cache(visible: bool) {
+    if let Ok(mut g) = macos_window_geom_cache().lock() {
+        g.update_visible(visible);
+    }
+}
+
 pub fn is_pet_visible(app: &AppHandle) -> bool {
     #[cfg(windows)]
     if win_needs_win7_ulw() {
@@ -434,6 +537,8 @@ pub fn set_pet_visible(app: &AppHandle, visible: bool) {
     if let Some(win) = app.get_webview_window("main") {
         if visible {
             let _ = win.show();
+            #[cfg(target_os = "macos")]
+            update_macos_window_visible_cache(true);
             #[cfg(target_os = "linux")]
             if let Some((x, y)) = saved_position {
                 let _ = win.set_position(PhysicalPosition::new(x, y));
@@ -452,6 +557,8 @@ pub fn set_pet_visible(app: &AppHandle, visible: bool) {
                 save_settings(&settings);
             }
             let _ = win.hide();
+            #[cfg(target_os = "macos")]
+            update_macos_window_visible_cache(false);
         }
     }
 }
@@ -5073,29 +5180,91 @@ fn start_hit_test_loop(
             #[cfg(not(windows))]
             let is_win7_ulw = false;
 
-            if is_win7_ulw {
-                #[cfg(windows)]
-                if !win7_layered::is_visible() {
-                    win_press_start = None;
-                    win_lbtn_was_down = true;
-                    sleep_ms = 120;
-                    continue;
-                }
-            } else if !win.is_visible().unwrap_or(false) {
-                #[cfg(windows)]
-                {
-                    win_press_start = None;
-                    win_lbtn_was_down = true;
-                }
+            #[cfg(target_os = "macos")]
+            let cached_mac_geom = if !dragging.load(Ordering::Acquire)
+                && !MACOS_NATIVE_DRAG_ACTIVE.load(Ordering::Acquire)
+            {
+                macos_window_geom_cache()
+                    .lock()
+                    .ok()
+                    .and_then(|g| g.get_fresh(Instant::now(), Duration::from_millis(400)))
+            } else {
+                None
+            };
+
+            let (sf, cached_mac_rect) = {
                 #[cfg(target_os = "macos")]
-                {
-                    mac_press_start = None;
-                    mac_lbtn_was_down = true;
+                if let Some(snap) = cached_mac_geom {
+                    if !snap.visible {
+                        mac_press_start = None;
+                        mac_lbtn_was_down = true;
+                        sleep_ms = 120;
+                        continue;
+                    }
+                    (
+                        snap.scale_factor,
+                        Some((snap.x, snap.y, snap.w.max(1) as f64, snap.h.max(1) as f64)),
+                    )
+                } else {
+                    if !win.is_visible().unwrap_or(false) {
+                        mac_press_start = None;
+                        mac_lbtn_was_down = true;
+                        if let Ok(mut g) = macos_window_geom_cache().lock() {
+                            g.store_full(false, 1.0, 0, 0, 1, 1, Instant::now());
+                        }
+                        sleep_ms = 120;
+                        continue;
+                    }
+                    let sf = win.scale_factor().unwrap_or(1.0);
+                    let Ok(pos) = win.outer_position() else {
+                        continue;
+                    };
+                    let Ok(size) = win.outer_size() else {
+                        continue;
+                    };
+                    if let Ok(mut g) = macos_window_geom_cache().lock() {
+                        g.store_full(
+                            true,
+                            sf,
+                            pos.x,
+                            pos.y,
+                            size.width,
+                            size.height,
+                            Instant::now(),
+                        );
+                    }
+                    (
+                        sf,
+                        Some((
+                            pos.x,
+                            pos.y,
+                            size.width.max(1) as f64,
+                            size.height.max(1) as f64,
+                        )),
+                    )
                 }
-                sleep_ms = 120;
-                continue;
-            }
-            let sf = win.scale_factor().unwrap_or(1.0);
+                #[cfg(not(target_os = "macos"))]
+                {
+                    if is_win7_ulw {
+                        #[cfg(windows)]
+                        if !win7_layered::is_visible() {
+                            win_press_start = None;
+                            win_lbtn_was_down = true;
+                            sleep_ms = 120;
+                            continue;
+                        }
+                    } else if !win.is_visible().unwrap_or(false) {
+                        #[cfg(windows)]
+                        {
+                            win_press_start = None;
+                            win_lbtn_was_down = true;
+                        }
+                        sleep_ms = 120;
+                        continue;
+                    }
+                    (win.scale_factor().unwrap_or(1.0), None::<(i32, i32, f64, f64)>)
+                }
+            };
 
             // On Linux (X11, XWayland/WSLg, and pure Wayland), apply a native static silhouette
             // `cairo::Region` input shape instead of toggling `set_ignore_cursor_events(true/false)`
@@ -5172,7 +5341,9 @@ fn start_hit_test_loop(
                 continue;
             };
 
-            let (win_x, win_y, w, h) = if is_win7_ulw {
+            let (win_x, win_y, w, h) = if let Some(rect) = cached_mac_rect {
+                rect
+            } else if is_win7_ulw {
                 #[cfg(windows)]
                 {
                     let Some((ux, uy, uw, uh)) = win7_layered::get_rect() else {
@@ -6697,10 +6868,29 @@ pub fn run() {
 
             if let Some(win) = app.get_webview_window("main") {
                 let stage_handle = handle.clone();
-                win.on_window_event(move |event| {
-                    if matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. }) {
+                win.on_window_event(move |event| match event {
+                    tauri::WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
+                        #[cfg(target_os = "macos")]
+                        if let Ok(mut g) = macos_window_geom_cache().lock() {
+                            g.update_scale_factor(*scale_factor);
+                        }
+                        #[cfg(not(target_os = "macos"))]
+                        let _ = scale_factor;
                         handover_stage::dpi_changed(&stage_handle);
                     }
+                    #[cfg(target_os = "macos")]
+                    tauri::WindowEvent::Moved(pos) => {
+                        if let Ok(mut g) = macos_window_geom_cache().lock() {
+                            g.update_moved(pos.x, pos.y);
+                        }
+                    }
+                    #[cfg(target_os = "macos")]
+                    tauri::WindowEvent::Resized(size) => {
+                        if let Ok(mut g) = macos_window_geom_cache().lock() {
+                            g.update_resized(size.width, size.height);
+                        }
+                    }
+                    _ => {}
                 });
                 #[cfg(target_os = "linux")]
                 linux_webview::configure_transparent_webview(&win)?;
@@ -7978,5 +8168,38 @@ mod side_menu_layout_tests {
         assert!(super::linux_is_remote_desktop_wm_class("todesk ToDesk"));
         assert!(!super::linux_is_remote_desktop_wm_class("google-chrome Google-chrome"));
         assert!(!super::linux_is_remote_desktop_wm_class("code Code"));
+    }
+
+    #[test]
+    fn macos_window_geom_cache_tracks_events_ttl_and_invalidation() {
+        use std::time::{Duration, Instant};
+
+        let mut cache = super::MacWindowGeomCache::default();
+        let t0 = Instant::now();
+        let ttl = Duration::from_millis(400);
+        assert!(cache.get_fresh(t0, ttl).is_none());
+
+        cache.store_full(true, 2.0, 100, 200, 840, 880, t0);
+        let s1 = cache.get_fresh(t0 + Duration::from_millis(120), ttl).unwrap();
+        assert!(s1.visible);
+        assert_eq!((s1.x, s1.y, s1.w, s1.h), (100, 200, 840, 880));
+        assert!((s1.scale_factor - 2.0).abs() < 1e-6);
+
+        cache.update_moved(320, 440);
+        cache.update_resized(630, 660);
+        cache.update_scale_factor(1.5);
+        cache.update_visible(false);
+        let s2 = cache.get_fresh(t0 + Duration::from_millis(200), ttl).unwrap();
+        assert!(!s2.visible);
+        assert_eq!((s2.x, s2.y, s2.w, s2.h), (320, 440, 630, 660));
+        assert!((s2.scale_factor - 1.5).abs() < 1e-6);
+
+        // Expires cleanly after TTL
+        assert!(cache.get_fresh(t0 + Duration::from_millis(450), ttl).is_none());
+
+        // Invalidation clears cache immediately
+        cache.store_full(true, 2.0, 10, 20, 400, 400, t0);
+        cache.invalidate();
+        assert!(cache.get_fresh(t0, ttl).is_none());
     }
 }

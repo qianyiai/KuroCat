@@ -1,3 +1,5 @@
+import { yieldSlice } from './yieldSlice.js';
+
 // Paints keep their original atlas rectangles. A neighboring pose supplies
 // the base coat; the correction image restores the local pigment and light.
 function readPixels(image) {
@@ -54,7 +56,7 @@ export async function expandCoat(layout, keyImage, patchImage) {
     // A cold switch may prepare a few million pixels. Give the running pet
     // a frame between slices before its switch animation clock starts.
     if (performance.now() - sliceStart > 8) {
-      await new Promise(resolve => setTimeout(resolve, 0));
+      await yieldSlice();
       sliceStart = performance.now();
     }
     const [key, patch] = frames[pose];
@@ -90,21 +92,24 @@ export async function expandCoat(layout, keyImage, patchImage) {
         shiftsX[c] = .5 * (flow[ix+c] * (1-mix) + flow[ix+c+cols] * mix);
       }
       const yBase = (j + .5) * kh / h - .5;
+      const kwMax = kw - 1, kwLim = kw - 2, khMax = kh - 1, khLim = kh - 2;
       let p = 4 * (px + (py+j) * patchImage.width), dst = (1+j)*stride + 4;
       for (let i = 0; i < w; i++, p += 4, dst += 4) {
         const k = xCell[i], a = xMix[i], b = 1-a;
-        const sx = Math.min(kw-1, Math.max(0, xBase[i] + shiftsX[k]*b + shiftsX[k+1]*a));
-        const sy = Math.min(kh-1, Math.max(0, yBase + shiftsY[k]*b + shiftsY[k+1]*a));
-        const left = Math.min(kw-2, Math.floor(sx)), top = Math.min(kh-2, Math.floor(sy));
-        const fx = sx - left, fy = sy - top;
-        const corner = (ky + top) * keyStride + 4*(kx + left);
-        for (let channel = 0; channel < 3; channel++) {
-          const n = corner + channel;
-          const first = keyPixels[n] * (1-fx) + keyPixels[n+4] * fx;
-          const second = keyPixels[n+keyStride] * (1-fx) + keyPixels[n+keyStride+4] * fx;
-          pixels[dst+channel] = Math.round(first * (1-fy) + second * fy) + corrections[patchPixels[p+channel]];
-        }
-        pixels[dst+3] = 255;
+        let sx = xBase[i] + shiftsX[k]*b + shiftsX[k+1]*a;
+        let sy = yBase + shiftsY[k]*b + shiftsY[k+1]*a;
+        if (sx < 0) sx = 0; else if (sx > kwMax) sx = kwMax;
+        if (sy < 0) sy = 0; else if (sy > khMax) sy = khMax;
+        let left = sx | 0; if (left > kwLim) left = kwLim;
+        let top = sy | 0; if (top > khLim) top = khLim;
+        const fx = sx - left, invFx = 1 - fx, fy = sy - top, invFy = 1 - fy;
+        const w00 = invFx * invFy, w01 = fx * invFy, w10 = invFx * fy, w11 = fx * fy;
+        const c00 = (ky + top) * keyStride + ((kx + left) << 2);
+        const c10 = c00 + keyStride;
+        pixels[dst]     = (keyPixels[c00]     * w00 + keyPixels[c00 + 4] * w01 + keyPixels[c10]     * w10 + keyPixels[c10 + 4] * w11 + 0.5 | 0) + corrections[patchPixels[p]];
+        pixels[dst + 1] = (keyPixels[c00 + 1] * w00 + keyPixels[c00 + 5] * w01 + keyPixels[c10 + 1] * w10 + keyPixels[c10 + 5] * w11 + 0.5 | 0) + corrections[patchPixels[p + 1]];
+        pixels[dst + 2] = (keyPixels[c00 + 2] * w00 + keyPixels[c00 + 6] * w01 + keyPixels[c10 + 2] * w10 + keyPixels[c10 + 6] * w11 + 0.5 | 0) + corrections[patchPixels[p + 2]];
+        pixels[dst + 3] = 255;
       }
       const start = (j+1)*stride;
       pixels.copyWithin(start, start+4, start+8);

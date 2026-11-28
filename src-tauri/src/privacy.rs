@@ -18,6 +18,8 @@ pub fn start_password_privacy_watcher(
     std::thread::spawn(move || {
         #[cfg(windows)]
         let mut uia = win_impl::UiaDetector::new();
+        #[cfg(target_os = "macos")]
+        let mut mac_ax = mac_impl::MacAxGuard::new();
 
         let mut active = false;
         let mut clear_streak: u8 = 0;
@@ -44,7 +46,7 @@ pub fn start_password_privacy_watcher(
             #[cfg(windows)]
             let is_pwd = win_impl::is_focused_password_field(uia.as_mut());
             #[cfg(target_os = "macos")]
-            let is_pwd = mac_impl::is_focused_password_field();
+            let is_pwd = mac_impl::is_focused_password_field(&mut mac_ax);
             #[cfg(target_os = "linux")]
             let is_pwd = linux_impl::is_focused_password_field();
             #[cfg(all(not(windows), not(target_os = "macos"), not(target_os = "linux")))]
@@ -168,9 +170,111 @@ pub(crate) fn looks_like_password_field_label(raw: &str) -> bool {
     false
 }
 
+#[cfg(any(windows, target_os = "macos", test))]
+const MAX_SLOW_BREAKER_PIDS: usize = 64;
+#[cfg(any(windows, target_os = "macos", test))]
+const UIA_SLOW_STRIKE_MS: u64 = 22;
+#[cfg(any(windows, target_os = "macos", test))]
+const UIA_HARD_STALL_MS: u64 = 55;
+#[cfg(any(windows, target_os = "macos", test))]
+const UIA_BREAKER_FIRST_COOLDOWN: Duration = Duration::from_secs(300);
+#[cfg(any(windows, target_os = "macos", test))]
+const UIA_BREAKER_REPEAT_COOLDOWN: Duration = Duration::from_secs(900);
+
+#[cfg(any(windows, target_os = "macos", test))]
+#[derive(Clone, Copy)]
+struct SlowPidEntry {
+    pid: u32,
+    strikes: u8,
+    trips: u8,
+    cooldown_until: Option<std::time::Instant>,
+}
+
+/// Universal adaptive latency circuit breaker shared by Windows UIA and macOS AXUIElement:
+/// if cross-process accessibility polling against ANY slow/heavy app stalls (`>= 55ms` once or
+/// `>= 22ms` twice in a row), trip AX/UIA off for that PID (5 min -> 15 min) while preserving
+/// zero-cost OS checks (`ES_PASSWORD` on Windows, `IsSecureEventInputEnabled` on macOS).
+#[cfg(any(windows, target_os = "macos", test))]
+pub(crate) struct SlowPidBreaker {
+    entries: Vec<SlowPidEntry>,
+}
+
+#[cfg(any(windows, target_os = "macos", test))]
+impl SlowPidBreaker {
+    pub(crate) fn new() -> Self {
+        Self {
+            entries: Vec::with_capacity(16),
+        }
+    }
+
+    pub(crate) fn is_tripped(&self, pid: u32, now: std::time::Instant) -> bool {
+        if pid == 0 {
+            return false;
+        }
+        self.entries
+            .iter()
+            .find(|e| e.pid == pid)
+            .and_then(|e| e.cooldown_until)
+            .map(|until| now < until)
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn record_sample(
+        &mut self,
+        pid: u32,
+        elapsed: Duration,
+        now: std::time::Instant,
+    ) -> bool {
+        if pid == 0 {
+            return false;
+        }
+        let ms = elapsed.as_millis() as u64;
+        if ms < UIA_SLOW_STRIKE_MS {
+            if let Some(entry) = self.entries.iter_mut().find(|e| e.pid == pid) {
+                entry.strikes = 0;
+            }
+            return false;
+        }
+
+        if let Some(pos) = self.entries.iter().position(|e| e.pid == pid) {
+            let entry = &mut self.entries[pos];
+            entry.strikes = entry.strikes.saturating_add(1);
+            if ms >= UIA_HARD_STALL_MS || entry.strikes >= 2 {
+                entry.strikes = 0;
+                entry.trips = entry.trips.saturating_add(1);
+                let cd = if entry.trips >= 2 {
+                    UIA_BREAKER_REPEAT_COOLDOWN
+                } else {
+                    UIA_BREAKER_FIRST_COOLDOWN
+                };
+                entry.cooldown_until = Some(now + cd);
+                return true;
+            }
+            return false;
+        }
+
+        if self.entries.len() >= MAX_SLOW_BREAKER_PIDS {
+            self.entries.remove(0);
+        }
+        let immediate_trip = ms >= UIA_HARD_STALL_MS;
+        self.entries.push(SlowPidEntry {
+            pid,
+            strikes: if immediate_trip { 0 } else { 1 },
+            trips: if immediate_trip { 1 } else { 0 },
+            cooldown_until: if immediate_trip {
+                Some(now + UIA_BREAKER_FIRST_COOLDOWN)
+            } else {
+                None
+            },
+        });
+        immediate_trip
+    }
+}
+
 #[cfg(windows)]
 mod win_impl {
     use super::looks_like_password_field_label;
+    pub(super) use super::SlowPidBreaker;
     use std::time::{Duration, Instant};
     use windows::core::{IUnknown, Interface, VARIANT};
     use windows::Win32::Foundation::HWND;
@@ -210,11 +314,6 @@ mod win_impl {
     const IDLE_UIA_BACKOFF_TTL: Duration = Duration::from_millis(560);
     const MAX_WOKEN_HWNDS: usize = 32;
     const MAX_EXE_CACHE_PIDS: usize = 32;
-    const MAX_SLOW_BREAKER_PIDS: usize = 64;
-    const UIA_SLOW_STRIKE_MS: u64 = 22;
-    const UIA_HARD_STALL_MS: u64 = 55;
-    const UIA_BREAKER_FIRST_COOLDOWN: Duration = Duration::from_secs(300);
-    const UIA_BREAKER_REPEAT_COOLDOWN: Duration = Duration::from_secs(900);
 
     /// Heavy CAD / BIM / EDA / 3D / DCC / game-engine binaries whose single-threaded MFC/WPF/DX
     /// UI loops suffer catastrophic stalls when external tools poll `IUIAutomation::GetFocusedElement()`
@@ -344,87 +443,6 @@ mod win_impl {
             || lower == "acapdocwindow"
             || lower.starts_with("afxframeorview")
             || lower.starts_with("afxmdiframe")
-    }
-
-    #[derive(Clone, Copy)]
-    struct SlowPidEntry {
-        pid: u32,
-        strikes: u8,
-        trips: u8,
-        cooldown_until: Option<Instant>,
-    }
-
-    /// Universal adaptive latency circuit breaker: if cross-process UIA polling against ANY
-    /// unknown legacy/heavy app stalls (`>= 55ms` once or `>= 22ms` twice in a row), trip UIA
-    /// off for that PID (5 min -> 15 min) while preserving zero-cost Win32 `ES_PASSWORD` checks.
-    pub(super) struct SlowPidBreaker {
-        entries: Vec<SlowPidEntry>,
-    }
-
-    impl SlowPidBreaker {
-        pub(super) fn new() -> Self {
-            Self {
-                entries: Vec::with_capacity(16),
-            }
-        }
-
-        pub(super) fn is_tripped(&self, pid: u32, now: Instant) -> bool {
-            if pid == 0 {
-                return false;
-            }
-            self.entries
-                .iter()
-                .find(|e| e.pid == pid)
-                .and_then(|e| e.cooldown_until)
-                .map(|until| now < until)
-                .unwrap_or(false)
-        }
-
-        pub(super) fn record_sample(&mut self, pid: u32, elapsed: Duration, now: Instant) -> bool {
-            if pid == 0 {
-                return false;
-            }
-            let ms = elapsed.as_millis() as u64;
-            if ms < UIA_SLOW_STRIKE_MS {
-                if let Some(entry) = self.entries.iter_mut().find(|e| e.pid == pid) {
-                    entry.strikes = 0;
-                }
-                return false;
-            }
-
-            if let Some(pos) = self.entries.iter().position(|e| e.pid == pid) {
-                let entry = &mut self.entries[pos];
-                entry.strikes = entry.strikes.saturating_add(1);
-                if ms >= UIA_HARD_STALL_MS || entry.strikes >= 2 {
-                    entry.strikes = 0;
-                    entry.trips = entry.trips.saturating_add(1);
-                    let cd = if entry.trips >= 2 {
-                        UIA_BREAKER_REPEAT_COOLDOWN
-                    } else {
-                        UIA_BREAKER_FIRST_COOLDOWN
-                    };
-                    entry.cooldown_until = Some(now + cd);
-                    return true;
-                }
-                return false;
-            }
-
-            if self.entries.len() >= MAX_SLOW_BREAKER_PIDS {
-                self.entries.remove(0);
-            }
-            let immediate_trip = ms >= UIA_HARD_STALL_MS;
-            self.entries.push(SlowPidEntry {
-                pid,
-                strikes: if immediate_trip { 0 } else { 1 },
-                trips: if immediate_trip { 1 } else { 0 },
-                cooldown_until: if immediate_trip {
-                    Some(now + UIA_BREAKER_FIRST_COOLDOWN)
-                } else {
-                    None
-                },
-            });
-            immediate_trip
-        }
     }
 
     pub(super) fn is_plausible_password_rect(top: i32, bottom: i32) -> bool {
@@ -1072,10 +1090,16 @@ mod win_impl {
 
 #[cfg(target_os = "macos")]
 mod mac_impl {
-    use super::looks_like_password_field_label;
+    use super::{looks_like_password_field_label, SlowPidBreaker};
+    use objc2::msg_send;
+    use objc2::rc::autoreleasepool;
+    use objc2::runtime::{AnyClass, AnyObject};
     use std::ffi::c_void;
+    use std::time::{Duration, Instant};
 
     const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+    const IDLE_AX_BACKOFF_TTL: Duration = Duration::from_millis(700);
+    const AX_MESSAGING_TIMEOUT_SECS: f32 = 0.08;
 
     #[link(name = "Carbon", kind = "framework")]
     extern "C" {
@@ -1086,6 +1110,7 @@ mod mac_impl {
     extern "C" {
         fn AXIsProcessTrusted() -> bool;
         fn AXUIElementCreateSystemWide() -> *mut c_void;
+        fn AXUIElementSetMessagingTimeout(element: *mut c_void, timeout_in_seconds: f32) -> i32;
         fn AXUIElementCopyAttributeValue(
             element: *mut c_void,
             attribute: *const c_void,
@@ -1112,6 +1137,42 @@ mod mac_impl {
         fn CFGetTypeID(cf: *const c_void) -> usize;
         fn CFStringGetTypeID() -> usize;
         fn CFEqual(cf1: *const c_void, cf2: *const c_void) -> u8;
+    }
+
+    pub struct MacAxGuard {
+        breaker: SlowPidBreaker,
+        last_ax: Option<(u32, Instant, bool)>,
+    }
+
+    impl MacAxGuard {
+        pub fn new() -> Self {
+            Self {
+                breaker: SlowPidBreaker::new(),
+                last_ax: None,
+            }
+        }
+    }
+
+    fn frontmost_pid() -> u32 {
+        autoreleasepool(|_| unsafe {
+            let Some(cls) = AnyClass::get(c"NSWorkspace") else {
+                return 0;
+            };
+            let ws: *mut AnyObject = msg_send![cls, sharedWorkspace];
+            if ws.is_null() {
+                return 0;
+            }
+            let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+            if app.is_null() {
+                return 0;
+            }
+            let pid: i32 = msg_send![app, processIdentifier];
+            if pid > 0 {
+                pid as u32
+            } else {
+                0
+            }
+        })
     }
 
     unsafe fn make_cf_string(s: &str) -> *mut c_void {
@@ -1158,6 +1219,7 @@ mod mac_impl {
         if sys_wide.is_null() {
             return false;
         }
+        let _ = AXUIElementSetMessagingTimeout(sys_wide, AX_MESSAGING_TIMEOUT_SECS);
         let attr_focused = make_cf_string("AXFocusedUIElement");
         let attr_subrole = make_cf_string("AXSubrole");
         let secure_subrole = make_cf_string("AXSecureTextField");
@@ -1167,6 +1229,7 @@ mod mac_impl {
             let mut focused: *mut c_void = std::ptr::null_mut();
             let err1 = AXUIElementCopyAttributeValue(sys_wide, attr_focused, &mut focused);
             if err1 == 0 && !focused.is_null() {
+                let _ = AXUIElementSetMessagingTimeout(focused, AX_MESSAGING_TIMEOUT_SECS);
                 let mut subrole: *mut c_void = std::ptr::null_mut();
                 let err2 = AXUIElementCopyAttributeValue(focused, attr_subrole, &mut subrole);
                 if err2 == 0 && !subrole.is_null() {
@@ -1223,12 +1286,44 @@ mod mac_impl {
         is_secure
     }
 
-    pub fn is_focused_password_field() -> bool {
+    pub fn is_focused_password_field(guard: &mut MacAxGuard) -> bool {
         unsafe {
+            // Fast, zero-IPC kernel flag always runs every tick (~140ms)
             if IsSecureEventInputEnabled() != 0 {
                 return true;
             }
-            ax_focused_is_secure_text_field()
+            if !AXIsProcessTrusted() {
+                return false;
+            }
+            let fg_pid = frontmost_pid();
+            // Never hammer KuroCat's own WKWebView/menu process with cross-process AX probes
+            if fg_pid == std::process::id() {
+                return false;
+            }
+            let now = Instant::now();
+            if guard.breaker.is_tripped(fg_pid, now) {
+                return false;
+            }
+            // Back off cross-process AX IPC while the user is only reading/watching video/moving mouse;
+            // the moment any keystroke or mouse click occurs, resume immediate 140ms polling.
+            if let Some((prev_pid, checked_at, prev_pwd)) = guard.last_ax {
+                if !prev_pwd
+                    && prev_pid == fg_pid
+                    && now.duration_since(checked_at) < IDLE_AX_BACKOFF_TTL
+                    && !crate::input_hook::has_recent_key_or_click(1200)
+                {
+                    return false;
+                }
+            }
+
+            let probe_start = Instant::now();
+            let is_pwd = ax_focused_is_secure_text_field();
+            let elapsed = probe_start.elapsed();
+            if fg_pid != 0 && !is_pwd {
+                guard.breaker.record_sample(fg_pid, elapsed, Instant::now());
+            }
+            guard.last_ax = Some((fg_pid, Instant::now(), is_pwd));
+            is_pwd
         }
     }
 }

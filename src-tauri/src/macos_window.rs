@@ -96,6 +96,7 @@ pub fn place(window: &WebviewWindow, preferred: Option<&str>) -> bool {
         };
         native
             .setFrameOrigin(bottom_right_frame(display.visible_frame, native.frame().size).origin);
+        crate::invalidate_macos_window_geom_cache();
         true
     })
     .unwrap_or(false)
@@ -125,6 +126,7 @@ pub fn resize_pinned(window: &WebviewWindow, width: f64, height: f64) {
                 frame.size = size;
             }
             native.setFrame_display(frame, true);
+            crate::invalidate_macos_window_geom_cache();
         });
     });
 }
@@ -183,9 +185,10 @@ pub fn configure_fullscreen(window: &WebviewWindow, always_on_top: bool, yield_o
 /// so KuroCat can temporarily yield beneath it without hiding (#40 cross-platform parity).
 pub fn frontmost_is_remote_desktop() -> bool {
     use objc2::msg_send;
+    use objc2::rc::autoreleasepool;
     use objc2::runtime::{AnyClass, AnyObject};
 
-    unsafe {
+    autoreleasepool(|_| unsafe {
         let Some(cls) = AnyClass::get(c"NSWorkspace") else {
             return false;
         };
@@ -210,7 +213,7 @@ pub fn frontmost_is_remote_desktop() -> bool {
             String::new()
         };
         crate::macos_is_remote_desktop_app(&bid, &name)
-    }
+    })
 }
 
 /// Smoothly yields KuroCat from `NSStatusWindowLevel` down to `NSNormalWindowLevel` while a
@@ -467,6 +470,7 @@ pub fn set_window_origin(app: &AppHandle, x: f64, y: f64) {
         if let Some(window) = app.get_webview_window("main") {
             let _ = with_native_window(&window, |_, native| {
                 native.setFrameOrigin(NSPoint::new(x, y));
+                crate::invalidate_macos_window_geom_cache();
             });
         }
         return;
@@ -476,6 +480,7 @@ pub fn set_window_origin(app: &AppHandle, x: f64, y: f64) {
         if let Some(window) = handle.get_webview_window("main") {
             let _ = with_native_window(&window, |_, native| {
                 native.setFrameOrigin(NSPoint::new(x, y));
+                crate::invalidate_macos_window_geom_cache();
             });
         }
     });

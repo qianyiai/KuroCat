@@ -1,4 +1,5 @@
 import { residentFootstep, drawResidentLeg, section } from './residentStep.js';
+import { yieldSlice } from './yieldSlice.js';
 
 export function installActors(loadArt, loadData) {
   const actors = {loadArt, loadData, cueTime: 0.72};
@@ -52,7 +53,7 @@ export function installActors(loadArt, loadData) {
     preparing=Promise.all([actors.loadArt('base/black.webp'),
     actors.loadArt('guest-part/lighting.webp'),actors.loadArt('guest-part/face.webp'),
     actors.loadArt('guest-part/neck.webp'),actors.loadArt('guest-part/lids.webp'),actors.loadData('guest-part/motion.json')
-  ]).then(([n,l,h,m,e,data])=>{
+  ]).then(async ([n,l,h,m,e,data])=>{
     if(data.texture)[tileWidth,tileHeight]=data.texture;
     eyeStates=data.eyeStates;
     const strokes=data.strokes.map(decodeStroke);
@@ -77,12 +78,46 @@ export function installActors(loadArt, loadData) {
       }
       tread.push(tread[i]+travel);
     });
+    // Pre-warm the first throat patches (initial walk & reach) before playback starts;
+    // remaining poses warm incrementally between frames so cold switches start fast
+    // without synchronous mid-animation `getImageData()` stalls.
+    const pendingThroats=[];
+    for(const name of ['walk','extend','flinch','watch','recover','lower']){
+      const clip=motion[name];
+      if(!clip)continue;
+      for(const f of clip.frames){
+        const armDown=smooth(between(.65,.87,(f[7]-f[11][1])/f[11][2]));
+        if(armDown) pendingThroats.push(f);
+      }
+    }
+    let warmIdx=0;
+    const warmOne=()=>{
+      while(warmIdx<pendingThroats.length){
+        const f=pendingThroats[warmIdx++];
+        if(neckCache.has(f))continue;
+        const h0={x:f[11][0],y:f[11][1],width:f[11][2],yaw:45,pitch:0,tension:0};
+        neckCache.set(f,makeThroat(h0,f,0,0));
+        return true;
+      }
+      return false;
+    };
+    const warmStart=performance.now();
+    // Warm up to 14ms before playback starts (~12-20 poses, covering opening entry).
+    while(performance.now()-warmStart<14 && warmOne()){}
+    if(warmIdx<pendingThroats.length){
+      const scheduleMore=()=>{
+        const t0=performance.now();
+        while(performance.now()-t0<3.5 && warmOne()){}
+        if(warmIdx<pendingThroats.length) setTimeout(scheduleMore,16);
+      };
+      setTimeout(scheduleMore,16);
+    }
     }).catch(err=>{preparing=null;throw err;});
     return preparing;
   };
-  function smallSurface(w,h) {
+  function smallSurface(w,h,readFrequently=false) {
     const c=document.createElement('canvas');c.width=w;c.height=h;
-    return c.getContext('2d');
+    return readFrequently ? c.getContext('2d',{willReadFrequently:true}) : c.getContext('2d');
   }
   function drawCoat(ctx,f,x,y,part) {
     if(!part)return;ctx.save();ctx.translate(x,y);ctx.clip(part,'evenodd');
@@ -199,7 +234,7 @@ export function installActors(loadArt, loadData) {
   // Physical coordinates here are normalized to a 277 px frontal head width.
   const neckCache=new WeakMap();
   let neckSample;
-  const neckBox={x:32,y:205,w:296,h:225,scale:.58};
+  const neckBox={x:32,y:205,w:296,h:225,scale:.36};
   function neckTransition(ctx,h,f,x,y) {
     const armDown=smooth(between(.65,.87,(f[7]-f[11][1])/f[11][2]));
     if(h.yaw<30||!armDown)return;
@@ -218,7 +253,7 @@ export function installActors(loadArt, loadData) {
   }
   function makeThroat(h,f,x,y) {
     const box=neckBox,w=Math.round(box.w*box.scale),rows=Math.round(box.h*box.scale);
-    const sample=neckSample||(neckSample=smallSurface(w,rows));
+    const sample=neckSample||(neckSample=smallSurface(w,rows,true));
     const px=w/box.w,py=rows/box.h,world=277/h.width;
     sample.clearRect(0,0,w,rows);sample.save();sample.scale(px,py);
     sample.translate(180-box.x,155-box.y);sample.scale(world,world);sample.translate(-h.x,-h.y);
@@ -247,19 +282,20 @@ export function installActors(loadArt, loadData) {
     const ypx=y=>Math.max(0,Math.min(rows-1,Math.round((y-box.y)*py)));
     const xpx=x=>Math.max(0,Math.min(w-1,Math.round((x-box.x)*px)));
     const sampleAt=(r,c)=>4*(r*w+Math.max(0,Math.min(w-1,Math.max(c,Math.ceil(edge[r])+4))));
-    // Fit a broad tonal field across the coat. The narrow whiskers are
-    // brighter than cheek fur, so sample a lower median across a small area.
-    // Interpolate across sparse columns instead of propagating individual hairs.
+    // Fit a broad tonal field across the coat. Only needed for the dark/black
+    // guest branch (!eyeStates); skip completely for colored guests.
     const jawAt=u=>236+25*Math.exp(-(((u-170)/85)**2));
     const topColors=[];
-    for(let u=box.x;u<=box.x+box.w+10;u+=9){
-      const center=ypx(jawAt(u)-19),column=xpx(u),colors=[];
-      for(let dr=-3;dr<=3;dr++)for(let dc=-4;dc<=4;dc+=2){
-        const k=sampleAt(center+dr,column+dc);
-        colors.push([raw[k],raw[k+1],raw[k+2]]);
+    if(!eyeStates){
+      for(let u=box.x;u<=box.x+box.w+10;u+=9){
+        const center=ypx(jawAt(u)-19),column=xpx(u),colors=[];
+        for(let dr=-3;dr<=3;dr++)for(let dc=-4;dc<=4;dc+=2){
+          const k=sampleAt(center+dr,column+dc);
+          colors.push([raw[k],raw[k+1],raw[k+2]]);
+        }
+        colors.sort((a,b)=>(a[0]+a[1]+a[2])-(b[0]+b[1]+b[2]));
+        const lo=colors.slice(6,17);topColors.push([0,1,2].map(k=>lo.reduce((sum,col)=>sum+col[k],0)/lo.length));
       }
-      colors.sort((a,b)=>(a[0]+a[1]+a[2])-(b[0]+b[1]+b[2]));
-      const lo=colors.slice(6,17);topColors.push([0,1,2].map(k=>lo.reduce((sum,col)=>sum+col[k],0)/lo.length));
     }
     const contour=new Float32Array(rows);
     for(let r=0;r<rows;r++){

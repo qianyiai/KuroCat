@@ -55,12 +55,13 @@ export class CastHandover {
   private cats?: ReturnType<typeof actorLayer>;
   private actorScene?: ActorScene;
   private startedAt?: number;
+  private startOffset = 0;
   private drawnTime = 0;
   private lastFrame = -1;
   private disposed = false;
 
   public constructor(anchor: THREE.Vector3, from: CastId, to: CastId, pixelsPerWorldUnit: () => number,
-    prepareStage?: (player: CastHandover) => Promise<boolean>, accessories?: () => CastAccessorySettings) {
+    prepareStage?: (player: CastHandover) => Promise<boolean | 'narrow'>, accessories?: () => CastAccessorySettings) {
     this.mesh.visible = false;
     this.mesh.rotation.x = -elevation;
     nativeHandoverGround(anchor, this.mesh.quaternion, this.mesh.position);
@@ -68,17 +69,35 @@ export class CastHandover {
   }
 
   private async prepare(from: CastId, to: CastId, pixelsPerWorldUnit: () => number,
-    prepareStage?: (player: CastHandover) => Promise<boolean>, accessories?: () => CastAccessorySettings): Promise<void> {
+    prepareStage?: (player: CastHandover) => Promise<boolean | 'narrow'>, accessories?: () => CastAccessorySettings): Promise<void> {
     try {
       const { prepareActorScene } = await import('./handoverLite/scene');
       if (this.disposed || this.state !== 'pending') return;
       const scene = await prepareActorScene(from, to, accessories);
-      if (this.disposed || this.state !== 'pending') return;
-      if (prepareStage && !(await prepareStage(this))) throw new Error('Stage unavailable');
-      if (this.disposed || this.state !== 'pending') return;
-      // Cap offscreen handover surface at 1.0x reference pixels (1536x592) to halve transient
-      // CPU/GPU texture RAM (~7 MB instead of ~16 MB) while staying razor-sharp on desktop windows.
-      const resolution = THREE.MathUtils.clamp(referencePixel * pixelsPerWorldUnit(), .75, 1.0);
+      if (this.disposed || this.state !== 'pending') {
+        scene.dispose();
+        return;
+      }
+      let hasWideStage = false;
+      if (prepareStage) {
+        const stageResult = await prepareStage(this);
+        if (!stageResult) {
+          scene.dispose();
+          throw new Error('Stage unavailable');
+        }
+        hasWideStage = stageResult === true;
+      }
+      if (this.disposed || this.state !== 'pending') {
+        scene.dispose();
+        return;
+      }
+      // Without right-hand stage extension (e.g. cat parked near right edge or unexpanded window),
+      // t = 0..0.38s happens completely offscreen to the right while the seated cat sits frozen.
+      // Start right as the incoming paw reaches the visible frame edge so switching feels snappy.
+      this.startOffset = hasWideStage ? 0 : 0.36;
+      // Match actual screen pixel density down to 0.5x on compact pet windows (halves Canvas2D
+      // fill cost and WebGL texImage2D upload bandwidth on macOS/integrated GPUs with zero blur).
+      const resolution = THREE.MathUtils.clamp(referencePixel * pixelsPerWorldUnit(), .5, 1.0);
       this.cats = actorLayer(resolution);
       this.mesh.add(this.cats.plane);
       this.actorScene = scene;
@@ -89,7 +108,7 @@ export class CastHandover {
 
   public get currentTime(): number { return this.drawnTime; }
 
-  public poll(): PlaybackState {
+  public poll(targetFps = 50): PlaybackState {
     if (this.disposed || this.state === 'failed' || this.state === 'ended') return this.state;
     if (!this.actorScene || !this.cats) {
       if (performance.now() - this.requestedAt > 8000) this.state = 'failed';
@@ -97,12 +116,13 @@ export class CastHandover {
     }
     const now = performance.now();
     this.startedAt ??= now;
-    const time = (now - this.startedAt) / 1000;
+    const time = this.startOffset + (now - this.startedAt) / 1000;
     if (time >= duration) { this.state = 'ended'; this.drawnTime = duration; return this.state; }
-    const frame = Math.floor(time * 50);
+    const fps = targetFps <= 30 ? 30 : 50;
+    const frame = Math.floor(time * fps);
     if (frame !== this.lastFrame) {
       this.lastFrame = frame;
-      this.drawnTime = frame / 50;
+      this.drawnTime = frame / fps;
       this.cats.clear();
       this.actorScene.paintCats(this.cats.ctx, this.drawnTime);
       this.cats.refresh();

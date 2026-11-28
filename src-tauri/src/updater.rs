@@ -3,9 +3,15 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 use tauri::{AppHandle, Emitter};
 
+const OFFICIAL_API_LATEST: &str = "https://kurocat.org/releases/latest.json";
 const QIANYI_API_LATEST: &str = "https://qianyi.one/kurocat/releases/latest.json";
 const REPO_API_LATEST: &str = "https://api.github.com/repos/qianyiai/KuroCat/releases/latest";
 const REPO_RELEASES_PAGE: &str = "https://github.com/qianyiai/KuroCat/releases/latest";
+
+const BG_UPDATE_INITIAL_DELAY_SECS: u64 = 8;
+const BG_UPDATE_BASE_INTERVAL_SECS: u64 = 30 * 60;
+const BG_UPDATE_JITTER_SECS: u64 = 3 * 60;
+const BG_UPDATE_SLEEP_STEP_SECS: u64 = 60;
 
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -622,10 +628,13 @@ fn fetch_json_from_url(url: &str, accept: Option<&str>, timeout_ms: i32) -> Resu
 
 #[cfg(windows)]
 fn fetch_latest_release_json() -> Result<String, String> {
-    // Primary: fast domestic CDN mirror (no proxy needed, zero GitHub API rate limit)
-    if let Ok(text) = fetch_json_from_url(QIANYI_API_LATEST, Some("Accept: application/json\r\n"), 8_000) {
-        if serde_json::from_str::<GhRelease>(&text).is_ok() {
-            return Ok(text);
+    // Primary: official kurocat.org CDN mirror (zero GitHub API rate limit, fresh no-cache check)
+    let hdrs = Some("Accept: application/json\r\nCache-Control: no-cache\r\n");
+    for url in [OFFICIAL_API_LATEST, QIANYI_API_LATEST] {
+        if let Ok(text) = fetch_json_from_url(url, hdrs, 8_000) {
+            if serde_json::from_str::<GhRelease>(&text).is_ok() {
+                return Ok(text);
+            }
         }
     }
     // Fallback: official GitHub Releases API
@@ -656,6 +665,8 @@ fn fetch_json_from_url(url: &str, accept: &str, connect_secs: &str, max_secs: &s
             &format!("User-Agent: KuroCat/{}", CURRENT_VERSION),
             "-H",
             accept,
+            "-H",
+            "Cache-Control: no-cache",
             url,
         ])
         .output()
@@ -679,10 +690,12 @@ fn fetch_json_from_url(url: &str, accept: &str, connect_secs: &str, max_secs: &s
 
 #[cfg(not(windows))]
 fn fetch_latest_release_json() -> Result<String, String> {
-    // Primary: fast domestic CDN mirror (no proxy needed, zero GitHub API rate limit)
-    if let Ok(text) = fetch_json_from_url(QIANYI_API_LATEST, "Accept: application/json", "5", "9") {
-        if serde_json::from_str::<GhRelease>(&text).is_ok() {
-            return Ok(text);
+    // Primary: official kurocat.org CDN mirror (zero GitHub API rate limit, fresh no-cache check)
+    for url in [OFFICIAL_API_LATEST, QIANYI_API_LATEST] {
+        if let Ok(text) = fetch_json_from_url(url, "Accept: application/json", "5", "9") {
+            if serde_json::from_str::<GhRelease>(&text).is_ok() {
+                return Ok(text);
+            }
         }
     }
     // Fallback: official GitHub Releases API
@@ -1151,13 +1164,57 @@ pub fn perform_update_install(app: &AppHandle, info: UpdateInfo) -> Result<(), S
     }
 }
 
+fn next_background_check_interval_secs(rng: &mut u64) -> u64 {
+    *rng = rng
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    let min_secs = BG_UPDATE_BASE_INTERVAL_SECS.saturating_sub(BG_UPDATE_JITTER_SECS);
+    let span = BG_UPDATE_JITTER_SECS.saturating_mul(2).saturating_add(1);
+    min_secs + ((*rng >> 16) % span)
+}
+
+fn should_notify_background_update(last_notified_ver: &mut Option<String>, latest_ver: &str) -> bool {
+    if last_notified_ver.as_deref() == Some(latest_ver) {
+        return false;
+    }
+    *last_notified_ver = Some(latest_ver.to_string());
+    true
+}
+
+/// Sleeps for `target_secs` in short slices while checking wall-clock elapsed time so waking
+/// a laptop after overnight sleep triggers a fresh update check within <= 60s instead of
+/// waiting out the entire pre-sleep remainder.
+fn sleep_interval_with_wake_detect(target_secs: u64) {
+    let start_wall = std::time::SystemTime::now();
+    let mut slept_secs: u64 = 0;
+    while slept_secs < target_secs {
+        let step = (target_secs - slept_secs).min(BG_UPDATE_SLEEP_STEP_SECS).max(1);
+        std::thread::sleep(std::time::Duration::from_secs(step));
+        slept_secs = slept_secs.saturating_add(step);
+        if let Ok(wall_elapsed) = std::time::SystemTime::now().duration_since(start_wall) {
+            if wall_elapsed.as_secs() >= target_secs {
+                break;
+            }
+        }
+    }
+}
+
 pub fn start_background_update_checker(app: AppHandle) {
     std::thread::spawn(move || {
         // Gentle initial delay after launch so startup stays instant & quiet
-        std::thread::sleep(std::time::Duration::from_secs(8));
+        std::thread::sleep(std::time::Duration::from_secs(BG_UPDATE_INITIAL_DELAY_SECS));
+        let mut rng = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0x9E37_79B9_7F4A_7C15)
+            ^ ((std::process::id() as u64).wrapping_mul(0x517C_C1B7_2722_0A95));
+        let mut last_notified_ver: Option<String> = None;
+
         loop {
             if let Ok(info) = check_latest_update() {
-                if info.has_update {
+                if info.has_update
+                    && should_notify_background_update(&mut last_notified_ver, &info.latest_version)
+                {
                     emit_progress(
                         &app,
                         "available",
@@ -1166,8 +1223,9 @@ pub fn start_background_update_checker(app: AppHandle) {
                     );
                 }
             }
-            // Re-check every 6 hours while running
-            std::thread::sleep(std::time::Duration::from_secs(6 * 3600));
+            // Re-check every ~30 minutes (27-33 min with jitter) while running, and promptly after sleep wake
+            let wait_secs = next_background_check_interval_secs(&mut rng);
+            sleep_interval_with_wake_detect(wait_secs);
         }
     });
 }
@@ -1291,6 +1349,35 @@ mod tests {
         assert_eq!(host2, "127.0.0.1");
         assert_eq!(port2, 8080);
         assert_eq!(path2, "/dl?v=1");
+    }
+
+    #[test]
+    fn background_check_interval_stays_within_jitter_bounds() {
+        let mut seed: u64 = 0x1234_5678_9ABC_DEF0;
+        let min_secs = BG_UPDATE_BASE_INTERVAL_SECS - BG_UPDATE_JITTER_SECS;
+        let max_secs = BG_UPDATE_BASE_INTERVAL_SECS + BG_UPDATE_JITTER_SECS;
+        let mut seen_distinct = std::collections::HashSet::new();
+        for _ in 0..64 {
+            let secs = next_background_check_interval_secs(&mut seed);
+            assert!(
+                (min_secs..=max_secs).contains(&secs),
+                "interval {}s out of [{}s, {}s]",
+                secs,
+                min_secs,
+                max_secs
+            );
+            seen_distinct.insert(secs);
+        }
+        assert!(seen_distinct.len() > 16, "jitter should spread across range");
+    }
+
+    #[test]
+    fn background_update_notification_dedupes_same_version() {
+        let mut last = None;
+        assert!(should_notify_background_update(&mut last, "5.2.0"));
+        assert!(!should_notify_background_update(&mut last, "5.2.0"));
+        assert!(should_notify_background_update(&mut last, "5.2.1"));
+        assert!(!should_notify_background_update(&mut last, "5.2.1"));
     }
 
     #[test]

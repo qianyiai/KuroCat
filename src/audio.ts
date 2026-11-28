@@ -64,6 +64,7 @@ class CatAudio {
   private tailYowlBuffer: AudioBuffer | null = null;
   private tailYowlDecodePromise: Promise<void> | null = null;
   private tailYowlDecodeFailedCtx: AudioContext | null = null;
+  private tailYowlDecodeRetryAfterMs = 0;
   private tailYowlSource: AudioBufferSourceNode | null = null;
   private tailYowlGain: GainNode | null = null;
   private yowlBuffer: AudioBuffer | null = null;
@@ -756,10 +757,10 @@ class CatAudio {
     return resp.arrayBuffer();
   }
 
-  private static trimLeadingSilence(ctx: AudioContext, decoded: AudioBuffer): AudioBuffer {
+  private static trimLeadingSilence(ctx: AudioContext, decoded: AudioBuffer, maxSkipSec = 0.06): AudioBuffer {
     const sr = decoded.sampleRate;
     const raw = decoded.getChannelData(0);
-    const maxSkip = Math.min(raw.length - 64, Math.floor(sr * 0.06));
+    const maxSkip = Math.min(raw.length - 64, Math.floor(sr * maxSkipSec));
     let start = 0;
     while (start < maxSkip && Math.abs(raw[start]) < 0.008) {
       start++;
@@ -1084,17 +1085,28 @@ class CatAudio {
   }
 
   private prewarmTailPokeYowlBuffer(ctx: AudioContext): void {
-    if (this.tailYowlBuffer || this.tailYowlDecodePromise || this.tailYowlDecodeFailedCtx === ctx) return;
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (
+      this.tailYowlBuffer ||
+      this.tailYowlDecodePromise ||
+      (this.tailYowlDecodeFailedCtx === ctx && nowMs < this.tailYowlDecodeRetryAfterMs)
+    ) {
+      return;
+    }
     const targetCtx = ctx;
     const task = (async () => {
       try {
         const ab = await CatAudio.fetchAudioArrayBuffer(tailPokeYowlMp3Url);
         const decoded = await CatAudio.decodeAudioBuffer(targetCtx, ab);
         if (this.ctx !== targetCtx) return;
-        this.tailYowlBuffer = decoded;
+        this.tailYowlBuffer = CatAudio.trimLeadingSilence(targetCtx, decoded, 0.12);
+        this.tailYowlDecodeFailedCtx = null;
+        this.tailYowlDecodeRetryAfterMs = 0;
       } catch {
         if (this.ctx === targetCtx) {
           this.tailYowlDecodeFailedCtx = targetCtx;
+          this.tailYowlDecodeRetryAfterMs =
+            (typeof performance !== 'undefined' ? performance.now() : Date.now()) + 5000;
         }
       }
     })()
@@ -1130,56 +1142,74 @@ class CatAudio {
     }
   }
 
-  private playDecodedTailYowlBuffer(ctx: AudioContext, buf: AudioBuffer): void {
-    this.stopTailPokeYowl();
-    const t0 = ctx.currentTime + 0.008;
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    const gain = ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, t0);
-    gain.gain.linearRampToValueAtTime(0.48, t0 + 0.015);
-    gain.gain.setValueAtTime(0.48, t0 + Math.max(0.04, buf.duration - 0.08));
-    gain.gain.linearRampToValueAtTime(0.0001, t0 + buf.duration);
-    src.connect(gain);
-    gain.connect(this.getMasterOutput(ctx));
-    this.tailYowlSource = src;
-    this.tailYowlGain = gain;
-    src.onended = () => {
-      if (this.tailYowlSource === src) {
-        this.tailYowlSource = null;
-        this.tailYowlGain = null;
-      }
-      try {
-        src.disconnect();
-        gain.disconnect();
-      } catch {
-        // ignore
-      }
+  private playDecodedTailYowlBuffer(ctx: AudioContext, buf: AudioBuffer, onStart?: () => void): void {
+    const startNow = () => {
+      if (this.ctx !== ctx || !this.enabled || this.isEffectivelyMuted()) return;
+      this.stopTailPokeYowl();
+      const t0 = ctx.currentTime + 0.008;
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.0001, t0);
+      gain.gain.linearRampToValueAtTime(0.48, t0 + 0.015);
+      gain.gain.setValueAtTime(0.48, t0 + Math.max(0.04, buf.duration - 0.08));
+      gain.gain.linearRampToValueAtTime(0.0001, t0 + buf.duration);
+      src.connect(gain);
+      gain.connect(this.getMasterOutput(ctx));
+      this.tailYowlSource = src;
+      this.tailYowlGain = gain;
+      src.onended = () => {
+        if (this.tailYowlSource === src) {
+          this.tailYowlSource = null;
+          this.tailYowlGain = null;
+        }
+        try {
+          src.disconnect();
+          gain.disconnect();
+        } catch {
+          // ignore
+        }
+      };
+      src.start(t0);
+      onStart?.();
     };
-    src.start(t0);
+
+    if (ctx.state === 'suspended') {
+      try {
+        const res = ctx.resume();
+        if (res && typeof res.then === 'function') {
+          void res.then(startNow).catch(() => {});
+          return;
+        }
+      } catch {
+        // fall through
+      }
+    }
+    startNow();
   }
 
   /**
    * Grumpy "老吴~" cat yowl when tail is poked (escalated = true), falling back to a quick
    * synthesized flick chirp if audio decoding is unavailable or non-escalated.
    */
-  public playTailFlick(escalated = false): void {
+  public playTailFlick(escalated = false, onYowlStart?: () => void): void {
     const ctx = this.getReadyContext();
     if (!ctx) return;
 
     try {
       if (escalated) {
         if (this.tailYowlBuffer) {
-          this.playDecodedTailYowlBuffer(ctx, this.tailYowlBuffer);
+          this.playDecodedTailYowlBuffer(ctx, this.tailYowlBuffer, onYowlStart);
           return;
         }
-        if (this.tailYowlDecodeFailedCtx !== ctx) {
+        const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        if (this.tailYowlDecodeFailedCtx !== ctx || nowMs >= this.tailYowlDecodeRetryAfterMs) {
           this.prewarmTailPokeYowlBuffer(ctx);
           const pending = this.tailYowlDecodePromise;
           if (pending) {
             void pending.then(() => {
               if (this.enabled && !this.isEffectivelyMuted() && this.ctx === ctx && this.tailYowlBuffer) {
-                this.playDecodedTailYowlBuffer(ctx, this.tailYowlBuffer);
+                this.playDecodedTailYowlBuffer(ctx, this.tailYowlBuffer, onYowlStart);
               }
             });
             return;
@@ -1891,20 +1921,20 @@ class CatAudio {
   }
 }
 
-export const TAIL_YOWL_DURATION_SEC = 1.0;
+export const TAIL_YOWL_DURATION_SEC = 0.96;
 
-// Measured 40ms-step vocal amplitude envelope of the "老吴~" tail-poke angry yowl (0.00s..0.96s):
-// Syllable 1 ("老": 0.00-0.22s wide open) -> crisp dip (0.24s) -> Syllable 2 ("吴~": 0.28-0.88s rounded swell).
+// Measured 40ms-step vocal amplitude envelope of the trimmed "老吴~" tail-poke angry yowl (0.00s..0.92s):
+// Syllable 1 ("老": 0.00-0.14s wide open) -> crisp articulation dip (0.16-0.24s) -> Syllable 2 ("吴~": 0.28-0.82s pursed swell).
 const TAIL_YOWL_OPEN_ENV: readonly number[] = [
-  0.38, 1.0, 0.86, 0.84, 0.56, 0.36, 0.26, 0.44, 0.62, 0.72,
-  0.84, 0.94, 0.88, 0.96, 1.0, 0.94, 0.76, 0.64, 0.60, 0.50,
-  0.42, 0.26, 0.05, 0.01, 0.0,
+  0.82, 1.0, 0.92, 0.78, 0.44, 0.48, 0.52, 0.62, 0.64, 0.74,
+  0.88, 0.84, 0.88, 0.94, 0.90, 0.78, 0.66, 0.58, 0.52, 0.44,
+  0.34, 0.10, 0.02, 0.0, 0.0,
 ];
-// Vowel horizontal width factor: wider open for "老" (a/ao), rounder/slightly narrower for "吴~" (u/wu).
+// Vowel horizontal width factor: wide expressive "ω" open for "老" (a/ao), pursing into a cute rounded "O" for "吴~" (u/wu).
 const TAIL_YOWL_WIDTH_ENV: readonly number[] = [
-  1.04, 1.12, 1.08, 1.04, 0.96, 0.88, 0.84, 0.84, 0.82, 0.80,
-  0.80, 0.82, 0.80, 0.82, 0.84, 0.82, 0.80, 0.78, 0.78, 0.78,
-  0.78, 0.80, 0.84, 0.90, 1.0,
+  1.10, 1.16, 1.12, 1.04, 0.86, 0.80, 0.76, 0.72, 0.68, 0.66,
+  0.64, 0.64, 0.63, 0.64, 0.64, 0.65, 0.66, 0.68, 0.70, 0.74,
+  0.78, 0.84, 0.92, 1.0, 1.0,
 ];
 
 export function sampleTailYowlMouth(elapsedSec: number): { open: number; width: number } {

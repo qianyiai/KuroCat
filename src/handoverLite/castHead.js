@@ -9,7 +9,7 @@ export async function prepareHead(id, loadArt, loadData) {
   const atlas = document.createElement('canvas');
   atlas.width = layout.width;
   atlas.height = layout.height;
-  const ctx = atlas.getContext('2d');
+  const ctx = atlas.getContext('2d', { willReadFrequently: true });
   // Three distinct silhouettes are stored in the lossless RGB channels of one
   // image. Select the breed's original opacity once before the animation starts.
   ctx.drawImage(coverage, 0, 0);

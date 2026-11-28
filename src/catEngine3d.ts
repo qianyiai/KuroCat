@@ -966,7 +966,7 @@ export class KuroCatEngine3D {
     polygonOffsetUnits: -3,
   });
   private readonly yawnGroup = new THREE.Group();
-  private yowlMouthMesh!: THREE.Mesh;
+  private readonly yowlGroup = new THREE.Group();
   private readonly lickTongueMesh!: THREE.Mesh;
   private readonly catShadow!: THREE.Mesh;
   private readonly hindPaws: Array<{ mesh: THREE.Mesh; baseX: number; baseY: number; baseZ: number }> = [];
@@ -1295,6 +1295,8 @@ export class KuroCatEngine3D {
   private tailGlanceUntil = -100;
   private tailGlanceAmt = 0;
   private tailPokeTimes: number[] = [];
+  private tailLastPokeCurve: THREE.CatmullRomCurve3 | null = null;
+  private tailLastPokeAt = -100;
   private tailYowlStartAt = -100;
   private tailYowlAmt = 0;
   private tailYowlWidth = 1;
@@ -1720,28 +1722,46 @@ export class KuroCatEngine3D {
       this.yawnGroup.visible = false;
       this.headMount.add(this.yawnGroup);
 
-      // 8b) Pure-red feline rounded-triangle/bell yowl mouth ("老吴~" angry shout — narrow apex under nose, wider cat muzzle cheeks, no tongue!)
+      // 8b) Expressive 3D Cat Yowl Mouth ("老吴~" angry meow — plush feline "ω" upper muzzle lip, tapered rounded lower jaw & nested pink tongue!)
       const yowlShape = new THREE.Shape();
-      yowlShape.moveTo(0, 0.004);
-      yowlShape.bezierCurveTo(0.026, -0.004, 0.062, -0.036, 0.076, -0.068);
-      yowlShape.bezierCurveTo(0.084, -0.088, 0.048, -0.104, 0, -0.099);
-      yowlShape.bezierCurveTo(-0.048, -0.104, -0.084, -0.088, -0.076, -0.068);
-      yowlShape.bezierCurveTo(-0.062, -0.036, -0.026, -0.004, 0, 0.004);
-      this.yowlMouthMesh = new THREE.Mesh(
+      yowlShape.moveTo(0, -0.009);
+      yowlShape.quadraticCurveTo(0.032, 0.004, 0.062, -0.014);
+      yowlShape.bezierCurveTo(0.072, -0.044, 0.048, -0.094, 0, -0.094);
+      yowlShape.bezierCurveTo(-0.048, -0.094, -0.072, -0.044, -0.062, -0.014);
+      yowlShape.quadraticCurveTo(-0.032, 0.004, 0, -0.009);
+      const yowlOuter = new THREE.Mesh(
         new THREE.ShapeGeometry(yowlShape, 18),
         new THREE.MeshBasicMaterial({
-          color: '#d93848',
+          color: '#632234',
           depthTest: true,
           polygonOffset: true,
           polygonOffsetFactor: -4,
           polygonOffsetUnits: -4,
         }),
       );
-      this.yowlMouthMesh.position.set(0, -0.084, yawnZ + 0.002);
-      this.yowlMouthMesh.rotation.x = 0.14;
-      this.yowlMouthMesh.renderOrder = 16;
-      this.yowlMouthMesh.visible = false;
-      this.headMount.add(this.yowlMouthMesh);
+      yowlOuter.renderOrder = 16;
+
+      const yowlTongueShape = new THREE.Shape();
+      yowlTongueShape.moveTo(-0.039, -0.056);
+      yowlTongueShape.quadraticCurveTo(0, -0.040, 0.039, -0.056);
+      yowlTongueShape.bezierCurveTo(0.035, -0.088, -0.035, -0.088, -0.039, -0.056);
+      const yowlTongue = new THREE.Mesh(
+        new THREE.ShapeGeometry(yowlTongueShape, 14),
+        new THREE.MeshBasicMaterial({
+          color: '#ff8fa8',
+          depthTest: true,
+          polygonOffset: true,
+          polygonOffsetFactor: -5,
+          polygonOffsetUnits: -5,
+        }),
+      );
+      yowlTongue.position.set(0, 0, 0.004);
+      yowlTongue.renderOrder = 17;
+      this.yowlGroup.add(yowlOuter, yowlTongue);
+      this.yowlGroup.position.set(0, yawnY, yawnZ + 0.001);
+      this.yowlGroup.rotation.x = 0.14;
+      this.yowlGroup.visible = false;
+      this.headMount.add(this.yowlGroup);
 
       this.lickTongueMesh = new THREE.Mesh(
         new THREE.CircleGeometry(0.040, 16),
@@ -2562,9 +2582,10 @@ export class KuroCatEngine3D {
     oldNoseGeo.dispose();
     this.noseMesh.position.set(0, NY, this.surfaceZ(0, NY) + 0.024);
 
-    const yawnZ = Math.max(this.surfaceZ(0, -0.092), this.surfaceZ(0, -0.152)) + 0.030;
-    this.yawnGroup.position.set(0, -0.092, yawnZ);
-    this.yowlMouthMesh.position.set(0, -0.084, yawnZ + 0.002);
+    const mouthAnchorY = -0.092 - contour.mouthOffsetY * 0.048;
+    const yawnZ = Math.max(this.surfaceZ(0, mouthAnchorY), this.surfaceZ(0, mouthAnchorY - 0.06)) + 0.030;
+    this.yawnGroup.position.set(0, mouthAnchorY, yawnZ);
+    this.yowlGroup.position.set(0, mouthAnchorY, yawnZ + 0.001);
     this.lickTongueMesh.position.set(0, -0.112, this.surfaceZ(0, -0.112) + 0.032);
     this.updateMouthTube(contour.mouthShape, contour.mouthScale, NY, contour.mouthOffsetY);
 
@@ -3079,6 +3100,7 @@ export class KuroCatEngine3D {
     this.deformCatBody();
     this.placeHeadAndCollar();
     this.yawnGroup.visible = false;
+    this.yowlGroup.visible = false;
     this.mouthTube.mesh.visible = this.mouthEnabled;
 
     const floppy = this.currentContour.earShape === 'floppy';
@@ -3177,8 +3199,10 @@ export class KuroCatEngine3D {
         pixelsPerWorldUnit,
         stage
           ? async (film) => {
-              await stage.begin();
-              return this.film?.player === film && !this.disposed;
+              const expanded = await stage.begin();
+              if (this.film?.player !== film || this.disposed) return false;
+              const g = stage.geometry;
+              return expanded && g !== null && g.width > g.baseWidth + 80 ? true : 'narrow';
             }
           : undefined,
         () => ({ collar: this.collarId, headphones: this.headsetOn }),
@@ -3307,7 +3331,11 @@ export class KuroCatEngine3D {
   public onTrackpad(points: readonly PadPoint[]): void {
     if (!this.desk.pad.enabled) return;
     this.desk.setContacts(points);
-    if (points.length) this.lastMouse = this.elapsed;
+    if (points.length) {
+      this.wake('abrupt');
+      this.lastMouse = this.elapsed;
+      this.paws.L.lastActive = this.elapsed;
+    }
     this.wakeRendering();
   }
 
@@ -3828,6 +3856,10 @@ export class KuroCatEngine3D {
     this.idleAct = null;
     this.curiousUntil = -100;
     this.tailPokeTimes = this.tailPokeTimes.filter((s) => this.elapsed - s < 6.0);
+    if (this.tailPokeTimes.length === 0 || this.tailRecoil < 0.25) {
+      this.tailLastPokeCurve = new THREE.CatmullRomCurve3(this.tailCurve.points.map((p) => p.clone()));
+    }
+    this.tailLastPokeAt = this.elapsed;
     this.tailPokeTimes.push(this.elapsed);
     this.sTailRecoil.kick(5.0);
     this.tailGlanceUntil = this.elapsed + 1.55;
@@ -3845,7 +3877,10 @@ export class KuroCatEngine3D {
       this.tailPokeTimes = [];
       this.tailYowlStartAt = this.elapsed;
       this.sPitch.kick(-0.65);
-      catAudio.playTailFlick(true);
+      catAudio.playTailFlick(true, () => {
+        this.tailYowlStartAt = this.elapsed;
+        this.wakeRendering();
+      });
       this.triggerCrossDemo();
     } else {
       catAudio.playTailFlick(false);
@@ -3918,6 +3953,9 @@ export class KuroCatEngine3D {
 
     if (
       this.hitTestTailCurveInClientSpace(this.tailCurve, clientX, clientY, rect, 36, 42) ||
+      (this.tailLastPokeCurve &&
+        this.elapsed - this.tailLastPokeAt < 3.0 &&
+        this.hitTestTailCurveInClientSpace(this.tailLastPokeCurve, clientX, clientY, rect, 42, 46)) ||
       (this.peekAmt < 0.50 && this.raycaster.intersectObjects(this.tailHitMeshes, false).length > 0)
     ) {
       return 'tail';
@@ -4236,11 +4274,11 @@ export class KuroCatEngine3D {
     if (btn === 'right') this.rightMouseDown = false;
   }
 
-  public onMouseWheel(): void {
+  public onMouseWheel(delta = 0): void {
     this.wake('abrupt');
     this.lastMouse = this.elapsed;
     this.paws.L.lastActive = this.elapsed;
-    this.desk.pulseScrollWheel();
+    this.desk.pulseScrollWheel(delta);
   }
 
   public onPointerMove(
@@ -4910,7 +4948,10 @@ export class KuroCatEngine3D {
     return (
       !this.privacyMode &&
       !this.asleep &&
-      (this.leftMouseDown || this.rightMouseDown || this.elapsed - this.lastMouse < 1.35)
+      (this.leftMouseDown ||
+        this.rightMouseDown ||
+        (this.desk.pad.enabled && this.desk.pad.points.length > 0) ||
+        this.elapsed - this.lastMouse < 1.35)
     );
   }
 
@@ -5068,7 +5109,7 @@ export class KuroCatEngine3D {
     if (this.film) {
       const film = this.film;
       const previousFilmTime = film.player.currentTime;
-      const state = film.player.poll();
+      const state = film.player.poll(this.gameActive || this.fpsCap === 30 ? 30 : 50);
       const filmTime = film.player.currentTime;
       if (this.handoverInterrupted()) {
         this.cancelHandover();
@@ -5207,6 +5248,7 @@ export class KuroCatEngine3D {
       chinActive ||
       this.treatActive ||
       this.petting ||
+      (this.desk.pad.enabled && this.desk.pad.points.length > 0) ||
       (this.idleAct !== null && ['doze', 'yawn', 'stretch', 'groom', 'knead'].includes(this.idleAct.kind));
     if (!this.asleep && !this.privacyMode && !blockingSleep && idleSec > sleepAfterSec) {
       this.asleep = true;
@@ -5693,7 +5735,7 @@ export class KuroCatEngine3D {
     this.deformCatBody();
     this.placeHeadAndCollar();
 
-    // Sync 3D yawn & angry "老吴~" pure-red feline bell-triangle yowl mouth (drops cleanly from apex below nose!).
+    // Sync 3D yawn & angry "老吴~" feline "ω"-lipped yowl mouth (wide open on "老", pursing into rounded "O" on "吴~").
     // Note: tailYowlAmt NEVER closes the eyes so angry V-eyes stay fierce & wide open.
     const mouthOpen = Math.max(this.yawnAmt, this.tailYowlAmt);
     if (mouthOpen > 0.04) {
@@ -5701,21 +5743,21 @@ export class KuroCatEngine3D {
       const isYowl = this.tailYowlAmt > this.yawnAmt;
       if (isYowl) {
         this.yawnGroup.visible = false;
-        this.yowlMouthMesh.visible = true;
-        const sx = (0.44 + 0.62 * y) * this.tailYowlWidth;
-        const sy = 0.16 + 0.92 * y;
-        this.yowlMouthMesh.scale.set(sx, sy, 1);
+        this.yowlGroup.visible = true;
+        const sx = (0.48 + 0.54 * y) * this.tailYowlWidth;
+        const sy = 0.16 + 0.86 * y;
+        this.yowlGroup.scale.set(sx, sy, 1);
       } else {
-        this.yowlMouthMesh.visible = false;
+        this.yowlGroup.visible = false;
         this.yawnGroup.visible = true;
         this.yawnGroup.scale.set(0.45 + 0.55 * y, 0.14 + 0.86 * y, 1);
       }
-      const showRestMouth = this.mouthEnabled && mouthOpen < 0.18;
+      const showRestMouth = this.mouthEnabled && mouthOpen < 0.09;
       this.mouthTube.mesh.visible = showRestMouth;
       this.blepMesh.visible = showRestMouth && this.currentContour.mouthShape === 'blep';
     } else {
       this.yawnGroup.visible = false;
-      this.yowlMouthMesh.visible = false;
+      this.yowlGroup.visible = false;
       this.mouthTube.mesh.visible = this.mouthEnabled;
       this.blepMesh.visible = this.mouthEnabled && this.currentContour.mouthShape === 'blep';
     }
