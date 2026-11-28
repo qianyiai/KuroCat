@@ -1,7 +1,7 @@
 use serde::Serialize;
 #[cfg(windows)]
-use std::sync::atomic::{AtomicI32, AtomicU32};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::AtomicI32;
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::OnceLock;
 use std::time::{Duration, Instant};

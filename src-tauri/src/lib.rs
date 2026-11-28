@@ -3914,7 +3914,7 @@ fn win_is_true_fullscreen_app(
             return false;
         }
 
-        let style = GetWindowLongPtrW(fg_hwnd, GWL_STYLE);
+        let style = GetWindowLongPtrW(fg_hwnd, GWL_STYLE) as isize;
         let has_caption = (style & (WS_CAPTION as isize)) == (WS_CAPTION as isize);
         let is_maximized_with_caption = IsZoomed(fg_hwnd) != 0 && has_caption;
 
