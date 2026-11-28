@@ -189,6 +189,8 @@ irm https://kurocat.org/install.ps1 | iex
 
 ## 🤖 AI 伴侣与 MCP 捏猫
 
+[![KuroCat MCP server on Glama](https://glama.ai/mcp/servers/qianyiai/KuroCat/badges/score.svg)](https://glama.ai/mcp/servers/qianyiai/KuroCat)
+
 KuroCat 单文件原生内置 **Stdio** 与 **本机 Streamable HTTP（`127.0.0.1:27420`）** 双模式 MCP Server，无需安装 Node.js 或 Python：
 
 1. 运行 KuroCat，右键小猫 → 开启 **「开启 MCP 扩展」** → 点击 **「复制 MCP 配置」**（或点 **「发给 AI 自动配置」**）。

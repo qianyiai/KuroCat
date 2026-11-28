@@ -179,6 +179,8 @@ brew install --cask qianyiai/tap/kurocat
 
 ## 🤖 AI 相棒 &amp; MCP カスタマイズ
 
+[![KuroCat MCP server on Glama](https://glama.ai/mcp/servers/qianyiai/KuroCat/badges/score.svg)](https://glama.ai/mcp/servers/qianyiai/KuroCat)
+
 単体バイナリに **Stdio** とローカル **Streamable HTTP（`127.0.0.1:27420`）** の MCP サーバーを内蔵（Node.js / Python 不要）：
 
 1. KuroCat を起動し、右クリック → **MCP 拡張を有効化** → **MCP 設定をコピー**。

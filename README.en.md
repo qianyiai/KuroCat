@@ -189,6 +189,8 @@ irm https://kurocat.org/install.ps1 | iex
 
 ## 🤖 AI Companion &amp; MCP Cat Studio
 
+[![KuroCat MCP server on Glama](https://glama.ai/mcp/servers/qianyiai/KuroCat/badges/score.svg)](https://glama.ai/mcp/servers/qianyiai/KuroCat)
+
 KuroCat ships a zero-dependency **Stdio** and local **Streamable HTTP (`127.0.0.1:27420`)** MCP Server inside the single binary:
 
 1. Launch KuroCat, right-click the pet → enable **MCP Extension** → click **Copy MCP Config** (or **Send to AI Auto-Setup**).

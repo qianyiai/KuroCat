@@ -179,6 +179,8 @@ brew install --cask qianyiai/tap/kurocat
 
 ## 🤖 AI 동반자 &amp; MCP 커스텀 스튜디오
 
+[![KuroCat MCP server on Glama](https://glama.ai/mcp/servers/qianyiai/KuroCat/badges/score.svg)](https://glama.ai/mcp/servers/qianyiai/KuroCat)
+
 단일 실행 파일에 **Stdio** 및 로컬 **Streamable HTTP (`127.0.0.1:27420`)** MCP 서버가 기본 내장되어 있습니다 (Node.js / Python 불필요):
 
 1. KuroCat 실행 후 우클릭 → **MCP 확장 켜기** → **MCP 설정 복사**.
