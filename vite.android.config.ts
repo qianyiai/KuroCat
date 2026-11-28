@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 
 export default defineConfig({
   base: './',
+  assetsInclude: ['**/*.glb'],
   build: {
     target: ['chrome80'],
     outDir: resolve(__dirname, 'android/app/src/main/assets/web'),

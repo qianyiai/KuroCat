@@ -3,19 +3,29 @@
 mod cats;
 mod config;
 mod game_detect;
+mod gamepad;
+mod handover_stage;
 mod i18n;
 mod input_hook;
+mod linux_webview;
+#[cfg(any(target_os = "macos", test))]
+mod mac_keycodes;
 #[cfg(target_os = "macos")]
 mod macos_window;
 mod mcp;
 mod obs;
 mod privacy;
 mod tray;
+#[cfg(target_os = "macos")]
+mod trackpad;
 mod updater;
+mod win_autostart;
 #[cfg(windows)]
 mod win7_layered;
 #[cfg(windows)]
 mod windows_display;
+
+pub use win_autostart::{parse_admin_autostart_cli_action, run_admin_autostart_cli};
 
 #[cfg(windows)]
 const WIN7_OFFSCREEN_PARK_POS: i32 = -16000;
@@ -34,6 +44,8 @@ use tauri::{AppHandle, Emitter, Listener, LogicalSize, Manager, PhysicalPosition
 
 pub const BASE_WIDTH: f64 = 420.0;
 pub const BASE_HEIGHT: f64 = 440.0;
+pub const BASE_WIDTH_98: f64 = 480.0;
+pub const BASE_HEIGHT_98: f64 = 450.0;
 pub const BASE_WIDTH_108: f64 = 540.0;
 pub const BASE_HEIGHT_108: f64 = 456.0;
 pub const MIN_WINDOW_WIDTH: f64 = 100.0;
@@ -44,10 +56,10 @@ pub const WIN7_MIN_WINDOW_WIDTH: f64 = 260.0;
 pub const WIN7_MIN_WINDOW_HEIGHT: f64 = 410.0;
 
 pub fn base_dimensions(layout: &str) -> (f64, f64) {
-    if layout == "108" {
-        (BASE_WIDTH_108, BASE_HEIGHT_108)
-    } else {
-        (BASE_WIDTH, BASE_HEIGHT)
+    match layout {
+        "108" => (BASE_WIDTH_108, BASE_HEIGHT_108),
+        "98" => (BASE_WIDTH_98, BASE_HEIGHT_98),
+        _ => (BASE_WIDTH, BASE_HEIGHT),
     }
 }
 
@@ -273,6 +285,7 @@ fn resize_window_anchored_bottom_right(
     layout: &str,
     scale: f64,
 ) -> Option<(i32, i32)> {
+    handover_stage::cancel(win.app_handle());
     let (new_w, new_h) = window_dimensions(layout, scale);
     let active_peek_edge = win
         .state::<AppState>()
@@ -443,17 +456,31 @@ pub fn set_pet_visible(app: &AppHandle, visible: bool) {
     }
 }
 
-pub fn set_pet_always_on_top(app: &AppHandle, on_top: bool) {
+pub fn set_pet_always_on_top_with_yield(
+    app: &AppHandle,
+    on_top: bool,
+    #[allow(unused_variables)] yield_on_fullscreen: bool,
+) {
     #[cfg(windows)]
     if win_needs_win7_ulw() {
         win7_layered::set_always_on_top(on_top);
     }
     if let Some(win) = app.get_webview_window("main") {
         #[cfg(target_os = "macos")]
-        macos_window::configure_fullscreen(&win, on_top);
+        macos_window::configure_fullscreen(&win, on_top, yield_on_fullscreen);
         #[cfg(not(target_os = "macos"))]
         let _ = win.set_always_on_top(on_top);
     }
+}
+
+pub fn set_pet_always_on_top(app: &AppHandle, on_top: bool) {
+    let yield_fs = app
+        .state::<AppState>()
+        .settings
+        .lock()
+        .map(|s| s.yield_on_fullscreen)
+        .unwrap_or(false);
+    set_pet_always_on_top_with_yield(app, on_top, yield_fs);
 }
 
 static APP_SHUTTING_DOWN: AtomicBool = AtomicBool::new(false);
@@ -554,7 +581,11 @@ pub fn sync_live_capture_window(app: &AppHandle, enabled: bool, layout: &str) {
         .additional_browser_args(WEBVIEW_BROWSER_ARGS)
         .build()
         {
-            Ok(w) => w,
+            Ok(w) => {
+                #[cfg(windows)]
+                win_apply_webview_low_memory(&w);
+                w
+            }
             Err(err) => {
                 eprintln!(
                     "[kurocat] sync_live_capture_window: failed to build live window: {err}"
@@ -649,6 +680,7 @@ pub struct AppState {
     pub dragging: Arc<AtomicBool>,
     pub mcp_enabled: Arc<AtomicBool>,
     pub update_banner_open: Arc<AtomicBool>,
+    pub treat_active: Arc<AtomicBool>,
     pub paused_guard: Arc<AtomicBool>,
     pub peek_edge: Arc<Mutex<String>>,
     pub peek_preview_edge: Arc<Mutex<String>>,
@@ -657,9 +689,29 @@ pub struct AppState {
 /// Shared Chromium / WebView2 lean runtime flags.
 /// IMPORTANT: Must match `src-tauri/tauri.conf.json`'s `additionalBrowserArgs` byte-for-byte;
 /// otherwise Windows WebView2 rejects creating the 2nd ("menu") window with HRESULT 0x8007139F.
-const WEBVIEW_BROWSER_ARGS: &str = "--autoplay-policy=no-user-gesture-required --disable-background-networking --disable-sync --disable-extensions --disable-features=Translate,BackForwardCache,MediaRouter,OptimizationHints --js-flags=--max-old-space-size=96";
+const WEBVIEW_BROWSER_ARGS: &str = "--autoplay-policy=no-user-gesture-required --disable-background-networking --disable-sync --disable-extensions --disable-gpu-shader-disk-cache --disable-features=Translate,BackForwardCache,MediaRouter,OptimizationHints --js-flags=--max-old-space-size=48";
 
-const SIDE_MENU_IDLE_DESTROY_SECS: u64 = 25;
+const SIDE_MENU_IDLE_DESTROY_SECS: u64 = 15;
+
+/// Opts a Windows WebView2 instance into Microsoft's official Low-Memory target level
+/// (`ICoreWebView2_19::SetMemoryUsageTargetLevel(LOW)`), instructing Chromium/V8/Blink/Skia
+/// to aggressively shed idle caches. Gracefully no-ops on older Win7 WebView2 109 runtimes.
+#[cfg(windows)]
+fn win_apply_webview_low_memory(win: &tauri::WebviewWindow) {
+    let _ = win.with_webview(|wv| {
+        use webview2_com::Microsoft::Web::WebView2::Win32::{
+            ICoreWebView2_19, COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW,
+        };
+        use windows_core::Interface;
+        unsafe {
+            if let Ok(core) = wv.controller().CoreWebView2() {
+                if let Ok(wv19) = core.cast::<ICoreWebView2_19>() {
+                    let _ = wv19.SetMemoryUsageTargetLevel(COREWEBVIEW2_MEMORY_USAGE_TARGET_LEVEL_LOW);
+                }
+            }
+        }
+    });
+}
 
 fn schedule_side_menu_idle_destroy(app: AppHandle) {
     let gen = app
@@ -680,6 +732,11 @@ fn schedule_side_menu_idle_destroy(app: AppHandle) {
             // Fully destroy the hidden 2nd WebView2 renderer process after idle grace period
             // to reclaim ~35-55 MB RAM while keeping rapid reopen instant inside the window.
             let _ = menu_win.destroy();
+            #[cfg(windows)]
+            {
+                std::thread::sleep(Duration::from_millis(250));
+                win_trim_process_tree_working_set(true);
+            }
         }
     });
 }
@@ -690,34 +747,81 @@ fn get_resolved_locale(state: State<'_, AppState>) -> String {
     i18n::effective_locale(&lang).to_string()
 }
 
+#[cfg(windows)]
+fn win_trim_process_tree_working_set(force: bool) {
+    static LAST_TRIM_MS: AtomicU64 = AtomicU64::new(0);
+    let now_ms = SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let prev = LAST_TRIM_MS.load(Ordering::Relaxed);
+    if !force && now_ms.saturating_sub(prev) < 30_000 {
+        return;
+    }
+    LAST_TRIM_MS.store(now_ms, Ordering::Relaxed);
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetCurrentProcess() -> isize;
+        fn SetProcessWorkingSetSize(
+            h_process: isize,
+            dw_minimum_working_set_size: usize,
+            dw_maximum_working_set_size: usize,
+        ) -> i32;
+    }
+    use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
+    use windows_sys::Win32::System::JobObjects::{
+        JobObjectBasicProcessIdList, QueryInformationJobObject, JOBOBJECT_BASIC_PROCESS_ID_LIST,
+    };
+    use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA};
+
+    unsafe {
+        let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
+
+        // Also trim every WebView2 child process (browser / GPU / renderer / utility) assigned to
+        // our Job Object so Chromium sheds cold V8, Blink, and Skia working-set pages too.
+        let raw_job = WINDOWS_JOB_HANDLE.load(Ordering::Relaxed);
+        if raw_job == 0 {
+            return;
+        }
+        let job = raw_job as HANDLE;
+        const MAX_PIDS: usize = 64;
+        let header_size = std::mem::size_of::<JOBOBJECT_BASIC_PROCESS_ID_LIST>();
+        let buf_len = header_size + MAX_PIDS * std::mem::size_of::<usize>();
+        let mut buf = vec![0u8; buf_len];
+        let mut returned = 0u32;
+        let ok = QueryInformationJobObject(
+            job,
+            JobObjectBasicProcessIdList,
+            buf.as_mut_ptr() as *mut core::ffi::c_void,
+            buf_len as u32,
+            &mut returned,
+        );
+        if ok == 0 {
+            return;
+        }
+        let list = &*(buf.as_ptr() as *const JOBOBJECT_BASIC_PROCESS_ID_LIST);
+        let count = (list.NumberOfProcessIdsInList as usize).min(MAX_PIDS);
+        let pids_ptr = std::ptr::addr_of!(list.ProcessIdList) as *const usize;
+        let self_pid = std::process::id();
+        for i in 0..count {
+            let pid = *pids_ptr.add(i) as u32;
+            if pid == 0 || pid == self_pid {
+                continue;
+            }
+            let h = OpenProcess(PROCESS_SET_QUOTA, 0, pid);
+            if !h.is_null() {
+                let _ = SetProcessWorkingSetSize(h as isize, usize::MAX, usize::MAX);
+                let _ = CloseHandle(h);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 fn trim_idle_memory() {
     #[cfg(windows)]
-    {
-        static LAST_TRIM_MS: AtomicU64 = AtomicU64::new(0);
-        let now_ms = SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
-        let prev = LAST_TRIM_MS.load(Ordering::Relaxed);
-        if now_ms.saturating_sub(prev) < 45_000 {
-            return;
-        }
-        LAST_TRIM_MS.store(now_ms, Ordering::Relaxed);
-
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn GetCurrentProcess() -> isize;
-            fn SetProcessWorkingSetSize(
-                h_process: isize,
-                dw_minimum_working_set_size: usize,
-                dw_maximum_working_set_size: usize,
-            ) -> i32;
-        }
-        unsafe {
-            let _ = SetProcessWorkingSetSize(GetCurrentProcess(), usize::MAX, usize::MAX);
-        }
-    }
+    win_trim_process_tree_working_set(false);
 }
 
 #[derive(Clone, Serialize)]
@@ -739,6 +843,18 @@ struct TailPickerBounds {
 }
 
 #[tauri::command]
+fn trackpad_unavailable() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        trackpad::UNAVAILABLE.load(Ordering::Relaxed)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+#[tauri::command]
 fn get_settings(state: State<'_, AppState>) -> AppSettings {
     state.settings.lock().unwrap().clone()
 }
@@ -751,6 +867,16 @@ fn get_cats() -> Vec<CatSkinConfig> {
 #[tauri::command]
 fn get_game_active() -> bool {
     game_detect::is_game_active()
+}
+
+#[tauri::command]
+fn get_tablet_active() -> bool {
+    game_detect::is_tablet_active()
+}
+
+#[tauri::command]
+fn get_gamepad_active() -> bool {
+    gamepad::is_gamepad_active()
 }
 
 #[tauri::command]
@@ -783,10 +909,22 @@ fn get_agent_hooks_config(state: State<'_, AppState>) -> String {
     let exe_json = serde_json::to_string(&exe).unwrap_or_else(|_| "\"KuroCat.exe\"".to_string());
     let agy_cmd = format!("\"{}\" --hook --source Antigravity", exe);
     let claude_cmd = format!("\"{}\" --hook --source Claude", exe);
+    let cursor_cmd = format!("\"{}\" --hook --source Cursor", exe);
+    let windsurf_cmd = format!("\"{}\" --hook --source Windsurf", exe);
     let wb_cmd = format!("\"{}\" --hook --source WorkBuddy", exe);
     let codex_cmd = format!("\"{}\" --hook --source Codex", exe);
     let dsh_cmd = format!("\"{}\" --hook --source DeepSeek", exe);
     let qwen_cmd = format!("\"{}\" --hook --source Qwen", exe);
+    let gemini_cmd = format!("\"{}\" --hook --source Gemini", exe);
+    let copilot_cmd = format!("\"{}\" --hook --source Copilot", exe);
+    let dsh_plugin_dir = mcp::ensure_dsh_bridge_plugin(port)
+        .unwrap_or_else(|| config::app_data_dir().join("dsh-plugin"));
+    let dsh_plugin_dir_slash = dsh_plugin_dir.to_string_lossy().replace('\\', "/");
+    let dsh_tgz_path = dsh_plugin_dir.join("dsh-kurocat.tgz").to_string_lossy().to_string();
+    let opencode_plugin_path = mcp::ensure_opencode_bridge_plugin(port)
+        .unwrap_or_else(|| config::app_data_dir().join("opencode-plugin").join("kurocat.js"))
+        .to_string_lossy()
+        .to_string();
 
     let config_json = serde_json::to_string_pretty(&serde_json::json!({
         "mcpServers": {
@@ -798,7 +936,7 @@ fn get_agent_hooks_config(state: State<'_, AppState>) -> String {
         "http_streamable_mcp_url": format!("http://127.0.0.1:{}/mcp", port),
         "http_hook_url": format!("http://127.0.0.1:{}/hook", port),
         "doubao_work_setup": {
-            "mode": "direct_http_and_memory (no local hooks.json needed)",
+            "mode": "direct_http_and_memory (for desktop agents without local hooks config, e.g. 豆包工作版 / Trae without hooks)",
             "hook_endpoint": format!("http://127.0.0.1:{}/hook", port),
             "mcp_endpoint": format!("http://127.0.0.1:{}/mcp", port),
             "optional_native_mcp_connector": {
@@ -813,61 +951,138 @@ fn get_agent_hooks_config(state: State<'_, AppState>) -> String {
                 port
             )
         },
-        "workbuddy_hooks": {
-            "hooks": {
-                "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
-                "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
-                "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
-                "PermissionRequest": [{ "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
-                "Stop": [{ "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }]
-            }
+        "deepseek_harness_plugin": {
+            "mode": "native_cordis_plugin (tracks every DSH session/event in real time like dsh-pet / dsh-dafeiyu: thinking, tools, todo progress, approvals, done — zero token cost)",
+            "desktop_ui_tgz_path": dsh_tgz_path,
+            "plugin_dir": dsh_plugin_dir_slash,
+            "install_desktop_command": format!("dsh plugin --profile desktop add \"{}\"", dsh_tgz_path),
+            "install_web_command": format!("dsh plugin --profile web add \"link:{}\"", dsh_plugin_dir_slash),
+            "install_cli_command": format!("dsh plugin add \"link:{}\"", dsh_plugin_dir_slash),
+            "cordis_patch_snippet": "- insert:\n    - id: dsh-kurocat\n      name: 'dsh-kurocat'\n",
+            "restart_note": "官方桌面端可直接在左侧「插件 → 添加插件」粘贴 desktop_ui_tgz_path 安装并启用；WebUI/CLI 运行对应命令后重启 dsh，即可全程实时跟进每个任务进度。"
         },
-        "deepseek_harness_hooks": {
+        "deepseek_harness_hooks_claude_bridge": {
+            "note": "Optional fallback only if @deepseek-ai/dsh-hooks-claude-code is mounted; prefer deepseek_harness_plugin above.",
             "hooks": {
                 "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
-                "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
-                "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
-                "PermissionRequest": [{ "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
-                "Stop": [{ "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }]
+                "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
+                "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
+                "PostToolUseFailure": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
+                "Stop": [{ "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }],
+                "SessionEnd": [{ "hooks": [{ "type": "command", "command": dsh_cmd, "timeout": 3 }] }]
+            }
+        },
+        "claude_code_hooks": {
+            "target_file": "~/.claude/settings.json",
+            "hooks": {
+                "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
+                "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
+                "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
+                "PostToolUseFailure": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
+                "PermissionRequest": [{ "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
+                "Stop": [{ "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
+                "SessionEnd": [{ "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }]
+            }
+        },
+        "cursor_hooks_json": {
+            "target_file": "~/.cursor/hooks.json",
+            "version": 1,
+            "hooks": {
+                "beforeSubmitPrompt": [{ "command": cursor_cmd }],
+                "preToolUse": [{ "command": cursor_cmd, "matcher": ".*" }],
+                "postToolUse": [{ "command": cursor_cmd, "matcher": ".*" }],
+                "postToolUseFailure": [{ "command": cursor_cmd, "matcher": ".*" }],
+                "stop": [{ "command": cursor_cmd }]
+            }
+        },
+        "windsurf_hooks_json": {
+            "target_file": "~/.codeium/windsurf/hooks.json",
+            "hooks": {
+                "pre_user_prompt": [{ "command": windsurf_cmd }],
+                "pre_write_code": [{ "command": windsurf_cmd }],
+                "pre_run_command": [{ "command": windsurf_cmd }],
+                "pre_read_code": [{ "command": windsurf_cmd }],
+                "pre_mcp_tool_use": [{ "command": windsurf_cmd }],
+                "post_cascade_response": [{ "command": windsurf_cmd }]
             }
         },
         "codex_hooks_json": {
+            "target_file": "~/.codex/hooks.json",
             "hooks": {
                 "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
-                "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
-                "PermissionRequest": [{ "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
-                "Stop": [{ "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }]
+                "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
+                "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
+                "PostToolUseFailure": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
+                "Interrupt": [{ "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
+                "Stop": [{ "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }],
+                "SessionEnd": [{ "hooks": [{ "type": "command", "command": codex_cmd, "timeout": 3 }] }]
             }
         },
         "codex_config_toml": format!(
-            "notify = [{}, \"--hook\", \"--source\", \"Codex\"]\n\n[mcp_servers.kurocat]\ncommand = {}\nargs = [\"--mcp\"]",
+            "notify = [{}, \"--hook\", \"--source\", \"Codex\"]\n\n[features]\ncodex_hooks = true\n\n[mcp_servers.kurocat]\ncommand = {}\nargs = [\"--mcp\"]",
             exe_json, exe_json
         ),
+        "workbuddy_hooks": {
+            "target_file": "~/.codebuddy/settings.json",
+            "hooks": {
+                "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
+                "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
+                "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
+                "PostToolUseFailure": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
+                "PermissionRequest": [{ "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
+                "Stop": [{ "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }],
+                "SessionEnd": [{ "hooks": [{ "type": "command", "command": wb_cmd, "timeout": 3 }] }]
+            }
+        },
         "qwen_code_hooks": {
+            "target_file": "~/.qwen/settings.json",
             "hooks": {
                 "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
-                "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
-                "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
+                "PreToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
+                "PostToolUse": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
+                "PostToolUseFailure": [{ "matcher": ".*", "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
                 "PermissionRequest": [{ "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
-                "Stop": [{ "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }]
+                "Stop": [{ "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }],
+                "SessionEnd": [{ "hooks": [{ "type": "command", "command": qwen_cmd, "timeout": 3 }] }]
             }
         },
         "antigravity_hooks_json": {
+            "target_file": "~/.gemini/config/hooks.json",
             "kurocat-companion": {
                 "SessionStart": [{ "type": "command", "command": agy_cmd, "timeout": 3 }],
                 "PreInvocation": [{ "type": "command", "command": agy_cmd, "timeout": 3 }],
+                "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": agy_cmd, "timeout": 3 }] }],
                 "PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": agy_cmd, "timeout": 3 }] }],
                 "Stop": [{ "type": "command", "command": agy_cmd, "timeout": 3 }]
             }
         },
-        "claude_code_hooks": {
+        "gemini_cli_hooks": {
+            "target_file": "~/.gemini/settings.json",
             "hooks": {
-                "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
-                "PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
-                "PostToolUseFailure": [{ "matcher": "*", "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
-                "PermissionRequest": [{ "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }],
-                "Stop": [{ "hooks": [{ "type": "command", "command": claude_cmd, "timeout": 3 }] }]
+                "BeforeAgent": [{ "matcher": ".*", "hooks": [{ "name": "kurocat", "type": "command", "command": gemini_cmd, "timeout": 3000 }] }],
+                "BeforeTool": [{ "matcher": ".*", "hooks": [{ "name": "kurocat", "type": "command", "command": gemini_cmd, "timeout": 3000 }] }],
+                "AfterTool": [{ "matcher": ".*", "hooks": [{ "name": "kurocat", "type": "command", "command": gemini_cmd, "timeout": 3000 }] }],
+                "AfterAgent": [{ "matcher": ".*", "hooks": [{ "name": "kurocat", "type": "command", "command": gemini_cmd, "timeout": 3000 }] }],
+                "Notification": [{ "matcher": ".*", "hooks": [{ "name": "kurocat", "type": "command", "command": gemini_cmd, "timeout": 3000 }] }],
+                "SessionEnd": [{ "matcher": ".*", "hooks": [{ "name": "kurocat", "type": "command", "command": gemini_cmd, "timeout": 3000 }] }]
             }
+        },
+        "copilot_hooks_json": {
+            "target_file": "~/.copilot/hooks/kurocat.json (or project .github/hooks/kurocat.json)",
+            "version": 1,
+            "hooks": {
+                "UserPromptSubmit": [{ "type": "command", "command": copilot_cmd, "timeout": 3 }],
+                "PreToolUse": [{ "type": "command", "command": copilot_cmd, "timeout": 3 }],
+                "PostToolUse": [{ "type": "command", "command": copilot_cmd, "timeout": 3 }],
+                "ErrorOccurred": [{ "type": "command", "command": copilot_cmd, "timeout": 3 }],
+                "Stop": [{ "type": "command", "command": copilot_cmd, "timeout": 3 }]
+            }
+        },
+        "opencode_plugin": {
+            "mode": "native_opencode_plugin (tracks tool.execute.before/after, session.status, session.idle, session.error, permission.asked — zero token cost)",
+            "source_file": opencode_plugin_path,
+            "target_file": "~/.config/opencode/plugins/kurocat.js",
+            "install_note": "将 source_file 复制到 ~/.config/opencode/plugins/kurocat.js（无需修改 opencode.json），重启 OpenCode 即可自动加载并全程实时同步状态。"
         }
     }))
     .unwrap_or_default();
@@ -875,45 +1090,59 @@ fn get_agent_hooks_config(state: State<'_, AppState>) -> String {
     let resolved = crate::i18n::effective_locale(&lang);
     if resolved == "zh-CN" || resolved == "zh-TW" {
         format!(
-            "请帮我把桌面宠物 KuroCat 的**任务状态联动**接入你当前运行的客户端（请自动判断你是 豆包工作版 / WorkBuddy / DeepSeek Harness / Codex / 千问 / Antigravity / Claude Code / Cursor 等，目标是干活时桌宠自动敲键盘，待确认/出错/任务完成时气泡提醒）：\n\
-            1. **情况 A — 无本地 hooks 配置文件的桌面端 Agent（如豆包工作版）**：\n\
+            "请帮我把桌面宠物 KuroCat 的**任务状态联动**接入你当前运行的客户端（请自动判断你是 DeepSeek Harness (`dsh`) / OpenCode / Cursor / Windsurf / Claude Code / Codex / Antigravity / Gemini CLI / VS Code Copilot / WorkBuddy / 千问 / 豆包工作版 / Trae 等，目标是干活时桌宠自动敲键盘，思考/待确认/出错/任务完成时实时气泡提醒）：\n\
+            1. **情况 A — 无本地 hooks 配置文件的客户端（如豆包工作版、未开放 hooks 的桌面 Agent）**：\n\
                - **不要修改别的客户端配置，也不要在项目/桌面目录创建临时 `.ps1` 或 `.json` 脚本文件**；\n\
-               - 请直接把下方 `doubao_work_setup.memory_rule` **保存为你的跨会话长期偏好/记忆**，统一通过 UTF-8 JSON 调用本地 `POST http://127.0.0.1:{}/hook` 同步 `working / waiting / error / done`（避免 Windows 命令行中文乱码）。\n\
-            2. **情况 B — 支持本地配置文件的 Agent（合并写入，完整保留我原有的其他配置，绝不覆盖删除已有项）**：\n\
-               - 腾讯 WorkBuddy / CodeBuddy：合并 `mcpServers.kurocat` + `workbuddy_hooks`\n\
-               - DeepSeek Harness (`dsh`)：合并 `mcpServers.kurocat` + `deepseek_harness_hooks`\n\
-               - OpenAI Codex CLI：`~/.codex/config.toml`（`[mcp_servers.kurocat]` 与 `notify`）+ `~/.codex/hooks.json`\n\
-               - 千问 Qwen Code：`~/.qwen/settings.json` 合并 `mcpServers.kurocat` + `qwen_code_hooks`\n\
-               - Antigravity（反重力）：`~/.gemini/config/mcp_config.json` + `~/.gemini/config/hooks.json`\n\
-               - Claude Code / Cursor / Windsurf / Trae：合并 `mcpServers.kurocat` + `claude_code_hooks`（也支持 Streamable HTTP `http://127.0.0.1:{}/mcp`）\n\
+               - 请直接把下方 `doubao_work_setup.memory_rule` **保存为你的跨会话长期偏好/记忆**，统一通过 UTF-8 JSON 调用本地 `POST http://127.0.0.1:{}/hook` 同步 `working / waiting / error / done`。\n\
+            2. **情况 B — 支持原生插件或本地 hooks 的客户端（只改你自己的配置文件，合并写入、完整保留我原有项，绝不覆盖删除）**：\n\
+               - **DeepSeek Harness (`dsh`)**：**不要只配 MCP 让模型手动汇报！**KuroCat 已自动生成零依赖原生 Cordis 插件 `dsh-kurocat`：若你是 DSH 官方桌面端，请提醒我直接在左侧「插件 → 添加插件」粘贴 `deepseek_harness_plugin.desktop_ui_tgz_path`（或执行 `install_desktop_command`）；若你是 WebUI/CLI，请执行 `install_web_command` / `install_cli_command` 并提醒重启 `dsh`（同时保留 `mcpServers.kurocat`），零 Token 实时同步思考、每步工具、Todo 进度、审批与完成！\n\
+               - **OpenCode**：**不要只配 MCP！**请把 `opencode_plugin.source_file` 复制到 `~/.config/opencode/plugins/kurocat.js` 并提醒重启 OpenCode（零 Token 实时监听工具、会话与权限）\n\
+               - **Cursor**：在 `~/.cursor/hooks.json` 合并写入 `cursor_hooks_json` 的 `version` 与 `hooks`（扁平结构，不要套用 Claude Code 嵌套结构），并保留 `mcpServers.kurocat`\n\
+               - **Windsurf**：在 `~/.codeium/windsurf/hooks.json` 合并写入 `windsurf_hooks_json.hooks`（snake_case 原生事件名）\n\
+               - **OpenAI Codex CLI**：`~/.codex/config.toml`（写入 `notify`、`[features] codex_hooks = true` 与 `[mcp_servers.kurocat]`）+ `~/.codex/hooks.json`（写入 `codex_hooks_json.hooks`）\n\
+               - **Claude Code**：`~/.claude/settings.json` 合并 `claude_code_hooks.hooks` + `mcpServers.kurocat`\n\
+               - **Antigravity（反重力）**：`~/.gemini/config/mcp_config.json` + `~/.gemini/config/hooks.json`（合并 `antigravity_hooks_json[\"kurocat-companion\"]`）\n\
+               - **Gemini CLI**：`~/.gemini/settings.json` 合并 `gemini_cli_hooks.hooks`（原生 `BeforeAgent`/`BeforeTool`/`AfterTool`/`AfterAgent`，超时单位为毫秒）\n\
+               - **GitHub Copilot / VS Code Agent**：在 `~/.copilot/hooks/kurocat.json`（或项目 `.github/hooks/kurocat.json`）写入 `copilot_hooks_json` 的 `version` 与 `hooks`\n\
+               - **腾讯 WorkBuddy / CodeBuddy**：`~/.codebuddy/settings.json` 合并 `workbuddy_hooks.hooks` + `mcpServers.kurocat`\n\
+               - **千问 Qwen Code**：`~/.qwen/settings.json` 合并 `qwen_code_hooks.hooks` + `mcpServers.kurocat`\n\
             3. **立刻验收**：请通过 UTF-8 JSON 向 `POST http://127.0.0.1:{}/hook` 发送 `{{\"status\":\"done\",\"source\":\"<你的名字>\",\"text\":\"AI 伴侣配置成功！\"}}` 让我看到小猫冒泡。配置并验收完成后简短回复结果即可，无需额外推荐其他功能。\n\n\
             ```json\n{}\n```",
-            port, port, port, config_json
+            port, port, config_json
         )
     } else {
         format!(
-            "Please configure **live task-status sync** for the KuroCat desktop pet on your current client (auto-detect whether you are Doubao Work, WorkBuddy, DeepSeek Harness, OpenAI Codex CLI, Qwen Code, Antigravity, Claude Code, Cursor, etc., so the pet auto-types while working and alerts on waiting/error/done):\n\
-            1. **Case A — Desktop Agents without local hooks config files (e.g. Doubao Work)**:\n\
+            "Please configure **live task-status sync** for the KuroCat desktop pet on your current client (auto-detect whether you are DeepSeek Harness (`dsh`), OpenCode, Cursor, Windsurf, Claude Code, OpenAI Codex CLI, Antigravity, Gemini CLI, GitHub Copilot / VS Code, WorkBuddy/CodeBuddy, Qwen Code, Doubao Work, etc., so the pet auto-types while working and alerts on thinking/waiting/error/done):\n\
+            1. **Case A — Clients without local hooks config files (e.g. Doubao Work)**:\n\
                - **Do NOT touch other clients' config files and do NOT create temporary `.ps1`/`.json` scripts in my workspace**;\n\
                - Save `doubao_work_setup.memory_rule` into your **long-term memory / preferences** so future chats automatically POST UTF-8 JSON to `http://127.0.0.1:{}/hook` (`working` / `waiting` / `error` / `done`).\n\
-            2. **Case B — Clients with local config files (MERGE cleanly without overwriting existing entries)**:\n\
-               - WorkBuddy / CodeBuddy: merge `mcpServers.kurocat` + `workbuddy_hooks`\n\
-               - DeepSeek Harness (`dsh`): merge `mcpServers.kurocat` + `deepseek_harness_hooks`\n\
-               - OpenAI Codex CLI: `~/.codex/config.toml` (`[mcp_servers.kurocat]` + `notify`) + `~/.codex/hooks.json`\n\
-               - Qwen Code: `~/.qwen/settings.json` (`mcpServers.kurocat` + `qwen_code_hooks`)\n\
-               - Antigravity: `~/.gemini/config/mcp_config.json` + `~/.gemini/config/hooks.json`\n\
-               - Claude Code / Cursor / Windsurf / Trae: merge `mcpServers.kurocat` + `claude_code_hooks` (or Streamable HTTP `http://127.0.0.1:{}/mcp`)\n\
+            2. **Case B — Clients with native plugins or local hooks config (ONLY edit your own client's config, MERGE cleanly without overwriting existing entries)**:\n\
+               - **DeepSeek Harness (`dsh`)**: **Do NOT rely on manual MCP status calls.** KuroCat auto-generated the zero-dependency native Cordis plugin `dsh-kurocat`: for DSH Desktop App, paste `deepseek_harness_plugin.desktop_ui_tgz_path` into **Plugins -> Add Plugin** (or run `install_desktop_command`); for WebUI/CLI, run `install_web_command` / `install_cli_command` and restart `dsh` once for full zero-token real-time session/event sync!\n\
+               - **OpenCode**: **Do NOT rely on manual MCP calls.** Copy `opencode_plugin.source_file` to `~/.config/opencode/plugins/kurocat.js` and restart OpenCode for zero-token real-time tool/session/permission sync.\n\
+               - **Cursor**: merge `cursor_hooks_json` (`version: 1` + flat `hooks`) into `~/.cursor/hooks.json` (do NOT use nested Claude Code syntax)\n\
+               - **Windsurf**: merge `windsurf_hooks_json.hooks` (native snake_case events) into `~/.codeium/windsurf/hooks.json`\n\
+               - **OpenAI Codex CLI**: `~/.codex/config.toml` (`notify`, `[features] codex_hooks = true`, `[mcp_servers.kurocat]`) + `~/.codex/hooks.json` (`codex_hooks_json.hooks`)\n\
+               - **Claude Code**: `~/.claude/settings.json` (`claude_code_hooks.hooks` + `mcpServers.kurocat`)\n\
+               - **Antigravity**: `~/.gemini/config/mcp_config.json` + `~/.gemini/config/hooks.json` (merge `antigravity_hooks_json[\"kurocat-companion\"]`)\n\
+               - **Gemini CLI**: merge `gemini_cli_hooks.hooks` (`BeforeAgent`/`BeforeTool`/`AfterTool`/`AfterAgent`, timeout in ms) into `~/.gemini/settings.json`\n\
+               - **GitHub Copilot / VS Code Agent**: write `copilot_hooks_json` (`version: 1` + flat `hooks`) to `~/.copilot/hooks/kurocat.json` (or `.github/hooks/kurocat.json`)\n\
+               - **WorkBuddy / CodeBuddy**: `~/.codebuddy/settings.json` (`workbuddy_hooks.hooks` + `mcpServers.kurocat`)\n\
+               - **Qwen Code**: `~/.qwen/settings.json` (`qwen_code_hooks.hooks` + `mcpServers.kurocat`)\n\
             3. **Live verification**: POST UTF-8 JSON `{{\"status\":\"done\",\"source\":\"<your-name>\",\"text\":\"KuroCat AI Companion connected!\"}}` to `http://127.0.0.1:{}/hook`, then reply briefly with the result without suggesting extra features.\n\n\
             ```json\n{}\n```",
-            port, port, port, config_json
+            port, port, config_json
         )
     }
 }
 
 #[tauri::command]
 fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSettings) -> AppSettings {
+    if *state.settings.lock().unwrap() != patch {
+        handover_stage::cancel(&app);
+    }
     patch.scale = patch.scale.clamp(0.20, 1.50);
     patch.opacity = config::normalize_opacity(patch.opacity);
+    patch.sound_volume = config::normalize_sound_volume(patch.sound_volume);
     let clean_breed = sanitize_cat_id(&patch.cat_breed);
     patch.cat_breed = if cat_exists(&clean_breed) {
         clean_breed
@@ -940,32 +1169,53 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     patch.render_mode = config::normalize_render_mode(&patch.render_mode);
     patch.collar_color = config::normalize_collar_color(&patch.collar_color);
     patch.headphone_mode = config::normalize_headphone_mode(&patch.headphone_mode);
+    patch.tablet_mode = config::normalize_tablet_mode(&patch.tablet_mode);
+    patch.gamepad_mode = config::normalize_gamepad_mode(&patch.gamepad_mode);
+    patch.eye_gaze_mode = config::normalize_eye_gaze_mode(&patch.eye_gaze_mode);
     patch.fps_cap = config::normalize_fps_cap(patch.fps_cap);
     patch.language = config::normalize_language(&patch.language);
+    patch.pause_hotkey = config::normalize_pause_hotkey(&patch.pause_hotkey);
+    patch.treat_flavor = config::normalize_treat_flavor(&patch.treat_flavor);
 
     let (
         prev_autostart,
+        prev_autostart_admin,
         prev_scale,
         prev_layout,
         prev_hide_pet,
         prev_live_enabled,
         prev_language,
+        prev_pause_hotkey,
     ) = {
         let s = state.settings.lock().unwrap();
         (
             s.autostart,
+            s.autostart_admin,
             s.scale,
             s.keyboard_layout.clone(),
             should_hide_desktop_pet(&s),
             s.live_capture_enabled,
             s.language.clone(),
+            s.pause_hotkey.clone(),
         )
     };
-    if patch.autostart != prev_autostart {
-        let _ = set_windows_autostart(patch.autostart);
+    patch.autostart_admin = cfg!(windows) && patch.autostart && patch.autostart_admin;
+    // Elevated autostart transitions are owned by the async `set_autostart_mode` command so UAC never blocks
+    // unrelated setting writes; only apply non-elevated legacy `autostart` toggles inline here.
+    if patch.autostart_admin != prev_autostart_admin || prev_autostart_admin {
+        patch.autostart = prev_autostart;
+        patch.autostart_admin = prev_autostart_admin;
+    } else if patch.autostart != prev_autostart {
+        if set_windows_autostart(patch.autostart).is_err() {
+            patch.autostart = prev_autostart;
+        }
     }
 
     state.mcp_enabled.store(patch.mcp_enabled, Ordering::Relaxed);
+    input_hook::set_expression_hotkeys_enabled(patch.expression_hotkeys);
+    if patch.pause_hotkey != prev_pause_hotkey {
+        input_hook::set_pause_hotkey(&patch.pause_hotkey);
+    }
     obs::sync_obs_server(&app, patch.obs_enabled, patch.obs_port);
 
     let next_hide_pet = should_hide_desktop_pet(&patch);
@@ -978,7 +1228,7 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     if win_needs_win7_ulw() {
         win7_layered::set_opacity(patch.opacity);
     }
-    set_pet_always_on_top(&app, patch.always_on_top);
+    set_pet_always_on_top_with_yield(&app, patch.always_on_top, patch.yield_on_fullscreen);
     if let Some(win) = app.get_webview_window("main") {
         if size_changed {
             if let Some((nx, ny)) =
@@ -1022,11 +1272,61 @@ fn update_settings(app: AppHandle, state: State<'_, AppState>, mut patch: AppSet
     let _ = app.emit("kuro-settings", patch.clone());
     if patch.language != prev_language {
         tray::refresh_tray_language(&app);
+    } else if patch.pause_hotkey != prev_pause_hotkey {
+        tray::refresh_tray_menu(&app);
     }
     if size_changed {
         reposition_context_menu_if_open(&app);
     }
     patch
+}
+
+pub(crate) fn apply_autostart_and_sync(
+    app: &AppHandle,
+    want_autostart: bool,
+    want_admin: bool,
+) -> Result<AppSettings, String> {
+    static AUTOSTART_APPLY_LOCK: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+    let _serial = AUTOSTART_APPLY_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap();
+
+    let res = win_autostart::apply_windows_autostart_mode(want_autostart, want_admin);
+    let state = app.state::<AppState>();
+    match res {
+        Ok((actual_autostart, actual_admin)) => {
+            let updated = {
+                let mut s = state.settings.lock().unwrap();
+                s.autostart = actual_autostart;
+                s.autostart_admin = actual_admin;
+                save_settings(&s);
+                s.clone()
+            };
+            tray::sync_checkmarks(&updated);
+            let _ = app.emit("kuro-settings", updated.clone());
+            Ok(updated)
+        }
+        Err(err) => {
+            let current = state.settings.lock().unwrap().clone();
+            tray::sync_checkmarks(&current);
+            let _ = app.emit("kuro-settings", current);
+            Err(err.message)
+        }
+    }
+}
+
+#[tauri::command]
+async fn set_autostart_mode(
+    app: AppHandle,
+    autostart: bool,
+    autostart_admin: bool,
+) -> Result<AppSettings, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        apply_autostart_and_sync(&app, autostart, autostart_admin)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 const SIDE_MENU_LOGICAL_W: f64 = 298.0;
@@ -1078,6 +1378,17 @@ fn compute_side_menu_pos(
     (mx, my)
 }
 
+/// On Linux, `tao`'s `outer_position()` / `outer_size()` reads `gdk_window_get_frame_extents()`,
+/// which includes WM shadow/decoration extents (e.g. WSLg Weston WM reports `_NET_FRAME_EXTENTS`
+/// `38, 38, 59, 38` even on undecorated windows), whereas `inner_position()` / `inner_size()`
+/// (`ConfigureNotify`) returns the exact client canvas origin & size matching `set_position()`.
+#[cfg(target_os = "linux")]
+fn linux_window_client_rect(win: &tauri::WebviewWindow) -> Option<(i32, i32, u32, u32)> {
+    let pos = win.inner_position().or_else(|_| win.outer_position()).ok()?;
+    let size = win.inner_size().or_else(|_| win.outer_size()).ok()?;
+    Some((pos.x, pos.y, size.width, size.height))
+}
+
 fn current_pet_rect_and_monitor(app: &AppHandle) -> Option<((i32, i32, i32, i32), (i32, i32, i32, i32), f64)> {
     let main_win = app.get_webview_window("main")?;
     let sf = main_win.scale_factor().unwrap_or(1.0);
@@ -1091,13 +1402,22 @@ fn current_pet_rect_and_monitor(app: &AppHandle) -> Option<((i32, i32, i32, i32)
             _ => None,
         }
     };
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    let pet_rect = linux_window_client_rect(&main_win)
+        .map(|(x, y, w, h)| (x, y, w as i32, h as i32));
+    #[cfg(all(not(windows), not(target_os = "linux")))]
     let pet_rect = match (main_win.outer_position().ok(), main_win.outer_size().ok()) {
         (Some(p), Some(sz)) => Some((p.x, p.y, sz.width as i32, sz.height as i32)),
         _ => None,
     };
 
-    let pet_rect = pet_rect?;
+    let (px, py, pw, ph) = pet_rect?;
+    let pet_rect = (
+        px,
+        py,
+        handover_stage::hit_width(app, sf, f64::from(pw)).round() as i32,
+        ph,
+    );
     let monitor = main_win
         .current_monitor()
         .ok()
@@ -1161,6 +1481,10 @@ fn win_is_menu_still_focused(menu_win: &tauri::WebviewWindow) -> bool {
 /// IMPORTANT: Must be `async fn` so Tauri executes it off the Windows UI main thread!
 /// Calling `WebviewWindowBuilder::build()` inside a synchronous `#[tauri::command]`
 /// deadlocks the Windows WebView2 / tao event loop (freezing right-click, left-drag, and tray exit).
+pub(crate) async fn open_context_menu_from_tray(app: AppHandle) -> Result<(), String> {
+    open_context_menu(app).await
+}
+
 #[tauri::command]
 async fn open_context_menu(app: AppHandle) -> Result<(), String> {
     let Some((mx, my, lw, lh)) = side_menu_geometry(&app) else {
@@ -1220,7 +1544,11 @@ async fn open_context_menu(app: AppHandle) -> Result<(), String> {
             .additional_browser_args(WEBVIEW_BROWSER_ARGS)
             .build()
             {
-                Ok(w) => w,
+                Ok(w) => {
+                    #[cfg(windows)]
+                    win_apply_webview_low_memory(&w);
+                    w
+                }
                 Err(err) => {
                     eprintln!("[kurocat] open_context_menu: failed to build menu window: {err}");
                     return Err(err.to_string());
@@ -1292,6 +1620,62 @@ fn open_tail_picker_from_menu(app: AppHandle) {
     let _ = app.emit("kuro-open-tail-picker", ());
 }
 
+pub(crate) fn trigger_treat_feed_internal(app: &AppHandle, flavor: Option<String>) {
+    close_context_menu(app.clone());
+    let state = app.state::<AppState>();
+    let resolved_flavor = {
+        let mut s = state.settings.lock().unwrap();
+        if s.cat_breed == "dafeiyu" {
+            state.treat_active.store(false, Ordering::Relaxed);
+            return;
+        }
+        if let Some(f) = flavor {
+            s.treat_flavor = config::normalize_treat_flavor(&f);
+            save_settings(&s);
+            let _ = app.emit("kuro-settings", s.clone());
+        }
+        s.treat_flavor.clone()
+    };
+    if !state.paused_guard.load(Ordering::Relaxed) {
+        set_pet_visible(app, true);
+    }
+    handover_stage::cancel(app);
+    state.treat_active.store(true, Ordering::Relaxed);
+    let _ = app.emit(
+        "kuro-treat-feed",
+        serde_json::json!({ "action": "start", "flavor": resolved_flavor }),
+    );
+}
+
+#[tauri::command]
+fn start_treat_feed_from_menu(app: AppHandle, flavor: Option<String>) {
+    trigger_treat_feed_internal(&app, flavor);
+}
+
+#[tauri::command]
+fn set_treat_active(state: State<'_, AppState>, active: bool) {
+    state.treat_active.store(active, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn record_treat_fed(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    flavor: Option<String>,
+) -> AppSettings {
+    let updated = {
+        let mut s = state.settings.lock().unwrap();
+        if let Some(f) = flavor {
+            s.treat_flavor = config::normalize_treat_flavor(&f);
+        }
+        s.treat_fed_count = s.treat_fed_count.saturating_add(1);
+        save_settings(&s);
+        s.clone()
+    };
+    let _ = app.emit("kuro-settings", updated.clone());
+    updated
+}
+
 #[tauri::command]
 fn preview_scale(app: AppHandle, scale: f64) {
     let clamped = scale.clamp(0.20, 1.50);
@@ -1309,9 +1693,56 @@ fn preview_opacity(app: AppHandle, opacity: f64) {
 }
 
 #[tauri::command]
+fn preview_sound_volume(app: AppHandle, volume: f64, muted: bool) {
+    let clamped = config::normalize_sound_volume(volume);
+    let _ = app.emit(
+        "kuro-volume-preview",
+        serde_json::json!({ "volume": clamped, "muted": muted }),
+    );
+}
+
+#[tauri::command]
 fn get_obs_url(state: State<'_, AppState>) -> String {
     let port = state.settings.lock().unwrap().obs_port;
     obs::obs_url(port)
+}
+
+#[tauri::command]
+fn broadcast_pet_interaction(
+    app: AppHandle,
+    payload: serde_json::Value,
+    exclude_main: Option<bool>,
+) {
+    obs::broadcast_pet_interaction(&payload);
+    if exclude_main.unwrap_or(false) {
+        if let Some(live) = app.get_webview_window("live") {
+            let _ = live.emit("kuro-pet-interaction", &payload);
+        }
+    } else {
+        let _ = app.emit("kuro-pet-interaction", &payload);
+    }
+}
+
+#[tauri::command]
+fn trigger_pet_emotion(app: AppHandle, emotion: String) {
+    let clean = match emotion.trim().to_ascii_lowercase().as_str() {
+        "happy" | "pet" => "happy",
+        "angry" | "cross" => "angry",
+        "boop" | "sneeze" => "boop",
+        "chin" | "heart" | "hearts" => "chin",
+        "dizzy" => "dizzy",
+        "sleep" | "nap" => "sleep",
+        "curious" => "curious",
+        "wake" | "reset" => "wake",
+        _ => return,
+    };
+    let payload = serde_json::json!({
+        "kind": "emotion",
+        "emotion": clean,
+        "source": "menu",
+    });
+    obs::broadcast_pet_interaction(&payload);
+    let _ = app.emit("kuro-pet-interaction", payload);
 }
 
 #[tauri::command]
@@ -1396,6 +1827,7 @@ fn run_windows_native_drag(app: AppHandle, initial_cursor: Option<(i32, i32)>) -
     }
 
     WIN_FALLBACK_FINALIZED.store(false, Ordering::Release);
+    handover_stage::cancel(&app);
     let Some(win) = app.get_webview_window("main") else {
         WIN_NATIVE_DRAG_ACTIVE.store(false, Ordering::Release);
         return false;
@@ -1881,7 +2313,10 @@ fn run_macos_native_drag(app: AppHandle, initial_cursor_pts: Option<(f64, f64)>)
 }
 
 #[tauri::command]
-fn set_dragging(state: State<'_, AppState>, dragging: bool) {
+fn set_dragging(app: AppHandle, state: State<'_, AppState>, dragging: bool) {
+    if dragging {
+        handover_stage::cancel(&app);
+    }
     #[cfg(windows)]
     if !dragging && WIN_NATIVE_DRAG_ACTIVE.load(Ordering::Acquire) {
         return;
@@ -1907,6 +2342,7 @@ fn clear_peek_state(app: &AppHandle) {
 
 #[tauri::command]
 fn set_peek_edge(app: AppHandle, state: State<'_, AppState>, edge: String) {
+    handover_stage::cancel(&app);
     let clean = match edge.as_str() {
         "left" | "right" => edge,
         _ => "none".to_string(),
@@ -2077,7 +2513,10 @@ fn finalize_peek_edge_for_app(app: &AppHandle) -> String {
                     _ => None,
                 }
             };
-            #[cfg(not(windows))]
+            #[cfg(target_os = "linux")]
+            let pet_rect = linux_window_client_rect(&win)
+                .map(|(x, y, w, h)| (x, y, w as i32, h as i32));
+            #[cfg(all(not(windows), not(target_os = "linux")))]
             let pet_rect = match (win.outer_position().ok(), win.outer_size().ok()) {
                 (Some(p), Some(s)) => Some((p.x, p.y, s.width as i32, s.height as i32)),
                 _ => None,
@@ -2216,6 +2655,7 @@ fn sync_peek_edge_after_drag(app: AppHandle) -> String {
 /// to Tauri's `startDragging()`.
 #[tauri::command]
 async fn start_pet_drag(app: AppHandle) -> bool {
+    handover_stage::cancel(&app);
     #[cfg(windows)]
     {
         tauri::async_runtime::spawn_blocking(move || run_windows_native_drag(app, None))
@@ -2282,8 +2722,15 @@ async fn wait_linux_drag_end(app: AppHandle) -> bool {
             let mut candidate_edge: &'static str = "none";
             let mut candidate_since = Instant::now();
             let mut emitted_preview: &'static str = "none";
+            let start_cursor = input_hook::linux_hook::query_pointer_state().map(|(x, y, _)| (x, y));
+            let start_pos = drag_app
+                .get_webview_window("main")
+                .and_then(|w| linux_window_client_rect(&w))
+                .map(|(x, y, _, _)| (x, y));
+            let mut wm_moving = false;
+            let mut manual_drag = false;
+            let mut last_manual_pos: Option<(i32, i32)> = None;
 
-            // Brief grace window so a tap-fast click-drag doesn't exit before X11 reflects Button1Mask
             while started.elapsed() < Duration::from_secs(60) {
                 let Some((cur_x, cur_y, left_down)) = input_hook::linux_hook::query_pointer_state()
                 else {
@@ -2293,9 +2740,70 @@ async fn wait_linux_drag_end(app: AppHandle) -> bool {
                     break;
                 }
                 if let Some(win) = drag_app.get_webview_window("main") {
-                    if let (Ok(pos), Ok(sz)) = (win.outer_position(), win.outer_size()) {
-                        let win_w = sz.width as i32;
-                        let win_h = sz.height as i32;
+                    if let Some((pos_x, pos_y, raw_w, raw_h)) = linux_window_client_rect(&win) {
+                        let win_w = raw_w as i32;
+                        let win_h = raw_h as i32;
+                        let mut eff_x = pos_x;
+                        let mut eff_y = pos_y;
+
+                        // Auto-fallback when the window manager ignores `_NET_WM_MOVERESIZE`
+                        // (`gtk_window_begin_move_drag`), e.g. WSLg Weston RDP-RAIL or minimal/tiling WMs:
+                        // if the WM moves the window natively, stay completely hands-off; otherwise
+                        // smoothly drive `set_position()` from the initial client origin + cursor delta.
+                        if let (Some((scx, scy)), Some((spx, spy))) = (start_cursor, start_pos) {
+                            if !manual_drag
+                                && ((pos_x - spx).abs() >= 2 || (pos_y - spy).abs() >= 2)
+                            {
+                                wm_moving = true;
+                            }
+                            if !wm_moving && !manual_drag {
+                                let moved = ((cur_x - scx) as f64).hypot((cur_y - scy) as f64);
+                                if moved >= 4.0 && started.elapsed() >= Duration::from_millis(45) {
+                                    manual_drag = true;
+                                }
+                            }
+                            if manual_drag {
+                                let raw_tx = spx + (cur_x - scx);
+                                let raw_ty = spy + (cur_y - scy);
+                                let (tx, ty) = if let Ok(mons) = win.available_monitors() {
+                                    if !mons.is_empty() {
+                                        let mut min_x = i32::MAX;
+                                        let mut min_y = i32::MAX;
+                                        let mut max_x = i32::MIN;
+                                        let mut max_y = i32::MIN;
+                                        for m in &mons {
+                                            let mp = m.position();
+                                            let ms = m.size();
+                                            min_x = min_x.min(mp.x);
+                                            min_y = min_y.min(mp.y);
+                                            max_x = max_x.max(mp.x + ms.width as i32);
+                                            max_y = max_y.max(mp.y + ms.height as i32);
+                                        }
+                                        let pad_x = (win_w as f64 * 0.35).round() as i32;
+                                        let top_pad = (win_h as f64 * 0.20).round() as i32;
+                                        let clamp_max_x = (max_x - win_w + pad_x).max(min_x - pad_x);
+                                        let clamp_max_y =
+                                            (max_y - (win_h as f64 * 0.55).round() as i32)
+                                                .max(min_y - top_pad);
+                                        (
+                                            raw_tx.clamp(min_x - pad_x, clamp_max_x),
+                                            raw_ty.clamp(min_y - top_pad, clamp_max_y),
+                                        )
+                                    } else {
+                                        (raw_tx, raw_ty)
+                                    }
+                                } else {
+                                    (raw_tx, raw_ty)
+                                };
+                                eff_x = tx;
+                                eff_y = ty;
+                                if last_manual_pos != Some((tx, ty)) {
+                                    last_manual_pos = Some((tx, ty));
+                                    let _ = win.set_position(PhysicalPosition::new(tx, ty));
+                                }
+                            }
+                        }
+
                         let monitor = win
                             .available_monitors()
                             .ok()
@@ -2326,7 +2834,7 @@ async fn wait_linux_drag_end(app: AppHandle) -> bool {
                                 (mp.x, mp.y, ms.width as i32, ms.height as i32)
                             };
                             let detected_edge = detect_linux_edge_peek_after_drag(
-                                cur_x, cur_y, pos.x, pos.y, win_w, win_h, wx, wy, ww, wh,
+                                cur_x, cur_y, eff_x, eff_y, win_w, win_h, wx, wy, ww, wh,
                             );
                             if detected_edge == "none" {
                                 suppress_edge = None;
@@ -2363,7 +2871,7 @@ async fn wait_linux_drag_end(app: AppHandle) -> bool {
                         }
                     }
                 }
-                std::thread::sleep(Duration::from_millis(16));
+                std::thread::sleep(Duration::from_millis(if manual_drag { 8 } else { 16 }));
             }
         })
         .await;
@@ -2518,10 +3026,14 @@ fn save_window_pos(app: AppHandle) {
 #[cfg(all(not(windows), not(target_os = "macos")))]
 fn save_window_pos(app: AppHandle, state: State<'_, AppState>) {
     if let Some(win) = app.get_webview_window("main") {
-        if let Ok(pos) = win.outer_position() {
+        #[cfg(target_os = "linux")]
+        let pos_opt = linux_window_client_rect(&win).map(|(x, y, _, _)| (x, y));
+        #[cfg(not(target_os = "linux"))]
+        let pos_opt = win.outer_position().ok().map(|p| (p.x, p.y));
+        if let Some((x, y)) = pos_opt {
             let mut s = state.settings.lock().unwrap();
-            s.x = Some(pos.x);
-            s.y = Some(pos.y);
+            s.x = Some(x);
+            s.y = Some(y);
             save_settings(&s);
         }
     }
@@ -2538,6 +3050,11 @@ fn create_desktop_shortcut() -> Result<String, String> {
 }
 
 #[tauri::command]
+fn get_pause_hotkey_status() -> String {
+    input_hook::pause_hotkey_status().to_string()
+}
+
+#[tauri::command]
 fn quit_app(app: AppHandle) {
     shutdown_pet_windows();
     if let Some(w) = app.get_webview_window("live") {
@@ -2547,6 +3064,7 @@ fn quit_app(app: AppHandle) {
 }
 
 pub fn apply_breed_and_save(app: &AppHandle, breed: &str) {
+    handover_stage::cancel(app);
     let clean = sanitize_cat_id(breed);
     let normalized = if cat_exists(&clean) {
         clean
@@ -2580,7 +3098,8 @@ pub fn reload_and_emit_all(app: &AppHandle) {
         let disk_settings = load_settings();
         let sc = (s.scale - disk_settings.scale).abs() > 0.01
             || s.keyboard_layout != disk_settings.keyboard_layout;
-        let tc = s.always_on_top != disk_settings.always_on_top;
+        let tc = s.always_on_top != disk_settings.always_on_top
+            || s.yield_on_fullscreen != disk_settings.yield_on_fullscreen;
         let hpc = should_hide_desktop_pet(&s) != should_hide_desktop_pet(&disk_settings);
         let lns = s.live_capture_enabled != disk_settings.live_capture_enabled
             || (disk_settings.live_capture_enabled
@@ -2598,6 +3117,8 @@ pub fn reload_and_emit_all(app: &AppHandle) {
     state
         .mcp_enabled
         .store(disk_settings.mcp_enabled, Ordering::Relaxed);
+    input_hook::set_expression_hotkeys_enabled(disk_settings.expression_hotkeys);
+    input_hook::set_pause_hotkey(&disk_settings.pause_hotkey);
     obs::sync_obs_server(app, disk_settings.obs_enabled, disk_settings.obs_port);
     if live_needs_sync
         || (disk_settings.live_capture_enabled && app.get_webview_window("live").is_none())
@@ -2614,6 +3135,8 @@ pub fn reload_and_emit_all(app: &AppHandle) {
     tray::sync_checkmarks(&disk_settings);
     if lang_changed {
         tray::refresh_tray_language(app);
+    } else {
+        tray::refresh_tray_menu(app);
     }
 
     if top_changed {
@@ -2719,6 +3242,7 @@ pub fn apply_keyboard_layout_and_save(app: &AppHandle, layout: &str) {
 }
 
 pub fn apply_keyboard_orientation_and_save(app: &AppHandle, orientation: &str) {
+    handover_stage::cancel(app);
     let normalized = normalize_keyboard_orientation(orientation);
     let state = app.state::<AppState>();
     let updated = {
@@ -2731,6 +3255,7 @@ pub fn apply_keyboard_orientation_and_save(app: &AppHandle, orientation: &str) {
 }
 
 pub fn apply_tail_key_mode_and_save(app: &AppHandle, mode: &str) {
+    handover_stage::cancel(app);
     let normalized = normalize_tail_key_mode(mode);
     let state = app.state::<AppState>();
     let updated = {
@@ -2744,6 +3269,7 @@ pub fn apply_tail_key_mode_and_save(app: &AppHandle, mode: &str) {
 
 #[cfg(target_os = "macos")]
 pub fn reset_window_position(app: &AppHandle) {
+    handover_stage::cancel(app);
     clear_peek_state(app);
     let handle = app.clone();
     let _ = app.run_on_main_thread(move || {
@@ -2764,6 +3290,7 @@ pub fn reset_window_position(app: &AppHandle) {
 
 #[cfg(not(target_os = "macos"))]
 pub fn reset_window_position(app: &AppHandle) {
+    handover_stage::cancel(app);
     clear_peek_state(app);
     if let Some(win) = app.get_webview_window("main") {
         #[cfg(windows)]
@@ -3009,6 +3536,130 @@ pub(crate) fn is_system_shell_flyout_class(class_name: &str) -> bool {
     )
 }
 
+/// Returns true for Windows IME candidate / composition / status windows (Sogou, Microsoft Pinyin,
+/// WeType, Baidu IME, iFlytek, TSF) that must NEVER trigger Z-order toast-yield churn while typing.
+#[cfg(any(windows, test))]
+pub(crate) fn is_ime_overlay_class(class_name: &str) -> bool {
+    if class_name.is_empty() {
+        return false;
+    }
+    let lower = class_name.to_ascii_lowercase();
+    lower == "ime"
+        || lower == "default ime"
+        || lower == "msctfime ui"
+        || lower == "cicerouiwndframe"
+        || lower.starts_with("sopy_")
+        || lower.starts_with("microsoft.ime.")
+        || lower.starts_with("ime_")
+        || lower.contains("sogou")
+        || lower.contains("baiduime")
+        || lower.contains("wetype")
+        || lower.contains("qqpinyin")
+        || lower.contains("iflyime")
+        || lower.contains("candidatewindow")
+        || lower.contains("imecandidate")
+}
+
+/// Pure, unit-testable classifier distinguishing TRUE fullscreen windows (HTML5 fullscreen video,
+/// media players, F11 browsers, borderless fullscreen games) from normal maximized desktop windows.
+///
+/// - `win_rect`: `(left, top, right, bottom)` from DWM extended frame bounds (or `GetWindowRect`).
+/// - `mon_rect`: full `MONITORINFO.rcMonitor` `(left, top, right, bottom)`.
+/// - `work_rect`: `MONITORINFO.rcWork` (excludes taskbar).
+/// - `is_maximized_with_caption`: true when `IsZoomed(hwnd)` AND `(GWL_STYLE & WS_CAPTION) == WS_CAPTION`.
+#[cfg(any(windows, test))]
+pub(crate) fn is_true_fullscreen_rect(
+    win_rect: (i32, i32, i32, i32),
+    mon_rect: (i32, i32, i32, i32),
+    work_rect: (i32, i32, i32, i32),
+    is_maximized_with_caption: bool,
+) -> bool {
+    let (wl, wt, wr, wb) = win_rect;
+    let (ml, mt, mr, mb) = mon_rect;
+    let (kl, kt, kr, kb) = work_rect;
+    let mw = mr - ml;
+    let mh = mb - mt;
+    if mw <= 0 || mh <= 0 {
+        return false;
+    }
+    // Must cover the entire monitor edge-to-edge (within 2px DWM rounding tolerance)
+    let covers_monitor = wl <= ml + 2 && wt <= mt + 2 && wr >= mr - 2 && wb >= mb - 2;
+    if !covers_monitor {
+        return false;
+    }
+    // When a visible taskbar shrinks work_rect relative to mon_rect, any normal maximized window
+    // stops at work_rect and fails `covers_monitor` above; covering mon_rect proves true fullscreen!
+    let has_visible_taskbar_strip =
+        (kl - ml) > 4 || (kt - mt) > 4 || (mr - kr) > 4 || (mb - kb) > 4;
+    if has_visible_taskbar_strip {
+        return true;
+    }
+    // With an auto-hidden taskbar (work_rect == mon_rect), normal maximized apps still carry
+    // `IsZoomed && WS_CAPTION`, whereas fullscreen videos/games drop WS_CAPTION or aren't zoomed.
+    !is_maximized_with_caption
+}
+
+/// Returns true for dedicated Windows screenshot / pin-image utilities (Snipaste, PixPin,
+/// Windows Snipping Tool, ShareX, FastStone, Flameshot, etc.) whose visible `WS_EX_TOPMOST`
+/// overlays (capture canvas, magnifier, toolbar, or `F3` pinned images of ANY size) must NEVER
+/// be covered or fought by KuroCat's topmost guard.
+#[cfg(any(windows, test))]
+pub(crate) fn is_dedicated_screenshot_exe(exe_name: &str) -> bool {
+    let lower = exe_name.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "snipaste.exe"
+            | "pixpin.exe"
+            | "screenclippinghost.exe"
+            | "snippingtool.exe"
+            | "sharex.exe"
+            | "fscapture.exe"
+            | "flameshot.exe"
+            | "greenshot.exe"
+            | "lightshot.exe"
+            | "picpick.exe"
+            | "snip.exe"
+            | "iscreenshot.exe"
+    )
+}
+
+/// Returns true when a visible, non-click-through window from another process is an active
+/// screenshot capture overlay or pinned reference image that KuroCat should smoothly yield below:
+/// - Any visible `WS_EX_TOPMOST` window from a dedicated screenshot/pin utility (covers both `F1`
+///   fullscreen capture overlays AND `F3` pinned images of any size, while ignoring non-topmost
+///   settings dialogs).
+/// - Fullscreen `WS_EX_TOPMOST` capture overlays created by IM suites (WeChat, QQ, TIM, DingTalk,
+///   Feishu/Lark, WeCom) while NOT yielding to normal chat windows or non-fullscreen pinned chats.
+#[cfg(any(windows, test))]
+pub(crate) fn is_screenshot_overlay_window(
+    exe_name: &str,
+    is_topmost: bool,
+    is_fullscreen: bool,
+) -> bool {
+    if !is_topmost || exe_name.is_empty() {
+        return false;
+    }
+    if is_dedicated_screenshot_exe(exe_name) {
+        return true;
+    }
+    if !is_fullscreen {
+        return false;
+    }
+    let lower = exe_name.to_ascii_lowercase();
+    matches!(
+        lower.as_str(),
+        "wechat.exe"
+            | "weixin.exe"
+            | "wechatappex.exe"
+            | "qq.exe"
+            | "tim.exe"
+            | "dingtalk.exe"
+            | "feishu.exe"
+            | "lark.exe"
+            | "wxwork.exe"
+    )
+}
+
 /// Returns true if a non-activating / tool topmost popup from another process has plausible
 /// notification-toast dimensions (e.g. Telegram, WeChat, QQ, Slack, or OS corner toast popups)
 /// across 100%–250% DPI (#40).
@@ -3185,16 +3836,119 @@ enum WinYieldAction {
     DemoteBehind(isize),
 }
 
+#[cfg(windows)]
+fn win_is_true_fullscreen_app(
+    fg_hwnd: windows_sys::Win32::Foundation::HWND,
+    our_hwnd: windows_sys::Win32::Foundation::HWND,
+) -> bool {
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
+    use windows_sys::Win32::UI::Shell::{
+        SHQueryUserNotificationState, QUNS_RUNNING_D3D_FULL_SCREEN,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, GetWindowRect, GetWindowThreadProcessId, IsZoomed, GWL_STYLE,
+        WS_CAPTION,
+    };
+
+    #[link(name = "dwmapi")]
+    extern "system" {
+        fn DwmGetWindowAttribute(
+            hwnd: HWND,
+            dwattribute: u32,
+            pvattribute: *mut std::ffi::c_void,
+            cbattribute: u32,
+        ) -> i32;
+    }
+    const DWMWA_EXTENDED_FRAME_BOUNDS: u32 = 9;
+
+    if fg_hwnd.is_null()
+        || fg_hwnd == our_hwnd
+        || win_is_iconic(fg_hwnd)
+        || win_is_ignored_shell_window(fg_hwnd)
+    {
+        return false;
+    }
+    let mut fg_pid: u32 = 0;
+    unsafe {
+        let _ = GetWindowThreadProcessId(fg_hwnd, &mut fg_pid);
+    }
+    if fg_pid == 0 || fg_pid == std::process::id() {
+        return false;
+    }
+    if !win_rects_overlap(fg_hwnd, our_hwnd) {
+        return false;
+    }
+
+    unsafe {
+        let mut quns: i32 = 0;
+        if SHQueryUserNotificationState(&mut quns) == 0 && quns == QUNS_RUNNING_D3D_FULL_SCREEN {
+            return true;
+        }
+
+        let mut rc = RECT {
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+        };
+        let hr = DwmGetWindowAttribute(
+            fg_hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            (&mut rc as *mut RECT).cast(),
+            std::mem::size_of::<RECT>() as u32,
+        );
+        if hr != 0 && GetWindowRect(fg_hwnd, &mut rc) == 0 {
+            return false;
+        }
+
+        let mon = MonitorFromWindow(fg_hwnd, MONITOR_DEFAULTTONEAREST);
+        if mon.is_null() {
+            return false;
+        }
+        let mut mi: MONITORINFO = std::mem::zeroed();
+        mi.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(mon, &mut mi) == 0 {
+            return false;
+        }
+
+        let style = GetWindowLongPtrW(fg_hwnd, GWL_STYLE);
+        let has_caption = (style & (WS_CAPTION as isize)) == (WS_CAPTION as isize);
+        let is_maximized_with_caption = IsZoomed(fg_hwnd) != 0 && has_caption;
+
+        is_true_fullscreen_rect(
+            (rc.left, rc.top, rc.right, rc.bottom),
+            (
+                mi.rcMonitor.left,
+                mi.rcMonitor.top,
+                mi.rcMonitor.right,
+                mi.rcMonitor.bottom,
+            ),
+            (
+                mi.rcWork.left,
+                mi.rcWork.top,
+                mi.rcWork.right,
+                mi.rcWork.bottom,
+            ),
+            is_maximized_with_caption,
+        )
+    }
+}
+
 /// Checks whether KuroCat should yield its `HWND_TOPMOST` Z-order on Windows (#40):
-/// 1. Fullscreen Remote Desktop (`mstsc.exe` / `TscShellContainerClass`, etc.) overlapping KuroCat.
+/// 1. Fullscreen Remote Desktop (`mstsc.exe` / `TscShellContainerClass`, etc.) overlapping KuroCat,
+///    OR (when `yield_on_fullscreen` is enabled) ANY true fullscreen video/game overlapping KuroCat.
 /// 2. Visible, uncloaked Windows 10/11 Shell flyouts overlapping KuroCat (Clock Calendar,
 ///    Notification Center, Quick Settings, Tray Overflow, Windows Toast Notifications).
 /// 3. Small/medium `WS_EX_TOPMOST` + (`WS_EX_TOOLWINDOW` | `WS_EX_NOACTIVATE`) notification toast
-///    popups from other apps (e.g. Telegram, WeChat, QQ, Slack) overlapping KuroCat.
+///    popups from other apps (e.g. Telegram, WeChat, QQ, Slack) overlapping KuroCat (excluding IME).
 #[cfg(windows)]
 fn win_detect_yield_action(
     our_hwnd: windows_sys::Win32::Foundation::HWND,
     fg_hwnd: windows_sys::Win32::Foundation::HWND,
+    yield_on_fullscreen: bool,
 ) -> WinYieldAction {
     use windows_sys::Win32::Foundation::{BOOL, HWND, LPARAM, RECT};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -3206,11 +3960,16 @@ fn win_detect_yield_action(
         return WinYieldAction::None;
     }
 
-    // 1. Fullscreen Remote Desktop client in the foreground overlapping KuroCat -> yield behind it.
+    // 1. Fullscreen Remote Desktop (always) OR any true fullscreen video/game (when user enables
+    //    `yield_on_fullscreen`) overlapping KuroCat on the same monitor -> yield behind it cleanly.
     if !fg_hwnd.is_null() && fg_hwnd != our_hwnd && !win_is_iconic(fg_hwnd) {
+        if yield_on_fullscreen && win_is_true_fullscreen_app(fg_hwnd, our_hwnd) {
+            return WinYieldAction::DemoteBehind(fg_hwnd as isize);
+        }
         let fg_cls = win_window_class_name(fg_hwnd);
         let fg_exe = win_process_exe_name(fg_hwnd);
-        if is_remote_desktop_window(&fg_cls, &fg_exe)
+        if (is_remote_desktop_window(&fg_cls, &fg_exe)
+            || (!win_is_topmost(fg_hwnd) && is_dedicated_screenshot_exe(&fg_exe)))
             && win_is_fullscreen_on_monitor(fg_hwnd)
             && win_rects_overlap(fg_hwnd, our_hwnd)
         {
@@ -3286,13 +4045,22 @@ fn win_detect_yield_action(
 
         let is_topmost = (ex & (WS_EX_TOPMOST as isize)) != 0;
         let cls = win_window_class_name(hwnd);
+        if is_ime_overlay_class(&cls) {
+            return 1;
+        }
         let is_flyout = is_system_shell_flyout_class(&cls);
         let is_toast = !is_flyout
             && is_topmost
             && ((ex & (WS_EX_TOOLWINDOW as isize)) != 0 || (ex & (WS_EX_NOACTIVATE as isize)) != 0)
             && is_plausible_toast_popup_size(w, h);
+        let is_screenshot_overlay = if !is_flyout && !is_toast && is_topmost {
+            let exe = win_process_exe_name(hwnd);
+            is_screenshot_overlay_window(&exe, true, win_is_fullscreen_on_monitor(hwnd))
+        } else {
+            false
+        };
 
-        if !is_flyout && !is_toast {
+        if !is_flyout && !is_toast && !is_screenshot_overlay {
             return 1;
         }
         if win_is_window_cloaked(hwnd) {
@@ -4035,7 +4803,7 @@ fn win_wait_for_previous_pid_if_requested() -> WinStartupHandoff {
     result
 }
 
-fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool, peek_edge: &str) -> (bool, bool) {
+fn is_over_interactive_silhouette(rx: f64, ry: f64, layout: &str, peek_edge: &str) -> (bool, bool) {
     if peek_edge == "left" {
         let dx = (rx - 0.16) / 0.28;
         let dy = (ry - 0.50) / 0.34;
@@ -4049,24 +4817,28 @@ fn is_over_interactive_silhouette(rx: f64, ry: f64, is_108: bool, peek_edge: &st
         return (over_head, over_head);
     }
 
-    // Cat body/head oval centered around (0.48, 0.49) for 65% or (0.51, 0.48) for 108-key
-    let (cat_cx, cat_rx) = if is_108 { (0.51, 0.21) } else { (0.48, 0.25) };
+    // Cat body/head oval centered around (0.48, 0.49) for 65%, (0.495, 0.49) for 98, or (0.51, 0.49) for 108
+    let (cat_cx, cat_rx) = match layout {
+        "108" => (0.51, 0.21),
+        "98" => (0.495, 0.23),
+        _ => (0.48, 0.25),
+    };
     let dx_cat = (rx - cat_cx) / cat_rx;
     let dy_cat = (ry - 0.49) / 0.27;
     let over_cat = (dx_cat * dx_cat + dy_cat * dy_cat) <= 1.0;
 
-    // Tail curve extending to the right of the cat's hip so users can poke the tail without click-through
-    let over_tail = if is_108 {
-        rx >= 0.64 && rx <= 0.85 && ry >= 0.48 && ry <= 0.72
-    } else {
-        rx >= 0.64 && rx <= 0.90 && ry >= 0.48 && ry <= 0.72
+    // Tail curve extending to the right of the cat's hip (covering full 2D & 3D resting/swaying tail tips!)
+    let over_tail = match layout {
+        "108" => rx >= 0.60 && rx <= 0.92 && ry >= 0.38 && ry <= 0.75,
+        "98" => rx >= 0.60 && rx <= 0.94 && ry >= 0.38 && ry <= 0.75,
+        _ => rx >= 0.60 && rx <= 0.96 && ry >= 0.38 && ry <= 0.75,
     };
 
     // Keyboard & mouse lower area
-    let over_desk = if is_108 {
-        rx >= 0.04 && rx <= 0.94 && ry >= 0.65 && ry <= 0.94
-    } else {
-        rx >= 0.06 && rx <= 0.92 && ry >= 0.65 && ry <= 0.91
+    let over_desk = match layout {
+        "108" => rx >= 0.04 && rx <= 0.96 && ry >= 0.65 && ry <= 0.95,
+        "98" => rx >= 0.05 && rx <= 0.96 && ry >= 0.65 && ry <= 0.94,
+        _ => rx >= 0.06 && rx <= 0.95 && ry >= 0.65 && ry <= 0.94,
     };
 
     (over_cat || over_tail || over_desk, over_cat)
@@ -4221,7 +4993,9 @@ fn start_hit_test_loop(
 ) {
     let tail_picker_bounds = app.state::<AppState>().tail_picker_bounds.clone();
     let peek_edge_state = app.state::<AppState>().peek_edge.clone();
+    let treat_active = app.state::<AppState>().treat_active.clone();
     std::thread::spawn(move || {
+        #[cfg(not(target_os = "linux"))]
         let mut last_ignore: Option<bool> = None;
         let mut last_cursor: (i32, i32) = (i32::MIN, i32::MIN);
         let mut last_over_cat = false;
@@ -4260,6 +5034,8 @@ fn start_hit_test_loop(
         let mut unix_last_rdp_check = Instant::now() - Duration::from_secs(5);
         #[cfg(any(target_os = "macos", target_os = "linux"))]
         let mut unix_yielded_rdp = false;
+        #[cfg(target_os = "linux")]
+        let mut last_linux_region_spec: Option<linux_webview::LinuxInputRegionSpec> = None;
 
         loop {
             std::thread::sleep(Duration::from_millis(sleep_ms));
@@ -4320,6 +5096,78 @@ fn start_hit_test_loop(
                 continue;
             }
             let sf = win.scale_factor().unwrap_or(1.0);
+
+            // On Linux (X11, XWayland/WSLg, and pure Wayland), apply a native static silhouette
+            // `cairo::Region` input shape instead of toggling `set_ignore_cursor_events(true/false)`
+            // per cursor tick. Running this before `get_cursor_pos` guarantees transparent margins
+            // pass clicks through while the cat/keyboard stay clickable even when `XQueryPointer`
+            // is frozen (XWayland/WSLg) or unavailable (pure Wayland).
+            #[cfg(target_os = "linux")]
+            {
+                if let Some((_, _, raw_w, raw_h)) = linux_window_client_rect(&win) {
+                    let win_log_w = ((raw_w.max(1) as f64) / sf).round() as i32;
+                    let win_log_h = ((raw_h.max(1) as f64) / sf).round() as i32;
+                    let (locked_l, layout_l, scale_l) = {
+                        let s = settings.lock().unwrap();
+                        let layout: &'static str = match s.keyboard_layout.as_str() {
+                            "108" => "108",
+                            "98" => "98",
+                            _ => "65",
+                        };
+                        (s.click_through_locked, layout, s.scale.clamp(0.20, 1.50))
+                    };
+                    let effective_locked_l = locked_l && !input_hook::is_alt_pressed();
+                    let is_drag_l = dragging.load(Ordering::Relaxed);
+                    let is_banner_l = update_banner_open.load(Ordering::Relaxed);
+                    let is_treat_l = treat_active.load(Ordering::Relaxed);
+                    let picker_l = *tail_picker_bounds.lock().unwrap();
+                    let peek_l: &'static str = peek_edge_state
+                        .lock()
+                        .map(|g| match g.as_str() {
+                            "left" => "left",
+                            "right" => "right",
+                            _ => "none",
+                        })
+                        .unwrap_or("none");
+                    let picker_rects = picker_l.map(|b| {
+                        [
+                            linux_webview::norm_box_to_logical_rect(
+                                b.toolbar, win_log_w, win_log_h,
+                            ),
+                            linux_webview::norm_box_to_logical_rect(
+                                b.keyboard, win_log_w, win_log_h,
+                            ),
+                            linux_webview::norm_box_to_logical_rect(
+                                b.close_button,
+                                win_log_w,
+                                win_log_h,
+                            ),
+                        ]
+                    });
+                    let spec = linux_webview::LinuxInputRegionSpec {
+                        win_log_w,
+                        win_log_h,
+                        full_capture: is_drag_l || is_treat_l,
+                        locked: effective_locked_l && !is_treat_l,
+                        layout: layout_l,
+                        scale_millis: (scale_l * 1000.0).round() as u16,
+                        peek_edge: peek_l,
+                        banner_open: is_banner_l,
+                        picker_rects,
+                    };
+                    if last_linux_region_spec.as_ref() != Some(&spec) {
+                        let shape = linux_webview::build_linux_input_region_shape(&spec);
+                        last_linux_region_spec = Some(spec);
+                        let app_for_shape = app.clone();
+                        let _ = app.run_on_main_thread(move || {
+                            if let Some(w) = app_for_shape.get_webview_window("main") {
+                                linux_webview::apply_input_region(&w, &shape);
+                            }
+                        });
+                    }
+                }
+            }
+
             let Some((cx, cy)) = get_cursor_pos(sf) else {
                 continue;
             };
@@ -4335,29 +5183,49 @@ fn start_hit_test_loop(
                 #[cfg(not(windows))]
                 unreachable!()
             } else {
-                let Ok(pos) = win.outer_position() else {
-                    continue;
-                };
-                let Ok(size) = win.outer_size() else {
-                    continue;
-                };
-                (pos.x, pos.y, size.width.max(1) as f64, size.height.max(1) as f64)
+                #[cfg(target_os = "linux")]
+                {
+                    let Some((lx, ly, lw, lh)) = linux_window_client_rect(&win) else {
+                        continue;
+                    };
+                    (lx, ly, lw.max(1) as f64, lh.max(1) as f64)
+                }
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let Ok(pos) = win.outer_position() else {
+                        continue;
+                    };
+                    let Ok(size) = win.outer_size() else {
+                        continue;
+                    };
+                    (pos.x, pos.y, size.width.max(1) as f64, size.height.max(1) as f64)
+                }
             };
+            // The transparent right-hand stage must not stretch the original
+            // hit silhouettes or take desktop clicks in the empty apron.
+            let w = handover_stage::hit_width(&app, sf, w);
             let rx = (cx - win_x) as f64 / w;
             let ry = (cy - win_y) as f64 / h;
             let inside = rx >= 0.0 && rx <= 1.0 && ry >= 0.0 && ry <= 1.0;
-            let (locked, always_on_top, is_108, cur_scale) = {
+            let (locked, always_on_top, yield_on_fullscreen, layout_str, cur_scale) = {
                 let s = settings.lock().unwrap();
+                let layout = match s.keyboard_layout.as_str() {
+                    "108" => "108",
+                    "98" => "98",
+                    _ => "65",
+                };
                 (
                     s.click_through_locked,
                     s.always_on_top,
-                    s.keyboard_layout == "108",
+                    s.yield_on_fullscreen,
+                    layout,
                     s.scale.clamp(0.20, 1.50),
                 )
             };
-            let layout_str = if is_108 { "108" } else { "65" };
             #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
-            let _ = always_on_top;
+            let _ = (always_on_top, yield_on_fullscreen);
+            #[cfg(target_os = "macos")]
+            let _ = yield_on_fullscreen;
 
             let is_menu = menu_open.load(Ordering::Relaxed);
             let picker_bounds = *tail_picker_bounds.lock().unwrap();
@@ -4370,6 +5238,7 @@ fn start_hit_test_loop(
             #[cfg(all(not(windows), not(target_os = "macos")))]
             let is_drag = dragging.load(Ordering::Relaxed);
             let is_banner = update_banner_open.load(Ordering::Relaxed);
+            let is_treat = treat_active.load(Ordering::Relaxed);
 
             // Continuous ADR-0096-style Windows Z-order guard with #40 yield support:
             // - Yields below fullscreen Remote Desktop (`mstsc.exe`, etc.), visible Windows 10/11
@@ -4405,7 +5274,7 @@ fn start_hit_test_loop(
                     if let Some(our_hwnd) = our_hwnd_opt {
                         if !win_is_iconic(our_hwnd) {
                             let yield_action = if run_enum {
-                                win_detect_yield_action(our_hwnd, fg_raw)
+                                win_detect_yield_action(our_hwnd, fg_raw, yield_on_fullscreen)
                             } else {
                                 WinYieldAction::None
                             };
@@ -4597,7 +5466,9 @@ fn start_hit_test_loop(
                 if unix_last_rdp_check.elapsed() >= Duration::from_millis(450) {
                     unix_last_rdp_check = Instant::now();
                     let rdp_fullscreen = input_hook::linux_hook::query_active_window_fullscreen_wm_class()
-                        .is_some_and(|(cls, fs)| fs && linux_is_remote_desktop_wm_class(&cls));
+                        .is_some_and(|(cls, fs)| {
+                            fs && (yield_on_fullscreen || linux_is_remote_desktop_wm_class(&cls))
+                        });
                     if rdp_fullscreen != unix_yielded_rdp {
                         unix_yielded_rdp = rdp_fullscreen;
                         let app_for_top = app.clone();
@@ -4633,12 +5504,12 @@ fn start_hit_test_loop(
                 .unwrap_or_else(|_| "none".to_string());
             let (over_interactive, raw_over_cat) = if cur_peek == "left" || cur_peek == "right" {
                 if inside {
-                    is_over_interactive_silhouette(rx, ry, is_108, &cur_peek)
+                    is_over_interactive_silhouette(rx, ry, layout_str, &cur_peek)
                 } else {
                     (false, false)
                 }
             } else if inside_pet {
-                is_over_interactive_silhouette(pet_rx, pet_ry, is_108, &cur_peek)
+                is_over_interactive_silhouette(pet_rx, pet_ry, layout_str, &cur_peek)
             } else {
                 (false, false)
             };
@@ -4673,6 +5544,7 @@ fn start_hit_test_loop(
                     || effective_locked
                     || is_menu
                     || is_banner
+                    || is_treat
                     || picker_bounds.is_some()
                 {
                     win_press_start = None;
@@ -4716,7 +5588,28 @@ fn start_hit_test_loop(
                         }
                     }
                 } else {
-                    win_press_start = None;
+                    // Unfocused WebView2 quick-tap fallback: if the user pressed & released quickly
+                    // (< 6px, <= 320ms) over our pet window without starting a drag, notify JS so
+                    // nose boop & tail poke NEVER get swallowed by an unfocused focus:false window!
+                    if let Some((px, py, pressed_at)) = win_press_start.take() {
+                        if !dragging.load(Ordering::Acquire)
+                            && !WIN_NATIVE_DRAG_ACTIVE.load(Ordering::Acquire)
+                            && pressed_at.elapsed() <= Duration::from_millis(320)
+                        {
+                            let dist = ((cx - px) as f64).hypot((cy - py) as f64);
+                            if dist < 6.0 {
+                                let client_x = (px - win_x) as f64 / sf.max(0.1);
+                                let client_y = (py - win_y) as f64 / sf.max(0.1);
+                                let _ = app.emit(
+                                    "kuro-native-tap",
+                                    serde_json::json!({
+                                        "clientX": client_x,
+                                        "clientY": client_y,
+                                    }),
+                                );
+                            }
+                        }
+                    }
                 }
                 win_lbtn_was_down = lbtn;
                 win_press_start.is_some()
@@ -4724,7 +5617,8 @@ fn start_hit_test_loop(
             #[cfg(not(windows))]
             let win_drag_armed = false;
 
-            let should_ignore = if is_drag || win_drag_armed || over_banner || over_tail_picker {
+            #[cfg(not(target_os = "linux"))]
+            let should_ignore = if is_drag || win_drag_armed || over_banner || over_tail_picker || is_treat {
                 false
             } else if effective_locked {
                 true
@@ -4734,6 +5628,7 @@ fn start_hit_test_loop(
                 !over_interactive
             };
 
+            #[cfg(not(target_os = "linux"))]
             if last_ignore != Some(should_ignore) {
                 #[cfg(windows)]
                 if is_win7_ulw {
@@ -4787,7 +5682,7 @@ fn start_hit_test_loop(
             #[cfg(target_os = "macos")]
             {
                 let lbtn = input_hook::macos_hook::is_left_mouse_down();
-                if is_drag || effective_locked || is_menu || is_banner || picker_bounds.is_some() {
+                if is_drag || effective_locked || is_menu || is_banner || is_treat || picker_bounds.is_some() {
                     mac_press_start = None;
                 } else if !mac_lbtn_was_down && lbtn {
                     mac_press_start = if over_interactive {
@@ -5596,6 +6491,26 @@ fn probe_linux_kylin_or_software_gl() -> bool {
         return false;
     }
 
+    // WSL2 (/dev/dxg) and Linux VMs/containers without any /dev/dri DRM/GBM device nodes cannot
+    // export DMA-BUF textures; leaving WebKitGTK 2.44+ DMA-BUF enabled yields an empty transparent
+    // window. Route them onto WEBKIT_DMABUF_RENDERER_FORCE_SHM=1 automatically.
+    if Path::new("/dev/dxg").exists() {
+        return true;
+    }
+    let has_dri_node = std::fs::read_dir("/dev/dri")
+        .ok()
+        .map(|entries| {
+            entries.flatten().any(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                name.starts_with("renderD") || name.starts_with("card")
+            })
+        })
+        .unwrap_or(false);
+    if !has_dri_node {
+        return true;
+    }
+
     // No hardware Mesa GPU detected: check common VM DMI markers (VMware/VirtualBox/QEMU/KVM/etc.)
     for dmi_path in [
         "/sys/class/dmi/id/product_name",
@@ -5726,7 +6641,16 @@ pub fn run() {
         linux_configure_display_env();
     }
 
-    let initial_settings = load_settings();
+    let is_first_run = !config::config_path().exists();
+    let mut initial_settings = load_settings();
+    if is_first_run && initial_settings.autostart {
+        // Fresh install: enable standard (non-admin, zero-UAC) OS autostart by default and
+        // persist settings.json immediately so turning it off later is always remembered.
+        if set_windows_autostart(true).is_err() {
+            initial_settings.autostart = false;
+        }
+        save_settings(&initial_settings);
+    }
     let settings_arc = Arc::new(Mutex::new(initial_settings.clone()));
     let menu_open = Arc::new(AtomicBool::new(false));
     let menu_creating = Arc::new(AtomicBool::new(false));
@@ -5744,6 +6668,7 @@ pub fn run() {
     let paused_for_setup = paused_guard.clone();
 
     let run_result = tauri::Builder::default()
+        .manage(handover_stage::HandoverStage::default())
         .manage(AppState {
             settings: settings_arc,
             menu_open,
@@ -5755,6 +6680,7 @@ pub fn run() {
             dragging,
             mcp_enabled,
             update_banner_open,
+            treat_active: Arc::new(AtomicBool::new(false)),
             paused_guard,
             peek_edge: Arc::new(Mutex::new("none".to_string())),
             peek_preview_edge: Arc::new(Mutex::new("none".to_string())),
@@ -5770,6 +6696,14 @@ pub fn run() {
             }
 
             if let Some(win) = app.get_webview_window("main") {
+                let stage_handle = handle.clone();
+                win.on_window_event(move |event| {
+                    if matches!(event, tauri::WindowEvent::ScaleFactorChanged { .. }) {
+                        handover_stage::dpi_changed(&stage_handle);
+                    }
+                });
+                #[cfg(target_os = "linux")]
+                linux_webview::configure_transparent_webview(&win)?;
                 let (win_w, win_h) = window_dimensions(&s.keyboard_layout, s.scale);
                 let _ = win.set_size(Size::Logical(LogicalSize::new(win_w, win_h)));
                 #[cfg(not(target_os = "macos"))]
@@ -5793,6 +6727,15 @@ pub fn run() {
                         None => (target_x, target_y, sz, false),
                     }
                 };
+
+                #[cfg(windows)]
+                {
+                    win_apply_webview_low_memory(&win);
+                    std::thread::spawn(|| {
+                        std::thread::sleep(Duration::from_secs(18));
+                        win_trim_process_tree_working_set(true);
+                    });
+                }
 
                 #[cfg(windows)]
                 if win_needs_win7_ulw() {
@@ -5839,7 +6782,7 @@ pub fn run() {
 
                 #[cfg(target_os = "macos")]
                 {
-                    macos_window::configure_fullscreen(&win, s.always_on_top);
+                    macos_window::configure_fullscreen(&win, s.always_on_top, s.yield_on_fullscreen);
                     match (s.display_id.as_deref(), s.x, s.y) {
                         (None, Some(x), Some(y)) => {
                             let _ = win.set_position(PhysicalPosition::new(x, y));
@@ -5852,6 +6795,10 @@ pub fn run() {
             }
 
             tray::setup_tray(&handle, &s)?;
+            #[cfg(target_os = "macos")]
+            trackpad::watch(handle.clone());
+            input_hook::set_expression_hotkeys_enabled(s.expression_hotkeys);
+            input_hook::set_pause_hotkey(&s.pause_hotkey);
             input_hook::start_global_hooks(handle.clone());
             privacy::start_password_privacy_watcher(
                 handle.clone(),
@@ -5863,6 +6810,7 @@ pub fn run() {
                 settings_for_setup.clone(),
                 paused_for_setup.clone(),
             );
+            gamepad::start_gamepad_watcher(handle.clone(), paused_for_setup.clone());
             start_hit_test_loop(
                 handle.clone(),
                 settings_for_setup,
@@ -5879,6 +6827,9 @@ pub fn run() {
             let http_handle = handle.clone();
             let agent_handle = handle.clone();
             let mcp_port = if s.mcp_port == 0 { 27420 } else { s.mcp_port };
+            if s.mcp_enabled {
+                let _ = mcp::ensure_dsh_bridge_plugin(mcp_port);
+            }
             mcp::start_http_mcp_server(
                 mcp_port,
                 mcp_for_setup,
@@ -5911,6 +6862,22 @@ pub fn run() {
                     .and_then(|v| v.get("active").and_then(|a| a.as_bool()))
                     .unwrap_or(false);
                 obs::set_game_active(active, raw);
+            });
+            handle.listen("kuro-tablet-active", |ev| {
+                let raw = ev.payload();
+                let active = serde_json::from_str::<serde_json::Value>(raw)
+                    .ok()
+                    .and_then(|v| v.get("active").and_then(|a| a.as_bool()))
+                    .unwrap_or(false);
+                obs::set_tablet_active(active, raw);
+            });
+            handle.listen("kuro-gamepad", |ev| {
+                let raw = ev.payload();
+                let active = serde_json::from_str::<serde_json::Value>(raw)
+                    .ok()
+                    .and_then(|v| v.get("active").and_then(|a| a.as_bool()))
+                    .unwrap_or(false);
+                obs::set_gamepad_state(active, raw);
             });
             obs::sync_obs_server(&handle, s.obs_enabled, s.obs_port);
             if s.live_capture_enabled {
@@ -5951,28 +6918,87 @@ pub fn run() {
                 });
             }
 
+            #[cfg(windows)]
+            {
+                let sync_handle = app.handle().clone();
+                let _ = std::thread::Builder::new()
+                    .name("kuro-autostart-sync".to_string())
+                    .spawn(move || {
+                        let Ok(exe) = std::env::current_exe() else {
+                            return;
+                        };
+                        let exe_str = exe.to_string_lossy().to_string();
+                        let self_elevated = win_is_elevated();
+                        let run_entry = win_autostart::query_windows_run_autostart();
+                        let task_query = win_autostart::query_admin_autostart_task();
+                        let state = sync_handle.state::<AppState>();
+                        let (saved_auto, saved_admin) = {
+                            let s = state.settings.lock().unwrap();
+                            (s.autostart, s.autostart_admin)
+                        };
+                        let (next_auto, next_admin, fix_run, fix_task) =
+                            win_autostart::reconcile_windows_autostart_state(
+                                saved_auto,
+                                saved_admin,
+                                run_entry.as_deref(),
+                                &task_query,
+                                &exe_str,
+                                self_elevated,
+                            );
+                        if fix_run {
+                            // When admin task is active, remove stray Run key; when normal autostart moved, refresh Run path.
+                            let _ = set_windows_autostart(next_auto && !next_admin);
+                        }
+                        if fix_task && self_elevated {
+                            let _ = win_autostart::register_admin_autostart_task_direct(None);
+                        }
+                        if next_auto != saved_auto || next_admin != saved_admin {
+                            let updated = {
+                                let mut s = state.settings.lock().unwrap();
+                                s.autostart = next_auto;
+                                s.autostart_admin = next_admin;
+                                save_settings(&s);
+                                s.clone()
+                            };
+                            tray::sync_checkmarks(&updated);
+                            let _ = sync_handle.emit("kuro-settings", updated);
+                        }
+                    });
+            }
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            obs::load_local_whale_avatar,
             get_settings,
+            trackpad_unavailable,
             get_resolved_locale,
             trim_idle_memory,
             get_cats,
             get_game_active,
+            get_tablet_active,
+            get_gamepad_active,
             get_admin_status,
             diagnose_macos_input,
             restart_as_admin,
             get_mcp_config,
             get_agent_hooks_config,
             get_obs_url,
+            broadcast_pet_interaction,
+            trigger_pet_emotion,
             get_app_version,
             update_settings,
+            set_autostart_mode,
             open_context_menu,
             close_context_menu,
             close_live_capture_window,
             open_tail_picker_from_menu,
+            start_treat_feed_from_menu,
+            set_treat_active,
+            record_treat_fed,
             preview_scale,
             preview_opacity,
+            preview_sound_volume,
             set_menu_open,
             set_tail_picker_bounds,
             save_tail_picker_selection,
@@ -5992,6 +7018,9 @@ pub fn run() {
             check_for_update,
             install_update,
             open_release_page,
+            handover_stage::begin_handover_stage,
+            handover_stage::end_handover_stage,
+            get_pause_hotkey_status,
             quit_app,
         ])
         .run(tauri::generate_context!());
@@ -6308,19 +7337,24 @@ mod side_menu_layout_tests {
     #[test]
     fn peek_silhouette_hitbox_covers_head_and_gripping_hands_on_both_edges() {
         // Left peek: head & gripping hands near left edge are interactive; far right is click-through
-        assert_eq!(super::is_over_interactive_silhouette(0.05, 0.50, false, "left"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.35, 0.50, false, "left"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.16, 0.25, false, "left"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.50, false, "left"), (false, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.05, 0.50, "65", "left"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.35, 0.50, "65", "left"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.16, 0.25, "65", "left"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.50, "65", "left"), (false, false));
 
         // Right peek: head & gripping hands near right edge are interactive; far left is click-through
-        assert_eq!(super::is_over_interactive_silhouette(0.95, 0.50, false, "right"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.65, 0.50, false, "right"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.84, 0.75, false, "right"), (true, true));
-        assert_eq!(super::is_over_interactive_silhouette(0.20, 0.50, false, "right"), (false, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.95, 0.50, "65", "right"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.65, 0.50, "65", "right"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.84, 0.75, "65", "right"), (true, true));
+        assert_eq!(super::is_over_interactive_silhouette(0.20, 0.50, "65", "right"), (false, false));
 
-        // Normal stance: tail hitbox is interactive so users can poke the tail without click-through
-        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.58, false, "none"), (true, false));
+        // Normal stance: tail hitbox (including upper/outer resting 3D & 2D tail tip) is interactive without click-through
+        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.58, "65", "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.92, 0.42, "65", "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.58, "98", "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.90, 0.42, "98", "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.80, 0.58, "108", "none"), (true, false));
+        assert_eq!(super::is_over_interactive_silhouette(0.88, 0.42, "108", "none"), (true, false));
     }
 
     #[test]
@@ -6648,11 +7682,14 @@ mod side_menu_layout_tests {
     #[test]
     fn edge_peek_snap_and_resize_preserve_flush_bezel_alignment() {
         let (wx, wy, ww, wh) = (0, 0, 1920, 1040);
-        // 65% & 108% layouts across 0.5x / 1.0x / 1.25x scales snap flush to wx (left) & wx+ww (right)
+        // 65%, 98% & 108% layouts across 0.5x / 1.0x / 1.25x scales snap flush to wx (left) & wx+ww (right)
         for (layout, scale) in [
             ("65", 0.5),
             ("65", 1.0),
             ("65", 1.25),
+            ("98", 0.5),
+            ("98", 1.0),
+            ("98", 1.25),
             ("108", 0.5),
             ("108", 1.0),
             ("108", 1.25),
@@ -6689,6 +7726,60 @@ mod side_menu_layout_tests {
         assert!(parsed.click_through_locked, "clickThroughLocked must round-trip as true");
     }
 
+    #[cfg(any(windows, test))]
+    #[test]
+    fn true_fullscreen_classifier_distinguishes_maximized_from_fullscreen_and_excludes_ime() {
+        let mon = (0, 0, 1920, 1080);
+        let work_with_taskbar = (0, 0, 1920, 1032);
+
+        // Normal maximized browser/editor with visible taskbar: must NOT trigger fullscreen yield!
+        assert!(!super::is_true_fullscreen_rect((0, 0, 1920, 1032), mon, work_with_taskbar, true));
+        // Normal maximized app with auto-hidden taskbar (work == mon) still has WS_CAPTION + IsZoomed: must NOT trigger!
+        assert!(!super::is_true_fullscreen_rect((0, 0, 1920, 1080), mon, mon, true));
+        // True fullscreen HTML5 video / PotPlayer / borderless game covering taskbar: MUST trigger!
+        assert!(super::is_true_fullscreen_rect((0, 0, 1920, 1080), mon, work_with_taskbar, false));
+        assert!(super::is_true_fullscreen_rect((0, 0, 1920, 1080), mon, work_with_taskbar, true));
+        // True fullscreen with auto-hidden taskbar (no WS_CAPTION): MUST trigger!
+        assert!(super::is_true_fullscreen_rect((0, 0, 1920, 1080), mon, mon, false));
+
+        // IME overlay classes must be excluded from toast-yield Z-order churn
+        assert!(super::is_ime_overlay_class("SoPY_Comp"));
+        assert!(super::is_ime_overlay_class("MSCTFIME UI"));
+        assert!(super::is_ime_overlay_class("Microsoft.IME.UIManager.CandidateWindow.Host"));
+        assert!(super::is_ime_overlay_class("WeTypeCandidateWnd"));
+        assert!(!super::is_ime_overlay_class("Qt5QWindowToolSaveBits"));
+        assert!(!super::is_ime_overlay_class("Chrome_WidgetWin_1"));
+    }
+
+    #[cfg(any(windows, test))]
+    #[test]
+    fn screenshot_overlay_classifier_yields_to_snipaste_pixpin_and_im_capture_without_false_positives() {
+        // Dedicated screenshot/pin utilities: yield for BOTH F1 fullscreen capture AND F3 large pins when topmost
+        assert!(super::is_screenshot_overlay_window("Snipaste.exe", true, true));
+        assert!(super::is_screenshot_overlay_window("snipaste.exe", true, false));
+        assert!(super::is_screenshot_overlay_window("PixPin.exe", true, true));
+        assert!(super::is_screenshot_overlay_window("pixpin.exe", true, false));
+        assert!(super::is_screenshot_overlay_window("ScreenClippingHost.exe", true, true));
+        assert!(super::is_screenshot_overlay_window("ShareX.exe", true, false));
+        assert!(super::is_screenshot_overlay_window("FSCapture.exe", true, true));
+        // Non-topmost Snipaste/PixPin settings windows must NOT force yield
+        assert!(!super::is_screenshot_overlay_window("Snipaste.exe", false, false));
+        assert!(!super::is_screenshot_overlay_window("PixPin.exe", false, false));
+
+        // IM built-in screenshot overlays (WeChat/QQ/Feishu/DingTalk): ONLY when BOTH topmost AND fullscreen
+        assert!(super::is_screenshot_overlay_window("WeChat.exe", true, true));
+        assert!(super::is_screenshot_overlay_window("Weixin.exe", true, true));
+        assert!(super::is_screenshot_overlay_window("QQ.exe", true, true));
+        assert!(super::is_screenshot_overlay_window("Feishu.exe", true, true));
+        // Normal or pinned non-fullscreen chat windows must NOT trigger yield!
+        assert!(!super::is_screenshot_overlay_window("WeChat.exe", true, false));
+        assert!(!super::is_screenshot_overlay_window("WeChat.exe", false, true));
+        assert!(!super::is_screenshot_overlay_window("QQ.exe", true, false));
+        // Unrelated browsers/editors must NEVER trigger screenshot overlay yield
+        assert!(!super::is_screenshot_overlay_window("chrome.exe", true, true));
+        assert!(!super::is_screenshot_overlay_window("Code.exe", true, true));
+    }
+
     #[test]
     fn should_hide_desktop_pet_respects_both_obs_and_live_capture_flags() {
         let mut s = crate::config::AppSettings::default();
@@ -6714,6 +7805,20 @@ mod side_menu_layout_tests {
         assert!(super::should_hide_desktop_pet(&s), "still hidden while OBS hide is active");
         s.obs_hide_pet = false;
         assert!(!super::should_hide_desktop_pet(&s));
+    }
+
+    #[test]
+    fn webview_browser_args_matches_tauri_conf_byte_for_byte() {
+        let conf: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json"))
+            .expect("tauri.conf.json must parse");
+        let main_args = conf["app"]["windows"][0]["additionalBrowserArgs"]
+            .as_str()
+            .expect("main window must define additionalBrowserArgs");
+        assert_eq!(
+            main_args,
+            super::WEBVIEW_BROWSER_ARGS,
+            "WEBVIEW_BROWSER_ARGS must match tauri.conf.json byte-for-byte to avoid WebView2 0x8007139F on 2nd window"
+        );
     }
 
     #[cfg(windows)]

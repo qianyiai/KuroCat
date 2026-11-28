@@ -1,7 +1,7 @@
-import idleUrl from './assets/dafeiyu/notail_idle.png';
-import blinkUrl from './assets/dafeiyu/notail_blink.png';
-import shyUrl from './assets/dafeiyu/notail_shy.png';
-import happyUrl from './assets/dafeiyu/notail_happy2.png';
+import idleUrl from './assets/dafeiyu/notail_idle.webp';
+import blinkUrl from './assets/dafeiyu/notail_blink.webp';
+import shyUrl from './assets/dafeiyu/notail_shy.webp';
+import happyUrl from './assets/dafeiyu/notail_happy2.webp';
 
 export interface DaFeiYuLayout {
   logicalW: number;
@@ -22,7 +22,43 @@ export interface DaFeiYuLayout {
   privacyMode: boolean;
   privacyTypingAt: number;
   is108: boolean;
+  keyboardLayout?: '65' | '98' | '108' | 'macbook';
   peekAmount?: number;
+}
+
+function resolveBigFishLayoutMetrics(layout: DaFeiYuLayout) {
+  const id = layout.keyboardLayout ?? (layout.is108 ? '108' : '65');
+  if (id === '108') {
+    return {
+      charX: 268,
+      baseCharY: 366,
+      drawW: 268,
+      mouseShiftTyping: -88,
+      mouseShiftIdle: -125,
+      typingShiftAmp: 22,
+      maxMouseReach: 96,
+    };
+  }
+  if (id === '98') {
+    return {
+      charX: 232,
+      baseCharY: 365,
+      drawW: 265,
+      mouseShiftTyping: -64,
+      mouseShiftIdle: -84,
+      typingShiftAmp: 18,
+      maxMouseReach: 92,
+    };
+  }
+  return {
+    charX: 192,
+    baseCharY: 364,
+    drawW: 262,
+    mouseShiftTyping: -38,
+    mouseShiftIdle: -38,
+    typingShiftAmp: 13,
+    maxMouseReach: 88,
+  };
 }
 
 interface HandState {
@@ -228,7 +264,8 @@ export class DaFeiYuRenderer {
     this.keyTimes.push(now);
     this.bodyBob = Math.min(1.1, this.bodyBob + 0.72);
 
-    const charX = layout.is108 ? 268 : 192;
+    const metrics = resolveBigFishLayoutMetrics(layout);
+    const charX = metrics.charX;
     const normX = Math.max(-1, Math.min(1, (pt.x - layout.kbCenterX) / (layout.kbWidth * 0.46)));
     const mouseBusy = layout.mouseLeft || layout.mouseRight || now - layout.mouseActiveAt < 900;
     const isLeftSide = pt.x < layout.kbCenterX - 2;
@@ -250,7 +287,7 @@ export class DaFeiYuRenderer {
       this.spawnParticles(pt.x, pt.y - 8, 3, true);
     } else if (mouseBusy) {
       // Simultaneous mouse + keyboard: left hand stays glued on mouse, right hand taps main keyboard!
-      const shiftBase = layout.is108 ? -88 : -38;
+      const shiftBase = metrics.mouseShiftTyping;
       const curCharX = charX + shiftBase;
       const comfortX = Math.max(curCharX - 10, Math.min(curCharX + 92, pt.x));
       const comfortY = Math.min(layout.kbCenterY + 6, pt.y);
@@ -262,7 +299,7 @@ export class DaFeiYuRenderer {
     } else {
       // Cozy two-handed typing with gentle micro-sway (±5.5°)
       this.bodyTiltTarget = normX * 0.095;
-      this.bodyShiftTarget = normX * (layout.is108 ? 22 : 13);
+      this.bodyShiftTarget = normX * metrics.typingShiftAmp;
       const comfortX =
         charX +
         this.bodyShiftTarget +
@@ -373,7 +410,8 @@ export class DaFeiYuRenderer {
       this.nextBlinkAt = now + 4500 + Math.random() * 2700;
     }
 
-    const charX = layout.is108 ? 268 : 192;
+    const metrics = resolveBigFishLayoutMetrics(layout);
+    const charX = metrics.charX;
     if (isHappy && Math.random() < 0.06) {
       this.spawnParticles(charX + this.bodyShiftX, 120, 1, false);
     } else if (!layout.privacyMode && this.moodTier === 2 && Math.random() < 0.025) {
@@ -397,7 +435,7 @@ export class DaFeiYuRenderer {
       this.bodyTiltTarget = shySway;
       this.bodyDiveY *= Math.exp(-9 * dt);
     } else if (mouseMode) {
-      const baseShift = layout.is108 ? -125 : -38;
+      const baseShift = metrics.mouseShiftIdle;
       this.bodyShiftTarget = baseShift + (layout.mouseNX - 0.5) * 12;
       this.bodyTiltTarget = -0.10;
       this.bodyDiveY += (8 - this.bodyDiveY) * (1 - Math.exp(-10 * dt));
@@ -520,12 +558,13 @@ export class DaFeiYuRenderer {
   }
 
   private computeGeom(now: number, layout: DaFeiYuLayout) {
-    const charX = layout.is108 ? 268 : 192;
-    const baseCharY = layout.is108 ? 366 : 364;
+    const metrics = resolveBigFishLayoutMetrics(layout);
+    const charX = metrics.charX;
+    const baseCharY = metrics.baseCharY;
     const breath = Math.sin(now * 0.0034) * 2.2 + this.bodyBob * 3.8 + this.bodyDiveY;
     const charCenterX = charX + this.bodyShiftX;
     const charBaseY = baseCharY + breath;
-    const drawW = layout.is108 ? 268 : 262;
+    const drawW = metrics.drawW;
     const drawH = drawW * (278 / 224);
     const pivotOff = 48;
     const pivotY = charBaseY - pivotOff;
@@ -982,7 +1021,7 @@ export class DaFeiYuRenderer {
     this.leftHand.squash *= Math.exp(-14 * dt);
     this.rightHand.squash *= Math.exp(-14 * dt);
 
-    const maxMouseReach = layout.is108 ? 96 : 88;
+    const maxMouseReach = resolveBigFishLayoutMetrics(layout).maxMouseReach;
     this.drawChubbyArm(
       ctx,
       shL.x,

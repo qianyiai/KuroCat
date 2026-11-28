@@ -1,11 +1,24 @@
 import * as THREE from 'three';
+import { macbookFinishes } from './macbookFinish';
+import { paintMacBookLegend } from './macbookLegend';
+import {
+  drawClickMark,
+  PAD_DEPTH_RATIO,
+  PAD_USABLE,
+  padCenterDepth,
+  padPosition,
+  Trackpad,
+  type PadPoint,
+} from './trackpad';
 import {
   getKeyboardLayout,
   resolveKeyByVk,
   type KeyboardLayoutId,
   type KeySpec,
 } from './keyboardLayout';
-import type { KeyboardOrientation } from './catEngine';
+import type { KeyboardOrientation } from './tailKeyTypes';
+export { GAMEPAD_BTN, type GamepadInputState } from './gamepadTypes';
+import { GAMEPAD_BTN, type GamepadInputState } from './gamepadTypes';
 
 export class Spring1D {
   public x: number;
@@ -287,12 +300,13 @@ function getKeycapAtlas(
   layoutId: KeyboardLayoutId,
   keys: readonly KeySpec[],
   rotated180: boolean,
+  white: boolean,
 ): KeyAtlasData {
-  const cacheKey = `${layoutId}|${rotated180 ? 1 : 0}`;
+  const cacheKey = `${layoutId}|${rotated180 ? 1 : 0}|${white ? 1 : 0}`;
   const cached = keyAtlasCache.get(cacheKey);
   if (cached) return cached;
 
-  // Evict previously cached layout atlases so switching 65%/108% never leaks GPU VRAM!
+  // Evict previously cached layout atlases so switching 65%/98%/108%/MacBook never leaks GPU VRAM!
   for (const [oldKey, oldEntry] of keyAtlasCache) {
     if (oldKey !== cacheKey) {
       oldEntry.tex.dispose();
@@ -300,16 +314,16 @@ function getKeycapAtlas(
     }
   }
 
-  const unique: Array<{ key: string; label: string; accent: 'base' | 'mod' | 'orange' }> = [];
+  const unique: Array<{ key: string; label: string; accent: 'base' | 'mod' | 'orange'; spec: KeySpec }> = [];
   const seen = new Set<string>();
   for (const spec of keys) {
     const accent: 'base' | 'mod' | 'orange' =
       spec.accent === 'orange' ? 'orange' : spec.accent === 'mod' ? 'mod' : 'base';
     const label = spec.id === 'space' ? '' : spec.id === 'esc' ? 'Esc' : spec.label;
-    const tk = `${label}|${accent}`;
+    const tk = layoutId === 'macbook' ? spec.id : `${label}|${accent}`;
     if (!seen.has(tk)) {
       seen.add(tk);
-      unique.push({ key: tk, label, accent });
+      unique.push({ key: tk, label, accent, spec });
     }
   }
 
@@ -317,10 +331,11 @@ function getKeycapAtlas(
   const nonOrange = unique.filter((u) => u.accent !== 'orange');
   const orangeOnly = unique.filter((u) => u.accent === 'orange');
 
-  const CELL = 96;
+  const CELL = layoutId === 'macbook' ? 128 : 96;
   const cols = nonOrange.length <= 56 ? 8 : 12;
   const nonOrangeRows = Math.ceil(nonOrange.length / cols);
-  const totalRows = Math.max(1, nonOrangeRows + (orangeOnly.length > 0 ? 1 : 0));
+  const orangeRows = Math.ceil(orangeOnly.length / cols);
+  const totalRows = Math.max(1, nonOrangeRows + orangeRows);
   const atlasW = cols * CELL;
   const atlasH = totalRows * CELL;
 
@@ -335,7 +350,7 @@ function getKeycapAtlas(
   const PAD = 7.5;
 
   const paintTile = (
-    item: { key: string; label: string; accent: 'base' | 'mod' | 'orange' },
+    item: { key: string; label: string; accent: 'base' | 'mod' | 'orange'; spec: KeySpec },
     col: number,
     row: number,
   ) => {
@@ -353,7 +368,19 @@ function getKeycapAtlas(
     g.fillStyle = grad;
     g.fillRect(ox, oy, CELL, CELL);
 
-    if (item.label) {
+    if (layoutId === 'macbook') {
+      const finish = macbookFinishes[white ? 'white' : 'black'];
+      g.fillStyle = finish.top;
+      g.fillRect(ox, oy, CELL, CELL);
+      g.save();
+      g.translate(ox + CELL / 2, oy + CELL / 2);
+      const tile = CELL - PAD * 2;
+      // The square atlas tile stretches onto a rectangular cap; paint in cap space.
+      const aspect = item.spec.uWidth / (item.spec.rowSpan ?? 1);
+      g.scale(1 / aspect, 1);
+      paintMacBookLegend(g, item.spec, tile * aspect, tile, rotated180, finish.ink);
+      g.restore();
+    } else if (item.label) {
       g.save();
       g.translate(ox + CELL * 0.5, oy + CELL * 0.5);
       if (rotated180) g.rotate(Math.PI);
@@ -379,23 +406,48 @@ function getKeycapAtlas(
     paintTile(nonOrange[i], i % cols, Math.floor(i / cols));
   }
   if (orangeOnly.length > 0) {
-    const orangeRow = totalRows - 1;
     g.fillStyle = '#f59b2e';
-    g.fillRect(0, orangeRow * CELL, atlasW, CELL);
+    g.fillRect(0, nonOrangeRows * CELL, atlasW, orangeRows * CELL);
     for (let i = 0; i < orangeOnly.length; i++) {
-      paintTile(orangeOnly[i], i % cols, orangeRow);
+      paintTile(orangeOnly[i], i % cols, nonOrangeRows + Math.floor(i / cols));
     }
   }
 
   const tex = new THREE.CanvasTexture(c);
-  tex.generateMipmaps = false;
-  tex.minFilter = THREE.LinearFilter;
+  tex.generateMipmaps = layoutId === 'macbook';
+  tex.minFilter = tex.generateMipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
+  if (tex.generateMipmaps) tex.anisotropy = 4;
   tex.magFilter = THREE.LinearFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.needsUpdate = true;
   const entry: KeyAtlasData = { tex, rects };
   keyAtlasCache.set(cacheKey, entry);
   return entry;
+}
+
+/** Unit chiclet keycap with rounded corners for MacBook ANSI layout (stays 100% instanced). */
+function makeChicletGeometry() {
+  const shape = new THREE.Shape();
+  const r = 0.12;
+  shape.moveTo(-0.5 + r, -0.5);
+  shape.lineTo(0.5 - r, -0.5);
+  shape.quadraticCurveTo(0.5, -0.5, 0.5, -0.5 + r);
+  shape.lineTo(0.5, 0.5 - r);
+  shape.quadraticCurveTo(0.5, 0.5, 0.5 - r, 0.5);
+  shape.lineTo(-0.5 + r, 0.5);
+  shape.quadraticCurveTo(-0.5, 0.5, -0.5, 0.5 - r);
+  shape.lineTo(-0.5, -0.5 + r);
+  shape.quadraticCurveTo(-0.5, -0.5, -0.5 + r, -0.5);
+  const side = new THREE.ExtrudeGeometry(shape, { depth: 1, bevelEnabled: false, curveSegments: 4 });
+  const walls = side.groups[1];
+  side.setDrawRange(walls.start, walls.count);
+  side.rotateX(-Math.PI / 2);
+  const top = new THREE.ShapeGeometry(shape, 4);
+  const uv = top.attributes.uv;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) + 0.5, uv.getY(i) + 0.5);
+  top.rotateX(-Math.PI / 2);
+  top.translate(0, 1, 0);
+  return { side, top };
 }
 
 export function disposeKeyboardCaches(): void {
@@ -493,6 +545,176 @@ function makeRoundedSlabGeo(w: number, d: number, h: number, r: number, y: numbe
   return g;
 }
 
+function makeGamepadContourShape(scaleX = 1, scaleZ = 1): THREE.Shape {
+  const sx = (v: number) => v * scaleX;
+  const sz = (v: number) => v * scaleZ;
+  const s = new THREE.Shape();
+  // Smooth ergonomic Pro-Controller silhouette (symmetric around X = 0, top edge = -Z, handles = +Z)
+  s.moveTo(0, sz(-0.295));
+  s.bezierCurveTo(sx(0.16), sz(-0.295), sx(0.28), sz(-0.335), sx(0.42), sz(-0.305));
+  s.bezierCurveTo(sx(0.55), sz(-0.275), sx(0.61), sz(-0.14), sx(0.64), sz(0.04));
+  s.bezierCurveTo(sx(0.675), sz(0.22), sx(0.66), sz(0.41), sx(0.535), sz(0.45));
+  s.bezierCurveTo(sx(0.43), sz(0.48), sx(0.35), sz(0.39), sx(0.295), sz(0.255));
+  s.bezierCurveTo(sx(0.24), sz(0.165), sx(0.145), sz(0.155), 0, sz(0.155));
+  s.bezierCurveTo(sx(-0.145), sz(0.155), sx(-0.24), sz(0.165), sx(-0.295), sz(0.255));
+  s.bezierCurveTo(sx(-0.35), sz(0.39), sx(-0.43), sz(0.48), sx(-0.535), sz(0.45));
+  s.bezierCurveTo(sx(-0.66), sz(0.41), sx(-0.675), sz(0.22), sx(-0.64), sz(0.04));
+  s.bezierCurveTo(sx(-0.61), sz(-0.14), sx(-0.55), sz(-0.275), sx(-0.42), sz(-0.305));
+  s.bezierCurveTo(sx(-0.28), sz(-0.335), sx(-0.16), sz(-0.295), 0, sz(-0.295));
+  return s;
+}
+
+function makeGamepadBtnLetterTexture(letter: 'A' | 'B' | 'X' | 'Y', bgHex: string, fgHex: string): THREE.CanvasTexture {
+  const key = `gp:btn:${letter}`;
+  const hit = miscTextureCache.get(key);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = bgHex;
+  g.fillRect(0, 0, 64, 64);
+  const grad = g.createRadialGradient(24, 20, 4, 32, 32, 34);
+  grad.addColorStop(0, 'rgba(255,255,255,0.34)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.12)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 64, 64);
+  g.font = '900 38px "Segoe UI", system-ui, sans-serif';
+  g.fillStyle = fgHex;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(letter, 32, 34);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  miscTextureCache.set(key, tex);
+  return tex;
+}
+
+function drawRoundedRect2D(
+  g: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  r: number,
+): void {
+  const rad = Math.min(r, w / 2, h / 2);
+  g.beginPath();
+  g.moveTo(x + rad, y);
+  g.arcTo(x + w, y, x + w, y + h, rad);
+  g.arcTo(x + w, y + h, x, y + h, rad);
+  g.arcTo(x, y + h, x, y, rad);
+  g.arcTo(x, y, x + w, y, rad);
+  g.closePath();
+}
+
+function makeGamepadCurvedBumperGeo(side: -1 | 1): THREE.ExtrudeGeometry {
+  // Authentic Xbox / Pro Controller curved upper bumper arc hugging the front shoulder bezier
+  const s = new THREE.Shape();
+  const x = (v: number) => side * v;
+  if (side > 0) {
+    s.moveTo(x(0.145), -0.296);
+    s.bezierCurveTo(x(0.24), -0.324, x(0.36), -0.326, x(0.475), -0.285);
+    s.quadraticCurveTo(x(0.505), -0.272, x(0.495), -0.242);
+    s.bezierCurveTo(x(0.37), -0.268, x(0.24), -0.266, x(0.15), -0.252);
+    s.quadraticCurveTo(x(0.125), -0.256, x(0.145), -0.296);
+  } else {
+    s.moveTo(x(0.145), -0.296);
+    s.quadraticCurveTo(x(0.125), -0.256, x(0.15), -0.252);
+    s.bezierCurveTo(x(0.24), -0.266, x(0.37), -0.268, x(0.495), -0.242);
+    s.quadraticCurveTo(x(0.505), -0.272, x(0.475), -0.285);
+    s.bezierCurveTo(x(0.36), -0.326, x(0.24), -0.324, x(0.145), -0.296);
+  }
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth: 0.044,
+    bevelEnabled: true,
+    bevelThickness: 0.011,
+    bevelSize: 0.010,
+    bevelSegments: 3,
+    curveSegments: 14,
+  });
+  geo.rotateX(Math.PI / 2);
+  return geo;
+}
+
+function makeGamepadCurvedTriggerGeo(side: -1 | 1): THREE.ExtrudeGeometry {
+  // Sculpted Xbox analog trigger paddle positioned directly beneath the upper bumper (hinged at z = 0)
+  const s = new THREE.Shape();
+  const x = (v: number) => side * v;
+  if (side > 0) {
+    s.moveTo(x(0.225), -0.295);
+    s.bezierCurveTo(x(0.28), -0.312, x(0.39), -0.310, x(0.445), -0.282);
+    s.bezierCurveTo(x(0.455), -0.352, x(0.425), -0.415, x(0.335), -0.418);
+    s.bezierCurveTo(x(0.250), -0.415, x(0.215), -0.358, x(0.225), -0.295);
+  } else {
+    s.moveTo(x(0.225), -0.295);
+    s.bezierCurveTo(x(0.215), -0.358, x(0.250), -0.415, x(0.335), -0.418);
+    s.bezierCurveTo(x(0.425), -0.415, x(0.455), -0.352, x(0.445), -0.282);
+    s.bezierCurveTo(x(0.39), -0.310, x(0.28), -0.312, x(0.225), -0.295);
+  }
+  const geo = new THREE.ExtrudeGeometry(s, {
+    depth: 0.056,
+    bevelEnabled: true,
+    bevelThickness: 0.012,
+    bevelSize: 0.010,
+    bevelSegments: 3,
+    curveSegments: 14,
+  });
+  geo.rotateX(Math.PI / 2);
+  geo.translate(0, 0, 0.310);
+  return geo;
+}
+
+function makeGamepadShoulderPillTexture(
+  label: 'LB' | 'RB' | 'LT' | 'RT',
+  isTrigger: boolean,
+): THREE.CanvasTexture {
+  const key = `gp:shpill:${label}`;
+  const hit = miscTextureCache.get(key);
+  if (hit) return hit;
+  const c = document.createElement('canvas');
+  c.width = 160;
+  c.height = 76;
+  const g = c.getContext('2d')!;
+  g.clearRect(0, 0, 160, 76);
+
+  const fill = isTrigger ? '#ff6b2b' : '#22d3ee';
+  const stroke = isTrigger ? '#7c2d12' : '#0c4a6e';
+  const hi = isTrigger ? '#ffedd5' : '#e0f2fe';
+  const fg = isTrigger ? '#ffffff' : '#082f49';
+
+  // Crisp outer dark contour for high legibility over both light and dark game scenes
+  drawRoundedRect2D(g, 8, 8, 144, 60, 26);
+  g.fillStyle = stroke;
+  g.fill();
+
+  drawRoundedRect2D(g, 13, 13, 134, 50, 22);
+  g.fillStyle = fill;
+  g.fill();
+
+  const grad = g.createLinearGradient(0, 13, 0, 63);
+  grad.addColorStop(0, 'rgba(255,255,255,0.34)');
+  grad.addColorStop(0.55, 'rgba(255,255,255,0.0)');
+  grad.addColorStop(1, 'rgba(0,0,0,0.16)');
+  g.fillStyle = grad;
+  g.fill();
+
+  g.lineWidth = 2.5;
+  g.strokeStyle = hi;
+  g.stroke();
+
+  g.font = '900 36px "Segoe UI", system-ui, sans-serif';
+  g.fillStyle = fg;
+  g.textAlign = 'center';
+  g.textBaseline = 'middle';
+  g.fillText(label, 80, isTrigger ? 35 : 39);
+
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  miscTextureCache.set(key, tex);
+  return tex;
+}
+
 function createInstancedKeyTopMaterial(atlasTex: THREE.CanvasTexture): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
@@ -550,6 +772,7 @@ export class KeyboardAndMouse3D {
   private readonly whiteColor = new THREE.Color('#ffffff');
 
   private keys = new Map<string, KeyEntry3D>();
+  private keysByIndex: KeyEntry3D[] = [];
   private activeKeys = new Set<KeyEntry3D>();
   private sideInstanced: THREE.InstancedMesh | null = null;
   private topInstanced: THREE.InstancedMesh | null = null;
@@ -559,6 +782,20 @@ export class KeyboardAndMouse3D {
 
   private layoutId: KeyboardLayoutId = '65';
   private orientation: KeyboardOrientation = 'cat';
+  private whiteKeyboard = false;
+  private readonly macSideColor = new THREE.Color();
+  public readonly pad = new Trackpad();
+  private readonly padGroup = new THREE.Group();
+  private readonly padWidth = 0.75;
+  private readonly padDepth = this.padWidth * PAD_DEPTH_RATIO;
+  private readonly padHome = new THREE.Vector3();
+  private readonly clickMarker: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private readonly padDots = new THREE.InstancedMesh(
+    new THREE.CylinderGeometry(0.023, 0.023, 0.003, 24),
+    new THREE.MeshBasicMaterial({ color: '#217982' }),
+    16,
+  );
+  private readonly dotMatrix = new THREE.Matrix4();
   private hitColor = new THREE.Color('#d4f044');
   private rightBtnColor = new THREE.Color('#ff7b3b');
   private boardH = 0.115;
@@ -571,6 +808,10 @@ export class KeyboardAndMouse3D {
   private readonly tmpQuat = new THREE.Quaternion();
   private readonly tmpMat = new THREE.Matrix4();
   private readonly tmpCol = new THREE.Color();
+  private readonly hitInvMat = new THREE.Matrix4();
+  private readonly hitLocalRay = new THREE.Ray();
+  private readonly hitPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+  private readonly hitPt = new THREE.Vector3();
 
   // Cordless 3D KuroCat Mini Mouse
   private readonly mouseShape = new THREE.Group();
@@ -588,6 +829,99 @@ export class KeyboardAndMouse3D {
   private rightPress = 0;
   private wheelGlow = 0;
   private lastDeskHopY = Number.NaN;
+
+  // Sleek 3D Drawing Tablet + Stylus Pen with live fading glowing strokes
+  private tabletActive = false;
+  private readonly tabletGroup = new THREE.Group();
+  private readonly tabletHome = new THREE.Vector3(-1.26, 0.015, 1.04);
+  private readonly stylusGroup = new THREE.Group();
+  private readonly tabletLedMat: THREE.MeshBasicMaterial;
+  private readonly stylusRingMat: THREE.MeshBasicMaterial;
+  private readonly tabletPadCanvas: HTMLCanvasElement;
+  private readonly tabletPadCtx: CanvasRenderingContext2D;
+  private readonly tabletPadTex: THREE.CanvasTexture;
+  private tabletPadDirty = true;
+  private tabletClock = 0;
+  private tabletWasDrawing = false;
+  private tabletIdleBlend = 0;
+  private readonly tabletPenTarget = new THREE.Vector3(0.055, 0, 0);
+  private readonly tabletPenPos = new THREE.Vector3(0.055, 0, 0);
+  private readonly tabletPenFollow = new Spring3D(new THREE.Vector3(0.055, 0, 0), 7.2, 0.80);
+  private readonly tabletStrokes: Array<{ u: number; v: number; t: number; breakLine: boolean }> = [];
+  private readonly tabletPadCenterX = 0.055;
+  private readonly tabletPadW = 0.40;
+  private readonly tabletPadD = 0.36;
+  private readonly tabletThickness = 0.032;
+
+  // Sculpted 3D KuroCat Pro Gamepad (Plan A: flat-on-desk oversized Pro Controller, cat-facing + 3-limb targets)
+  private gamepadActive = false;
+  private readonly gamepadGroup = new THREE.Group();
+  private readonly gamepadBody = new THREE.Group();
+  private readonly gamepadRig = new THREE.Group();
+  private readonly gamepadHome = new THREE.Vector3(0.0, 0.015, 1.08);
+  private readonly gpLeftStick = new THREE.Group();
+  private readonly gpRightStick = new THREE.Group();
+  private readonly gpLeftStickCapMat = new THREE.MeshBasicMaterial({ color: '#4d566b' });
+  private readonly gpRightStickCapMat = new THREE.MeshBasicMaterial({ color: '#4d566b' });
+  private readonly gpHomeLedMat = new THREE.MeshBasicMaterial({ color: '#d4f044' });
+  private readonly gpShoulderL: {
+    side: -1 | 1;
+    bumperGroup: THREE.Group;
+    bumperMat: THREE.MeshBasicMaterial;
+    bumperAccentMat: THREE.MeshBasicMaterial;
+    triggerPivot: THREE.Group;
+    triggerMat: THREE.MeshBasicMaterial;
+    bBadgeGroup: THREE.Group;
+    bBadgeMat: THREE.MeshBasicMaterial;
+    tBadgeGroup: THREE.Group;
+    tBadgeMat: THREE.MeshBasicMaterial;
+    tGaugeFill: THREE.Mesh;
+  };
+  private readonly gpShoulderR: {
+    side: -1 | 1;
+    bumperGroup: THREE.Group;
+    bumperMat: THREE.MeshBasicMaterial;
+    bumperAccentMat: THREE.MeshBasicMaterial;
+    triggerPivot: THREE.Group;
+    triggerMat: THREE.MeshBasicMaterial;
+    bBadgeGroup: THREE.Group;
+    bBadgeMat: THREE.MeshBasicMaterial;
+    tBadgeGroup: THREE.Group;
+    tBadgeMat: THREE.MeshBasicMaterial;
+    tGaugeFill: THREE.Mesh;
+  };
+  private readonly gpDpadMeshes: Record<'up' | 'down' | 'left' | 'right', { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; baseY: number }>;
+  private readonly gpFaceBtns: Array<{
+    bit: number;
+    group: THREE.Group;
+    sideMat: THREE.MeshBasicMaterial;
+    topMat: THREE.MeshBasicMaterial;
+    baseColor: THREE.Color;
+    baseY: number;
+  }> = [];
+  private readonly gpBackBtn: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; baseY: number };
+  private readonly gpStartBtn: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; baseY: number };
+  private gpTarget: GamepadInputState = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, buttons: 0 };
+  private gpSmLx = 0;
+  private gpSmLy = 0;
+  private gpSmRx = 0;
+  private gpSmRy = 0;
+  private gpSmLt = 0;
+  private gpSmRt = 0;
+  private gpBtnAnim = new Float32Array(12);
+  private gpClock = 0;
+  private gpBounce = 0;
+  private gpTapL = 0;
+  private gpTapR = 0;
+  private gpPrevButtons = 0;
+  private gpPrevLtActive = false;
+  private gpPrevRtActive = false;
+  private readonly gpBaseDark = new THREE.Color('#282d3a');
+  private readonly gpBumperDark = new THREE.Color('#343c4e');
+  private readonly gpBumperActive = new THREE.Color('#22d3ee');
+  private readonly gpTriggerDark = new THREE.Color('#202634');
+  private readonly gpTriggerActive = new THREE.Color('#ff6b2b');
+  private readonly gpStickRimIdle = new THREE.Color('#4d566b');
 
   private privacyPlate: THREE.Mesh | null = null;
   private privacyMat: THREE.MeshBasicMaterial;
@@ -779,10 +1113,782 @@ export class KeyboardAndMouse3D {
     );
     this.mouseShape.userData.leftBtn = leftBtn;
     this.mouseShape.userData.rightBtn = rightBtn;
+
+    // Optional macOS Magic Trackpad (tapered aluminum wedge + glass surface + touch dots + click ripple)
+    const padW = this.padWidth;
+    const padD = this.padDepth;
+    const padBase = makeRoundedSlabGeo(padW, padD, 0.036, 0.055, 0);
+    const padBaseVerts = padBase.getAttribute('position');
+    for (let i = 0; i < padBaseVerts.count; i++) {
+      if (padBaseVerts.getY(i) < 0.001) {
+        padBaseVerts.setY(i, 0.017 * (padBaseVerts.getZ(i) / padD + 0.5));
+      }
+    }
+    const padGlass = makeRoundedSlabGeo(padW - 0.012, padD - 0.012, 0.006, 0.051, 0.036);
+    const padPos = padGlass.getAttribute('position');
+    const padGlassColors = new Float32Array(padPos.count * 3);
+    const padPale = new THREE.Color('#fdfdfb');
+    const padCool = new THREE.Color('#e5e9ec');
+    const padShade = new THREE.Color();
+    for (let i = 0; i < padPos.count; i++) {
+      const t = 0.5 + 0.28 * (padPos.getZ(i) / padD) + 0.55 * (padPos.getX(i) / padW);
+      padShade.copy(padPale).lerp(padCool, t).toArray(padGlassColors, i * 3);
+    }
+    padGlass.setAttribute('color', new THREE.BufferAttribute(padGlassColors, 3));
+    const markerCanvas = document.createElement('canvas');
+    markerCanvas.width = markerCanvas.height = 96;
+    const markerCtx = markerCanvas.getContext('2d')!;
+    markerCtx.translate(48, 48);
+    drawClickMark(markerCtx, 46);
+    const markerTex = new THREE.CanvasTexture(markerCanvas);
+    markerTex.colorSpace = THREE.SRGBColorSpace;
+    this.clickMarker = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshBasicMaterial({
+        map: markerTex,
+        transparent: true,
+        depthTest: false,
+        depthWrite: false,
+      }),
+    );
+    this.clickMarker.rotation.x = -Math.PI / 2;
+    this.clickMarker.visible = false;
+    this.clickMarker.renderOrder = 150;
+    this.padGroup.add(
+      new THREE.Mesh(padBase, new THREE.MeshBasicMaterial({ color: '#aeb5bb' })),
+      new THREE.Mesh(padGlass, new THREE.MeshBasicMaterial({ vertexColors: true })),
+      this.padDots,
+      this.clickMarker,
+    );
+    this.padDots.count = 0;
+    this.padDots.frustumCulled = false;
+    this.padGroup.visible = false;
+    this.mouseGroup.add(this.padGroup);
     this.deskGroup.add(this.mouseGroup);
+
+    // Build Sleek 3D Drawing Tablet (4 left express keys + active slate pad + fading glowing strokes + stylus pen)
+    this.tabletGroup.position.copy(this.tabletHome);
+    this.tabletGroup.rotation.set(0.055, 0.04, 0);
+    this.tabletGroup.visible = false;
+
+    const TW = 0.56;
+    const TD = 0.44;
+    const TH = this.tabletThickness;
+
+    const tabletShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(TW * 1.32, TD * 1.36),
+      new THREE.MeshBasicMaterial({ map: this.shadowTex, transparent: true, depthWrite: false, opacity: 0.72 }),
+    );
+    tabletShadow.rotation.x = -Math.PI / 2;
+    tabletShadow.position.set(0, 0.002, 0.015);
+
+    const tBaseGeo = makeRoundedSlabGeo(TW, TD, TH * 0.82, 0.036, 0);
+    const tBezelGeo = makeRoundedSlabGeo(TW - 0.012, TD - 0.012, TH * 0.24, 0.030, TH * 0.76);
+    const tPadGeo = makeRoundedSlabGeo(this.tabletPadW, this.tabletPadD, 0.005, 0.016, TH - 0.002);
+    tPadGeo.translate(this.tabletPadCenterX, 0, 0);
+
+    const tabletParts: Array<{ geo: THREE.BufferGeometry; color: string }> = [
+      { geo: tBaseGeo, color: '#1b1d24' },
+      { geo: tBezelGeo, color: '#292d38' },
+      { geo: tPadGeo, color: '#353a48' },
+    ];
+    // 4 tactile express keys down the left bezel (matching classic Wacom/Huion artist layout!)
+    const keyZs = [-0.105, -0.032, 0.041, 0.114];
+    for (const kz of keyZs) {
+      const kGeo = makeRoundedSlabGeo(0.062, 0.050, 0.008, 0.010, TH);
+      kGeo.translate(-0.214, 0, kz);
+      tabletParts.push({ geo: kGeo, color: '#4d5466' });
+    }
+    const mergedTabletGeo = mergeStaticGeometries(tabletParts);
+    for (const part of tabletParts) part.geo.dispose();
+    const tabletBodyMesh = new THREE.Mesh(
+      mergedTabletGeo,
+      new THREE.MeshBasicMaterial({ vertexColors: true }),
+    );
+
+    // Status LED pill at top-left above express keys
+    this.tabletLedMat = new THREE.MeshBasicMaterial({ color: '#4a5264' });
+    const tabletLed = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.006, 0.012), this.tabletLedMat);
+    tabletLed.position.set(-0.214, TH + 0.004, -0.174);
+
+    // Live active drawing surface texture (subtle corner ticks + fading glowing strokes!)
+    this.tabletPadCanvas = document.createElement('canvas');
+    this.tabletPadCanvas.width = 256;
+    this.tabletPadCanvas.height = 224;
+    this.tabletPadCtx = this.tabletPadCanvas.getContext('2d')!;
+    this.tabletPadTex = new THREE.CanvasTexture(this.tabletPadCanvas);
+    this.tabletPadTex.colorSpace = THREE.SRGBColorSpace;
+    this.redrawTabletPadCanvas();
+
+    const padOverlayGeo = new THREE.PlaneGeometry(this.tabletPadW - 0.016, this.tabletPadD - 0.016);
+    padOverlayGeo.rotateX(-Math.PI / 2);
+    const padOverlayMesh = new THREE.Mesh(
+      padOverlayGeo,
+      new THREE.MeshBasicMaterial({
+        map: this.tabletPadTex,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+      }),
+    );
+    padOverlayMesh.position.set(this.tabletPadCenterX, TH + 0.0055, 0);
+    padOverlayMesh.renderOrder = 6;
+
+    // 3D Stylus Pen anchored at the exact nib tip (0, 0, 0) so tilting keeps tip pinned to strokes!
+    const nibTip = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.004, 0.0015, 0.018, 10),
+      new THREE.MeshBasicMaterial({ color: '#f3f5f8' }),
+    );
+    nibTip.position.y = 0.009;
+    const nibCone = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.019, 0.004, 0.068, 14),
+      new THREE.MeshBasicMaterial({ color: '#171920' }),
+    );
+    nibCone.position.y = 0.052;
+    this.stylusRingMat = new THREE.MeshBasicMaterial({ color: '#d4f044' });
+    const collarRing = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0205, 0.0195, 0.018, 14),
+      this.stylusRingMat,
+    );
+    collarRing.position.y = 0.095;
+    const gripBand = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022, 0.0205, 0.115, 14),
+      new THREE.MeshBasicMaterial({ color: '#1f232c' }),
+    );
+    gripBand.position.y = 0.162;
+    const sideBtn = new THREE.Mesh(
+      new THREE.BoxGeometry(0.009, 0.064, 0.013),
+      new THREE.MeshBasicMaterial({ color: '#6b7388' }),
+    );
+    sideBtn.position.set(0.019, 0.168, 0.004);
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.022, 0.023, 0.255, 14),
+      new THREE.MeshBasicMaterial({ color: '#586075' }),
+    );
+    barrel.position.y = 0.346;
+    const tailCap = new THREE.Mesh(
+      new THREE.SphereGeometry(0.022, 14, 10),
+      new THREE.MeshBasicMaterial({ color: '#a5b0c7' }),
+    );
+    tailCap.position.y = 0.474;
+    this.stylusGroup.add(nibTip, nibCone, collarRing, gripBand, sideBtn, barrel, tailCap);
+    this.stylusGroup.position.set(this.tabletPadCenterX, TH + 0.024, 0);
+    this.stylusGroup.rotation.set(0.22, 0, -0.34);
+
+    this.tabletGroup.add(tabletShadow, tabletBodyMesh, tabletLed, padOverlayMesh, this.stylusGroup);
+    this.deskGroup.add(this.tabletGroup);
+
+    // Build Sculpted 3D KuroCat Pro Gamepad (Plan A: flat-on-desk oversized Pro Controller, cat-facing)
+    this.gamepadGroup.position.copy(this.gamepadHome);
+    this.gamepadGroup.visible = false;
+
+    const gpShadow = new THREE.Mesh(
+      new THREE.PlaneGeometry(2.24, 1.52),
+      new THREE.MeshBasicMaterial({ map: this.shadowTex, transparent: true, depthWrite: false, opacity: 0.72 }),
+    );
+    gpShadow.rotation.x = -Math.PI / 2;
+    gpShadow.position.set(0, 0.002, 0.04);
+    this.gamepadGroup.add(gpShadow);
+
+    // Rests flat & sturdy on the desk (matching keyboard desk tilt!) so cat paws press real sticks/buttons from above!
+    this.gamepadBody.position.set(0, 0.015, 0.0);
+    this.gamepadBody.rotation.set(0.12, 0, 0);
+    this.gamepadBody.scale.setScalar(1.30);
+    // Rotate 180° around Y so handles face the cat and LB/RB/LT/RT bumpers & triggers face outward toward the viewer!
+    this.gamepadRig.rotation.y = Math.PI;
+    this.gamepadBody.add(this.gamepadRig);
+    this.gamepadGroup.add(this.gamepadBody);
+
+    const GP_TOP = 0.145;
+    const gpLowerGeo = new THREE.ExtrudeGeometry(makeGamepadContourShape(1.0, 1.0), {
+      depth: 0.092,
+      bevelEnabled: true,
+      bevelThickness: 0.022,
+      bevelSize: 0.020,
+      bevelSegments: 3,
+      curveSegments: 16,
+    });
+    gpLowerGeo.rotateX(Math.PI / 2);
+    gpLowerGeo.translate(0, 0.118, 0);
+
+    const gpFaceGeo = new THREE.ExtrudeGeometry(makeGamepadContourShape(0.94, 0.94), {
+      depth: 0.022,
+      bevelEnabled: true,
+      bevelThickness: 0.012,
+      bevelSize: 0.011,
+      bevelSegments: 2,
+      curveSegments: 16,
+    });
+    gpFaceGeo.rotateX(Math.PI / 2);
+    gpFaceGeo.translate(0, GP_TOP - 0.012, 0);
+
+    // Sculpted charcoal side grip inlays on the outer handle flanks + subtle recessed D-pad well + stick sockets
+    const gripLGeo = new THREE.CapsuleGeometry(0.056, 0.22, 6, 12);
+    gripLGeo.rotateX(Math.PI / 2);
+    gripLGeo.rotateY(-0.24);
+    gripLGeo.scale(0.85, 0.55, 1.0);
+    gripLGeo.translate(-0.555, GP_TOP - 0.032, 0.22);
+
+    const gripRGeo = new THREE.CapsuleGeometry(0.056, 0.22, 6, 12);
+    gripRGeo.rotateX(Math.PI / 2);
+    gripRGeo.rotateY(0.24);
+    gripRGeo.scale(0.85, 0.55, 1.0);
+    gripRGeo.translate(0.555, GP_TOP - 0.032, 0.22);
+
+    const socketWellL = new THREE.CylinderGeometry(0.114, 0.104, 0.012, 22);
+    socketWellL.translate(-0.335, GP_TOP - 0.002, -0.045);
+    const socketWellR = new THREE.CylinderGeometry(0.114, 0.104, 0.012, 22);
+    socketWellR.translate(0.165, GP_TOP - 0.002, 0.105);
+
+    const socketRimL = new THREE.TorusGeometry(0.116, 0.010, 8, 22);
+    socketRimL.rotateX(Math.PI / 2);
+    socketRimL.translate(-0.335, GP_TOP + 0.004, -0.045);
+    const socketRimR = new THREE.TorusGeometry(0.116, 0.010, 8, 22);
+    socketRimR.rotateX(Math.PI / 2);
+    socketRimR.translate(0.165, GP_TOP + 0.004, 0.105);
+
+    const dpadDish = new THREE.CylinderGeometry(0.112, 0.112, 0.006, 22);
+    dpadDish.translate(-0.165, GP_TOP + 0.001, 0.105);
+    const dpadHub = new THREE.BoxGeometry(0.056, 0.026, 0.056);
+    dpadHub.translate(-0.165, GP_TOP + 0.014, 0.105);
+
+    const homeBezel = new THREE.CylinderGeometry(0.044, 0.048, 0.010, 18);
+    homeBezel.translate(0, GP_TOP + 0.005, -0.095);
+
+    const gpStaticParts: Array<{ geo: THREE.BufferGeometry; color: string }> = [
+      { geo: gpLowerGeo, color: '#222631' },
+      { geo: gpFaceGeo, color: '#f3f2eb' },
+      { geo: gripLGeo, color: '#2d3240' },
+      { geo: gripRGeo, color: '#2d3240' },
+      { geo: socketWellL, color: '#1b1f29' },
+      { geo: socketWellR, color: '#1b1f29' },
+      { geo: socketRimL, color: '#9ba5b8' },
+      { geo: socketRimR, color: '#9ba5b8' },
+      { geo: dpadDish, color: '#dad8cf' },
+      { geo: dpadHub, color: '#242936' },
+      { geo: homeBezel, color: '#252a36' },
+    ];
+    // Dark recessed collars under the 4 ABXY buttons
+    const abxySpecs: Array<{
+      bit: number;
+      letter: 'A' | 'B' | 'X' | 'Y';
+      dx: number;
+      dz: number;
+      bg: string;
+      fg: string;
+    }> = [
+      { bit: GAMEPAD_BTN.A, letter: 'A', dx: 0, dz: 0.094, bg: '#22c55e', fg: '#ffffff' },
+      { bit: GAMEPAD_BTN.B, letter: 'B', dx: 0.094, dz: 0, bg: '#ef4444', fg: '#ffffff' },
+      { bit: GAMEPAD_BTN.X, letter: 'X', dx: -0.094, dz: 0, bg: '#3b82f6', fg: '#ffffff' },
+      { bit: GAMEPAD_BTN.Y, letter: 'Y', dx: 0, dz: -0.094, bg: '#facc15', fg: '#1e222d' },
+    ];
+    for (const ab of abxySpecs) {
+      const collar = new THREE.CylinderGeometry(0.048, 0.050, 0.008, 18);
+      collar.translate(0.335 + ab.dx, GP_TOP + 0.003, -0.045 + ab.dz);
+      gpStaticParts.push({ geo: collar, color: '#252a36' });
+    }
+    const mergedGpGeo = mergeStaticGeometries(gpStaticParts);
+    for (const p of gpStaticParts) p.geo.dispose();
+    const gpShellMesh = new THREE.Mesh(mergedGpGeo, new THREE.MeshBasicMaterial({ vertexColors: true }));
+    this.gamepadRig.add(gpShellMesh);
+
+    // Center glowing KuroCat Home LED + BACK / START mini pills
+    const homeLed = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.034, 0.012, 18), this.gpHomeLedMat);
+    homeLed.position.set(0, GP_TOP + 0.009, -0.095);
+    this.gamepadRig.add(homeLed);
+
+    const makeMiniPill = (x: number) => {
+      const mat = new THREE.MeshBasicMaterial({ color: '#282d3a' });
+      const geo = makeRoundedSlabGeo(0.056, 0.024, 0.016, 0.010, 0);
+      const mesh = new THREE.Mesh(geo, mat);
+      const baseY = GP_TOP + 0.002;
+      mesh.position.set(x, baseY, -0.088);
+      this.gamepadRig.add(mesh);
+      return { mesh, mat, baseY };
+    };
+    this.gpBackBtn = makeMiniPill(-0.112);
+    this.gpStartBtn = makeMiniPill(0.112);
+
+    // Authentic Xbox Stacked Shoulders: centered USB-C port notch + curved upper Bumpers (LB/RB, Cyan)
+    // + directly-underneath hinged curved Analog Triggers (LT/RT, Orange) + crisp press-time callout pills!
+    const usbPortMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(0.11, 0.022, 0.018),
+      new THREE.MeshBasicMaterial({ color: '#141822' }),
+    );
+    usbPortMesh.position.set(0, GP_TOP - 0.044, -0.312);
+    this.gamepadRig.add(usbPortMesh);
+
+    const buildShoulderPair = (side: -1 | 1, bumperLabel: 'LB' | 'RB', triggerLabel: 'LT' | 'RT') => {
+      // 1) Upper curved bumper hugging the ivory faceplate shoulder contour
+      const bumperMat = new THREE.MeshBasicMaterial({ color: '#343c4e' });
+      const bumperGroup = new THREE.Group();
+      bumperGroup.position.set(0, GP_TOP + 0.002, -0.018);
+      bumperGroup.add(new THREE.Mesh(makeGamepadCurvedBumperGeo(side), bumperMat));
+
+      const bumperAccentMat = new THREE.MeshBasicMaterial({ color: '#58657f' });
+      const bumperStrip = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.008, 0.012), bumperAccentMat);
+      bumperStrip.position.set(side * 0.315, -0.016, -0.314);
+      bumperStrip.rotation.y = -side * 0.08;
+      bumperGroup.add(bumperStrip);
+
+      // 2) Lower hinged curved trigger directly underneath the bumper
+      const triggerMat = new THREE.MeshBasicMaterial({ color: '#202634' });
+      const triggerPivot = new THREE.Group();
+      triggerPivot.position.set(0, GP_TOP - 0.050, -0.315);
+      const triggerMesh = new THREE.Mesh(makeGamepadCurvedTriggerGeo(side), triggerMat);
+      triggerMesh.rotation.x = 0.24;
+      triggerPivot.add(triggerMesh);
+
+      // 3) Clean press-time callout pills (hidden at rest, stack cleanly vertically if LB+LT or RB+RT held together!)
+      const bBadgeGroup = new THREE.Group();
+      bBadgeGroup.position.set(side * 0.335, GP_TOP + 0.052, -0.455);
+      bBadgeGroup.rotation.set(0.42, 0, 0);
+      bBadgeGroup.visible = false;
+      const bBadgeGeo = new THREE.PlaneGeometry(0.28, 0.132);
+      bBadgeGeo.rotateY(Math.PI);
+      const bBadgeMat = new THREE.MeshBasicMaterial({
+        map: makeGamepadShoulderPillTexture(bumperLabel, false),
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const bBadgeMesh = new THREE.Mesh(bBadgeGeo, bBadgeMat);
+      bBadgeMesh.renderOrder = 32;
+      bBadgeGroup.add(bBadgeMesh);
+
+      const tBadgeGroup = new THREE.Group();
+      tBadgeGroup.position.set(side * 0.335, GP_TOP + 0.015, -0.495);
+      tBadgeGroup.rotation.set(0.42, 0, 0);
+      tBadgeGroup.visible = false;
+      const tBadgeGeo = new THREE.PlaneGeometry(0.30, 0.144);
+      tBadgeGeo.rotateY(Math.PI);
+      const tBadgeMat = new THREE.MeshBasicMaterial({
+        map: makeGamepadShoulderPillTexture(triggerLabel, true),
+        transparent: true,
+        opacity: 0,
+        depthTest: false,
+        depthWrite: false,
+      });
+      const tBadgeMesh = new THREE.Mesh(tBadgeGeo, tBadgeMat);
+      tBadgeMesh.renderOrder = 33;
+      tBadgeGroup.add(tBadgeMesh);
+
+      const trackGeo = new THREE.PlaneGeometry(0.20, 0.019);
+      trackGeo.rotateY(Math.PI);
+      const trackMesh = new THREE.Mesh(
+        trackGeo,
+        new THREE.MeshBasicMaterial({
+          color: '#431407',
+          transparent: true,
+          opacity: 0.80,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
+      trackMesh.position.set(0, -0.044, -0.002);
+      trackMesh.renderOrder = 34;
+      tBadgeGroup.add(trackMesh);
+
+      const fillGeo = new THREE.PlaneGeometry(0.192, 0.013);
+      fillGeo.rotateY(Math.PI);
+      const tGaugeFill = new THREE.Mesh(
+        fillGeo,
+        new THREE.MeshBasicMaterial({
+          color: '#fef08a',
+          transparent: true,
+          opacity: 0.96,
+          depthTest: false,
+          depthWrite: false,
+        }),
+      );
+      tGaugeFill.position.set(0, -0.044, -0.003);
+      tGaugeFill.renderOrder = 35;
+      tBadgeGroup.add(tGaugeFill);
+
+      this.gamepadRig.add(bumperGroup, triggerPivot, bBadgeGroup, tBadgeGroup);
+      return {
+        side,
+        bumperGroup,
+        bumperMat,
+        bumperAccentMat,
+        triggerPivot,
+        triggerMat,
+        bBadgeGroup,
+        bBadgeMat,
+        tBadgeGroup,
+        tBadgeMat,
+        tGaugeFill,
+      };
+    };
+
+    // Screen-RIGHT side (cat's LEFT hand, Left Stick side): LB + LT stacked
+    this.gpShoulderL = buildShoulderPair(-1, 'LB', 'LT');
+    // Screen-LEFT side (cat's RIGHT hand, ABXY side): RB + RT stacked
+    this.gpShoulderR = buildShoulderPair(1, 'RB', 'RT');
+
+    // Twin Pivoting Concave Analog Thumbsticks
+    const populateStick = (group: THREE.Group, rimMat: THREE.MeshBasicMaterial, x: number, z: number) => {
+      group.position.set(x, GP_TOP - 0.008, z);
+      const stem = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.026, 0.032, 0.066, 14),
+        new THREE.MeshBasicMaterial({ color: '#1b1f29' }),
+      );
+      stem.position.y = 0.034;
+      const cap = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.088, 0.072, 0.030, 20),
+        new THREE.MeshBasicMaterial({ color: '#2b3140' }),
+      );
+      cap.position.y = 0.072;
+      const rim = new THREE.Mesh(new THREE.TorusGeometry(0.079, 0.013, 8, 22), rimMat);
+      rim.rotation.x = Math.PI / 2;
+      rim.position.y = 0.086;
+      const innerDish = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.064, 0.064, 0.006, 18),
+        new THREE.MeshBasicMaterial({ color: '#212633' }),
+      );
+      innerDish.position.y = 0.085;
+      group.add(stem, cap, rim, innerDish);
+      this.gamepadRig.add(group);
+    };
+    populateStick(this.gpLeftStick, this.gpLeftStickCapMat, -0.335, -0.045);
+    populateStick(this.gpRightStick, this.gpRightStickCapMat, 0.165, 0.105);
+
+    // 4-Way Cross D-Pad Arms
+    const makeDpadArm = (dx: number, dz: number, w: number, d: number) => {
+      const mat = new THREE.MeshBasicMaterial({ color: '#282d3a' });
+      const geo = makeRoundedSlabGeo(w, d, 0.028, 0.010, 0);
+      const mesh = new THREE.Mesh(geo, mat);
+      const baseY = GP_TOP + 0.002;
+      mesh.position.set(-0.165 + dx, baseY, 0.105 + dz);
+      this.gamepadRig.add(mesh);
+      return { mesh, mat, baseY };
+    };
+    this.gpDpadMeshes = {
+      up: makeDpadArm(0, -0.055, 0.056, 0.064),
+      down: makeDpadArm(0, 0.055, 0.056, 0.064),
+      left: makeDpadArm(-0.055, 0, 0.064, 0.056),
+      right: makeDpadArm(0.055, 0, 0.064, 0.056),
+    };
+
+    // Diamond ABXY Buttons with crisp letter caps
+    const abxySideGeo = new THREE.CylinderGeometry(0.041, 0.043, 0.032, 18);
+    const abxyTopGeo = new THREE.CircleGeometry(0.039, 18);
+    abxyTopGeo.rotateX(-Math.PI / 2);
+    for (const ab of abxySpecs) {
+      const group = new THREE.Group();
+      const baseY = GP_TOP + 0.018;
+      group.position.set(0.335 + ab.dx, baseY, -0.045 + ab.dz);
+      const sideMat = new THREE.MeshBasicMaterial({ color: ab.bg });
+      const topMat = new THREE.MeshBasicMaterial({
+        map: makeGamepadBtnLetterTexture(ab.letter, ab.bg, ab.fg),
+        color: '#ffffff',
+      });
+      const cyl = new THREE.Mesh(abxySideGeo.clone(), sideMat);
+      const top = new THREE.Mesh(abxyTopGeo.clone(), topMat);
+      top.position.y = 0.0165;
+      group.add(cyl, top);
+      this.gamepadRig.add(group);
+      this.gpFaceBtns.push({
+        bit: ab.bit,
+        group,
+        sideMat,
+        topMat,
+        baseColor: new THREE.Color(ab.bg),
+        baseY,
+      });
+    }
+    abxySideGeo.dispose();
+    abxyTopGeo.dispose();
+
+    this.deskGroup.add(this.gamepadGroup);
 
     scene.add(this.deskGroup);
     this.rebuildBoard('65', 'cat');
+  }
+
+  private syncDeskVisibility(): void {
+    this.boardGroup.visible = !this.gamepadActive;
+    this.mouseGroup.visible = !this.gamepadActive && !this.tabletActive;
+    this.tabletGroup.visible = !this.gamepadActive && this.tabletActive;
+    this.gamepadGroup.visible = this.gamepadActive;
+  }
+
+  public setGamepadActive(active: boolean): void {
+    const next = Boolean(active);
+    if (this.gamepadActive === next) return;
+    this.gamepadActive = next;
+    if (!next) {
+      this.gpTarget = { lx: 0, ly: 0, rx: 0, ry: 0, lt: 0, rt: 0, buttons: 0 };
+    }
+    this.syncDeskVisibility();
+  }
+
+  public setGamepadHome(x: number, z: number): void {
+    this.gamepadHome.set(x, 0.015, z);
+    this.gamepadGroup.position.copy(this.gamepadHome);
+  }
+
+  public isGamepadActive(): boolean {
+    return this.gamepadActive;
+  }
+
+  public setGamepadState(state: GamepadInputState): void {
+    const nextBtns = (Number(state.buttons) || 0) & 0xffff;
+    const newlyPressed = nextBtns & ~this.gpPrevButtons;
+    this.gpPrevButtons = nextBtns;
+
+    const nextLt = clamp(Number(state.lt) || 0, 0, 1);
+    const nextRt = clamp(Number(state.rt) || 0, 0, 1);
+    const ltNow = nextLt > 0.18;
+    const rtNow = nextRt > 0.18;
+    const ltNew = ltNow && !this.gpPrevLtActive;
+    const rtNew = rtNow && !this.gpPrevRtActive;
+    this.gpPrevLtActive = ltNow;
+    this.gpPrevRtActive = rtNow;
+
+    if ((newlyPressed & (GAMEPAD_BTN.A | GAMEPAD_BTN.B | GAMEPAD_BTN.X | GAMEPAD_BTN.Y | GAMEPAD_BTN.RB)) !== 0 || rtNew) {
+      this.gpTapL = 1;
+      this.gpBounce = Math.min(1, this.gpBounce + 0.55);
+    }
+    if ((newlyPressed & (GAMEPAD_BTN.UP | GAMEPAD_BTN.DOWN | GAMEPAD_BTN.LEFT | GAMEPAD_BTN.RIGHT | GAMEPAD_BTN.LB)) !== 0 || ltNew) {
+      this.gpTapR = 1;
+      this.gpBounce = Math.min(1, this.gpBounce + 0.55);
+    }
+
+    this.gpTarget.lx = clamp(Number(state.lx) || 0, -1, 1);
+    this.gpTarget.ly = clamp(Number(state.ly) || 0, -1, 1);
+    this.gpTarget.rx = clamp(Number(state.rx) || 0, -1, 1);
+    this.gpTarget.ry = clamp(Number(state.ry) || 0, -1, 1);
+    this.gpTarget.lt = nextLt;
+    this.gpTarget.rt = nextRt;
+    this.gpTarget.buttons = nextBtns;
+  }
+
+  /**
+   * Plan A (flat-on-desk oversized gamepad + real paw-on-stick / paw-on-ABXY + signature cat tail 3rd hand!):
+   * - `leftOut` (screen-left paw `paws.L`, cat's RIGHT hand) directly presses ABXY buttons, pushes Right Stick, or hits RB/RT!
+   * - `rightOut` (screen-right paw `paws.R`, cat's LEFT hand) directly pushes Left Stick cap, slaps D-Pad arms, or hits LB/LT!
+   * - `tailOut` (signature 3rd hand!) whips onto LT/LB, RT/RB, D-Pad (when Left Stick busy), Right Stick (when ABXY busy), or START/BACK!
+   */
+  public gamepadLimbTargets(
+    leftOut: THREE.Vector3,
+    rightOut: THREE.Vector3,
+    tailOut: THREE.Vector3,
+  ): { tailActive: boolean; leftPressed: boolean; rightPressed: boolean } {
+    this.deskGroup.updateMatrixWorld(false);
+    this.gamepadGroup.updateMatrixWorld(false);
+    this.gamepadBody.updateMatrixWorld(false);
+    this.gamepadRig.updateMatrixWorld(false);
+    this.gpLeftStick.updateMatrixWorld(false);
+    this.gpRightStick.updateMatrixWorld(false);
+
+    const GP_TOP = 0.145;
+    const btns = this.gpTarget.buttons;
+    const lsActive = Math.hypot(this.gpSmLx, this.gpSmLy) > 0.05;
+    const rsActive = Math.hypot(this.gpSmRx, this.gpSmRy) > 0.05;
+    const dpadBits = btns & (GAMEPAD_BTN.UP | GAMEPAD_BTN.DOWN | GAMEPAD_BTN.LEFT | GAMEPAD_BTN.RIGHT);
+    const dpadActive = dpadBits !== 0;
+    const abxyBits = btns & (GAMEPAD_BTN.A | GAMEPAD_BTN.B | GAMEPAD_BTN.X | GAMEPAD_BTN.Y);
+    const abxyActive = abxyBits !== 0;
+    const lbActive = (btns & GAMEPAD_BTN.LB) !== 0;
+    const rbActive = (btns & GAMEPAD_BTN.RB) !== 0;
+    const ltActive = this.gpSmLt > 0.08;
+    const rtActive = this.gpSmRt > 0.08;
+    const menuBits = btns & (GAMEPAD_BTN.START | GAMEPAD_BTN.BACK);
+
+    // Helper: compute exact D-Pad pressed arm coordinates in gamepadRig local space
+    const dpadLocal = (out: THREE.Vector3) => {
+      let dx = 0;
+      let dz = 0;
+      let n = 0;
+      if (btns & GAMEPAD_BTN.UP) { dz -= 0.058; n++; }
+      if (btns & GAMEPAD_BTN.DOWN) { dz += 0.058; n++; }
+      if (btns & GAMEPAD_BTN.LEFT) { dx -= 0.058; n++; }
+      if (btns & GAMEPAD_BTN.RIGHT) { dx += 0.058; n++; }
+      if (n > 0) { dx /= n; dz /= n; }
+      return out.set(-0.165 + dx, GP_TOP + 0.044, 0.105 + dz);
+    };
+
+    // Helper: compute exact ABXY pressed button (or multi-button chord midpoint!) in gamepadRig local space
+    const abxyLocal = (out: THREE.Vector3) => {
+      let dx = 0;
+      let dz = 0;
+      let n = 0;
+      if (btns & GAMEPAD_BTN.A) { dz += 0.094; n++; }
+      if (btns & GAMEPAD_BTN.B) { dx += 0.094; n++; }
+      if (btns & GAMEPAD_BTN.X) { dx -= 0.094; n++; }
+      if (btns & GAMEPAD_BTN.Y) { dz -= 0.094; n++; }
+      if (n > 0) { dx /= n; dz /= n; }
+      return out.set(0.335 + dx, GP_TOP + 0.048, -0.045 + dz);
+    };
+
+    // 1) Screen-RIGHT paw (`rightOut`, cat's LEFT hand): owns Left Stick (-0.335) / D-Pad (-0.165) / LB·LT (-0.37)
+    let rightPressed = false;
+    let rightBusyOnFace = false;
+    if (lsActive) {
+      rightOut.set(0, 0.112, 0).applyMatrix4(this.gpLeftStick.matrixWorld);
+      rightPressed = true;
+      rightBusyOnFace = true;
+    } else if (dpadActive) {
+      const hop = Math.sin(this.gpTapR * Math.PI) * 0.085;
+      dpadLocal(rightOut);
+      rightOut.y += hop;
+      rightOut.applyMatrix4(this.gamepadRig.matrixWorld);
+      rightPressed = true;
+      rightBusyOnFace = true;
+    } else if (lbActive || ltActive) {
+      const hop = Math.sin(this.gpTapR * Math.PI) * 0.06;
+      const aimLt = ltActive && !lbActive;
+      rightOut
+        .set(-0.335, GP_TOP + (aimLt ? -0.010 : 0.025) + hop, aimLt ? -0.370 : -0.308)
+        .applyMatrix4(this.gamepadRig.matrixWorld);
+      rightPressed = true;
+    } else {
+      // Cozy ready poise resting lightly on the Left Stick shoulder edge
+      rightOut.set(-0.36, GP_TOP + 0.095, 0.06).applyMatrix4(this.gamepadRig.matrixWorld);
+    }
+
+    // 2) Screen-LEFT paw (`leftOut`, cat's RIGHT hand): owns ABXY (+0.335) / Right Stick (+0.165) / stacked RB·RT (+0.335)
+    let leftPressed = false;
+    let leftBusyOnFace = false;
+    if (abxyActive) {
+      const hop = Math.sin(this.gpTapL * Math.PI) * 0.095;
+      abxyLocal(leftOut);
+      leftOut.y += hop;
+      leftOut.applyMatrix4(this.gamepadRig.matrixWorld);
+      leftPressed = true;
+      leftBusyOnFace = true;
+    } else if (rsActive) {
+      leftOut.set(0, 0.112, 0).applyMatrix4(this.gpRightStick.matrixWorld);
+      leftPressed = true;
+      leftBusyOnFace = true;
+    } else if (rbActive || rtActive) {
+      const hop = Math.sin(this.gpTapL * Math.PI) * 0.06;
+      const aimRt = rtActive && !rbActive;
+      leftOut
+        .set(0.335, GP_TOP + (aimRt ? -0.010 : 0.025) + hop, aimRt ? -0.370 : -0.308)
+        .applyMatrix4(this.gamepadRig.matrixWorld);
+      leftPressed = true;
+    } else {
+      // Cozy ready poise hovering lightly beside ABXY
+      leftOut.set(0.36, GP_TOP + 0.075, 0.06).applyMatrix4(this.gamepadRig.matrixWorld);
+    }
+
+    // 3) Signature KuroCat Tail (Third Hand!): whips in whenever a 3rd+ simultaneous control fires!
+    let tailActive = false;
+    if ((ltActive || lbActive) && (rightBusyOnFace || leftBusyOnFace)) {
+      // Tail slaps screen-RIGHT stacked trigger (LT) or bumper (LB) while paws stay on sticks/ABXY!
+      tailOut
+        .set(-0.335, GP_TOP + (ltActive ? -0.012 : 0.025), ltActive ? -0.382 : -0.312)
+        .applyMatrix4(this.gamepadRig.matrixWorld);
+      tailActive = true;
+    } else if ((rtActive || rbActive) && leftBusyOnFace) {
+      // Tail sweeps across front edge to slam screen-LEFT stacked trigger (RT) or bumper (RB)!
+      tailOut
+        .set(0.335, GP_TOP + (rtActive ? -0.012 : 0.025), rtActive ? -0.382 : -0.312)
+        .applyMatrix4(this.gamepadRig.matrixWorld);
+      tailActive = true;
+    } else if (dpadActive && lsActive) {
+      // Classic Souls/MH claw-grip: Right Paw steers Left Stick while Tail taps D-Pad!
+      dpadLocal(tailOut).applyMatrix4(this.gamepadRig.matrixWorld);
+      tailActive = true;
+    } else if (rsActive && abxyActive) {
+      // Classic claw-grip: Left Paw smashes ABXY while Tail nudges the Right Stick camera!
+      tailOut.set(0, 0.112, 0).applyMatrix4(this.gpRightStick.matrixWorld);
+      tailActive = true;
+    } else if (menuBits !== 0) {
+      const mx = (menuBits & GAMEPAD_BTN.START) !== 0 ? 0.112 : -0.112;
+      tailOut.set(mx, GP_TOP + 0.026, -0.088).applyMatrix4(this.gamepadRig.matrixWorld);
+      tailActive = true;
+    }
+
+    return { tailActive, leftPressed, rightPressed };
+  }
+
+  public setTabletActive(active: boolean): void {
+    const next = Boolean(active);
+    if (this.tabletActive === next) return;
+    this.tabletActive = next;
+    this.syncDeskVisibility();
+    if (!next) {
+      this.tabletStrokes.length = 0;
+      this.tabletWasDrawing = false;
+      this.tabletPadDirty = true;
+    } else {
+      this.tabletPadDirty = true;
+      this.redrawTabletPadCanvas();
+    }
+  }
+
+  public isTabletActive(): boolean {
+    return this.tabletActive;
+  }
+
+  private redrawTabletPadCanvas(): void {
+    const c = this.tabletPadCanvas;
+    const g = this.tabletPadCtx;
+    const w = c.width;
+    const h = c.height;
+    g.clearRect(0, 0, w, h);
+
+    // Subtle crisp corner crop marks so the active drawing area reads cleanly at any scale
+    g.strokeStyle = 'rgba(218, 226, 245, 0.34)';
+    g.lineWidth = 3.2;
+    g.lineCap = 'round';
+    const m = 12;
+    const len = 14;
+    const corners: Array<[number, number, number, number]> = [
+      [m, m, 1, 1],
+      [w - m, m, -1, 1],
+      [m, h - m, 1, -1],
+      [w - m, h - m, -1, -1],
+    ];
+    for (const [cx, cy, sx, sy] of corners) {
+      g.beginPath();
+      g.moveTo(cx + sx * len, cy);
+      g.lineTo(cx, cy);
+      g.lineTo(cx, cy + sy * len);
+      g.stroke();
+    }
+
+    if (this.tabletStrokes.length > 1) {
+      const hex = `#${this.hitColor.getHexString()}`;
+      g.lineCap = 'round';
+      g.lineJoin = 'round';
+      for (let i = 1; i < this.tabletStrokes.length; i++) {
+        const p0 = this.tabletStrokes[i - 1];
+        const p1 = this.tabletStrokes[i];
+        if (p1.breakLine) continue;
+        const age = this.tabletClock - p1.t;
+        const alpha = Math.max(0, 1 - age / 1.35);
+        if (alpha <= 0.01) continue;
+        const x0 = p0.u * w;
+        const y0 = p0.v * h;
+        const x1 = p1.u * w;
+        const y1 = p1.v * h;
+        // Soft luminous outer stroke
+        g.globalAlpha = alpha * 0.42;
+        g.strokeStyle = hex;
+        g.lineWidth = 9.5;
+        g.beginPath();
+        g.moveTo(x0, y0);
+        g.lineTo(x1, y1);
+        g.stroke();
+        // Crisp glowing core stroke
+        g.globalAlpha = alpha * 0.96;
+        g.strokeStyle = hex;
+        g.lineWidth = 4.2;
+        g.beginPath();
+        g.moveTo(x0, y0);
+        g.lineTo(x1, y1);
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
+
+    this.tabletPadTex.needsUpdate = true;
+    this.tabletPadDirty = false;
   }
 
   public setAccentColors(primaryHex: string, rightHex: string): void {
@@ -790,6 +1896,8 @@ export class KeyboardAndMouse3D {
     this.rightBtnColor.set(rightHex);
     this.leftBtnMat.color.set(primaryHex);
     this.rightBtnMat.color.set(rightHex);
+    this.stylusRingMat.color.set(primaryHex);
+    this.tabletPadDirty = true;
   }
 
   public setStyle(style: '3d' | '2d'): void {
@@ -799,15 +1907,43 @@ export class KeyboardAndMouse3D {
     this.mouseBodyMat.needsUpdate = true;
   }
 
-  public rebuildBoard(layoutId: KeyboardLayoutId, orientation: KeyboardOrientation): void {
+  public setTrackpad(enabled: boolean): void {
+    this.pad.setEnabled(enabled);
+    this.padGroup.visible = enabled;
+    this.mouseShape.visible = !enabled;
+    if (!enabled) this.padDots.count = 0;
+  }
+
+  public setContacts(points: readonly PadPoint[]): void {
+    if (!this.pad.enabled) return;
+    this.pad.points = points;
+    this.padDots.count = Math.min(16, points.length);
+    for (let i = 0; i < this.padDots.count; i++) {
+      const p = padPosition(points[i], false, this.padWidth * PAD_USABLE, this.padDepth * PAD_USABLE);
+      this.padDots.setMatrixAt(i, this.dotMatrix.makeTranslation(p.x, 0.044, p.y));
+    }
+    this.padDots.instanceMatrix.needsUpdate = true;
+  }
+
+  public rebuildBoard(layoutId: KeyboardLayoutId, orientation: KeyboardOrientation, white = false): void {
+    white = white && layoutId === 'macbook';
     // Skip redundant rebuild if nothing changed and meshes already exist
-    if (this.sideInstanced && this.layoutId === layoutId && this.orientation === orientation) {
+    if (
+      this.sideInstanced &&
+      this.layoutId === layoutId &&
+      this.orientation === orientation &&
+      this.whiteKeyboard === white
+    ) {
       return;
     }
 
+    this.whiteKeyboard = white;
+    const finish = macbookFinishes[white ? 'white' : 'black'];
+    this.macSideColor.set(white ? finish.side : '#18191c');
     this.layoutId = layoutId;
     this.orientation = orientation;
     this.keys.clear();
+    this.keysByIndex.length = 0;
     this.activeKeys.clear();
 
     while (this.boardGroup.children.length > 0) {
@@ -819,8 +1955,11 @@ export class KeyboardAndMouse3D {
     this.boardDisposables.length = 0;
 
     const layout = getKeyboardLayout(layoutId);
-    const is108 = layoutId === '108';
+    const mac = layoutId === 'macbook';
     const isCatFacing = orientation === 'cat';
+
+    this.padGroup.quaternion.copy(this.boardGroup.quaternion);
+    if (isCatFacing) this.padGroup.rotateY(Math.PI);
 
     // Keep mouse cat-facing in both keyboard orientations (#92) so the paw rests on the palm heel without covering RMB
     this.mouseShape.rotation.y = -0.10;
@@ -829,16 +1968,30 @@ export class KeyboardAndMouse3D {
     this.mouseLabelLMat.needsUpdate = true;
     this.mouseLabelRMat.needsUpdate = true;
 
-    const U = is108 ? 0.122 : 0.150;
-    const CAP = U * 0.87;
+    const U = layoutId === '108' ? 0.122 : layoutId === '98' ? 0.134 : 0.150;
+    const CAP = U * (mac ? 0.92 : 0.87);
     const W = layout.totalUnits * U + 0.14;
     const D = layout.totalRows * U + 0.14;
     this.boardWidth = W;
-    this.boardH = 0.112;
-    this.capH = is108 ? 0.048 : 0.056;
+    this.boardH = mac ? 0.042 : 0.112;
+    this.capH = mac ? 0.016 : layoutId === '108' ? 0.048 : layoutId === '98' ? 0.052 : 0.056;
 
     this.boardGroup.position.set(0.24, 0.015, 1.08);
-    this.mouseHome.set(is108 ? -1.46 : -1.16, 0.015, 0.96);
+    this.padHome
+      .set(-(W + this.padWidth) / 2 - 0.052, 0, padCenterDepth(D, this.padDepth))
+      .applyQuaternion(this.boardGroup.quaternion)
+      .add(this.boardGroup.position);
+    this.mouseHome.set(
+      layoutId === '108' ? -1.46 : layoutId === '98' ? -1.32 : -1.16,
+      0.015,
+      0.96,
+    );
+    this.tabletHome.set(
+      layoutId === '108' ? -1.56 : layoutId === '98' ? -1.42 : -1.26,
+      0.015,
+      1.03,
+    );
+    this.tabletGroup.position.copy(this.tabletHome);
 
     // Soft grounded desk shadow under keyboard
     const kbShadowGeo = new THREE.PlaneGeometry(W * 1.18, D * 1.38);
@@ -852,10 +2005,19 @@ export class KeyboardAndMouse3D {
     const bezelGeo = makeRoundedSlabGeo(W - 0.014, D - 0.014, 0.014, 0.060, this.boardH - 0.008);
     const plateGeo = makeRoundedSlabGeo(W - 0.062, D - 0.062, 0.008, 0.044, this.boardH + 0.004);
     const chassisGeo = mergeStaticGeometries([
-      { geo: baseGeo, color: '#202229' },
-      { geo: bezelGeo, color: '#2c2f38' },
-      { geo: plateGeo, color: '#181a20' },
+      { geo: baseGeo, color: mac ? finish.base : '#202229' },
+      { geo: bezelGeo, color: mac ? finish.bezel : '#2c2f38' },
+      { geo: plateGeo, color: mac ? finish.plate : '#181a20' },
     ]);
+    if (mac) {
+      // Bake a broad anodized-aluminum highlight into the shared chassis vertex colors.
+      const position = chassisGeo.attributes.position;
+      const color = chassisGeo.attributes.color;
+      for (let i = 0; i < color.count; i++) {
+        const light = 0.94 + (0.20 * position.getX(i)) / W - (0.15 * position.getZ(i)) / D;
+        color.setXYZ(i, color.getX(i) * light, color.getY(i) * light, color.getZ(i) * light);
+      }
+    }
     baseGeo.dispose();
     bezelGeo.dispose();
     plateGeo.dispose();
@@ -863,14 +2025,16 @@ export class KeyboardAndMouse3D {
     this.boardDisposables.push(chassisGeo);
     this.boardGroup.add(kbShadow, chassisMesh);
 
-    // Single Texture Atlas + 2 InstancedMeshes for ALL 67 or 108 keycaps (2 draw calls total!)
+    // Single Texture Atlas + 2 InstancedMeshes for ALL keycaps (2 draw calls total!)
     const keyCount = layout.keys.length;
-    const atlas = getKeycapAtlas(layoutId, layout.keys, isCatFacing);
+    const atlas = getKeycapAtlas(layoutId, layout.keys, isCatFacing, white);
 
-    const sideInst = new THREE.InstancedMesh(this.capSideGeo, this.capSideMat, keyCount);
+    const chiclet = mac ? makeChicletGeometry() : null;
+    if (chiclet) this.boardDisposables.push(chiclet.side);
+    const sideInst = new THREE.InstancedMesh(chiclet?.side ?? this.capSideGeo, this.capSideMat, keyCount);
     sideInst.frustumCulled = false;
 
-    const topGeo = this.capTopBaseGeo.clone();
+    const topGeo = chiclet?.top ?? this.capTopBaseGeo.clone();
     const uvRects = new Float32Array(keyCount * 4);
     const tints = new Float32Array(keyCount * 3);
     const uvAttr = new THREE.InstancedBufferAttribute(uvRects, 4);
@@ -882,7 +2046,7 @@ export class KeyboardAndMouse3D {
     const topMat = createInstancedKeyTopMaterial(atlas.tex);
     const topInst = new THREE.InstancedMesh(topGeo, topMat, keyCount);
     topInst.frustumCulled = false;
-    this.boardDisposables.push(topGeo, topMat);
+    this.boardDisposables.push(sideInst, topInst, topGeo, topMat);
 
     const baseY = this.boardH + 0.008;
     for (let i = 0; i < keyCount; i++) {
@@ -911,15 +2075,17 @@ export class KeyboardAndMouse3D {
         spec.accent === 'orange' ? 'orange' : spec.accent === 'mod' ? 'mod' : 'base';
       sideInst.setColorAt(
         i,
-        accent === 'orange'
-          ? this.sideColorOrange
-          : accent === 'mod'
-            ? this.sideColorMod
-            : this.sideColorBase,
+        mac
+          ? this.macSideColor
+          : accent === 'orange'
+            ? this.sideColorOrange
+            : accent === 'mod'
+              ? this.sideColorMod
+              : this.sideColorBase,
       );
 
       const legendText = spec.id === 'space' ? '' : spec.id === 'esc' ? 'Esc' : spec.label;
-      const rect = atlas.rects.get(`${legendText}|${accent}`) ?? [0, 0, 0.1, 0.1];
+      const rect = atlas.rects.get(mac ? spec.id : `${legendText}|${accent}`) ?? [0, 0, 0.1, 0.1];
       uvRects[i * 4] = rect[0];
       uvRects[i * 4 + 1] = rect[1];
       uvRects[i * 4 + 2] = rect[2];
@@ -929,7 +2095,7 @@ export class KeyboardAndMouse3D {
       tints[i * 3 + 1] = 1;
       tints[i * 3 + 2] = 1;
 
-      this.keys.set(spec.id, {
+      const entry: KeyEntry3D = {
         spec,
         index: i,
         x,
@@ -940,7 +2106,9 @@ export class KeyboardAndMouse3D {
         down: false,
         depth: 0,
         glow: 0,
-      });
+      };
+      this.keys.set(spec.id, entry);
+      this.keysByIndex.push(entry);
     }
 
     sideInst.instanceMatrix.needsUpdate = true;
@@ -988,6 +2156,59 @@ export class KeyboardAndMouse3D {
     return this.keys.get(id) || null;
   }
 
+  public hitTestKey(raycaster: THREE.Raycaster): KeySpec | null {
+    if (
+      this.gamepadActive ||
+      !this.boardGroup.visible ||
+      !this.topInstanced ||
+      !this.sideInstanced ||
+      this.keysByIndex.length === 0
+    ) {
+      return null;
+    }
+    if (this.privacyPlate?.visible && this.privacyMat.opacity > 0.15) {
+      return null;
+    }
+    this.deskGroup.updateMatrixWorld(false);
+    this.boardGroup.updateMatrixWorld(true);
+
+    const hits = raycaster.intersectObjects([this.topInstanced, this.sideInstanced], false);
+    for (let i = 0; i < hits.length; i++) {
+      const idx = hits[i].instanceId;
+      if (typeof idx === 'number') {
+        const entry = this.keysByIndex[idx];
+        if (entry && entry.spec.vkCodes.length > 0) return entry.spec;
+      }
+    }
+
+    // Narrow bevel-gap forgiveness on the board plane so clicking between adjacent keycaps stays responsive
+    this.hitInvMat.copy(this.boardGroup.matrixWorld).invert();
+    this.hitLocalRay.copy(raycaster.ray).applyMatrix4(this.hitInvMat);
+    this.hitPlane.constant = -(this.boardH + 0.008 + this.capH * 0.65);
+    if (!this.hitLocalRay.intersectPlane(this.hitPlane, this.hitPt)) {
+      return null;
+    }
+    const px = this.hitPt.x;
+    const pz = this.hitPt.z;
+    const pad = 0.016;
+    let best: KeyEntry3D | null = null;
+    let bestDistSq = Infinity;
+    for (let i = 0; i < this.keysByIndex.length; i++) {
+      const entry = this.keysByIndex[i];
+      if (entry.spec.vkCodes.length === 0) continue;
+      const halfW = entry.scaleX * 0.5 + pad;
+      const halfD = entry.scaleZ * 0.5 + pad;
+      if (Math.abs(px - entry.x) <= halfW && Math.abs(pz - entry.z) <= halfD) {
+        const dSq = (px - entry.x) ** 2 + (pz - entry.z) ** 2;
+        if (dSq < bestDistSq) {
+          bestDistSq = dSq;
+          best = entry;
+        }
+      }
+    }
+    return best ? best.spec : null;
+  }
+
   public setKeyDown(id: string, down: boolean): void {
     const k = this.keys.get(id);
     if (!k) return;
@@ -1025,7 +2246,16 @@ export class KeyboardAndMouse3D {
   }
 
   public setMouseNormalized(nx: number, ny: number): void {
-    this.mouseTarget.set((nx - 0.5) * 0.22, 0, (ny - 0.5) * 0.14);
+    const cx = clamp(nx, 0, 1);
+    const cy = clamp(ny, 0, 1);
+    this.mouseTarget.set((cx - 0.5) * 0.22, 0, (cy - 0.5) * 0.14);
+    const padHalfW = (this.tabletPadW - 0.06) * 0.5;
+    const padHalfD = (this.tabletPadD - 0.06) * 0.5;
+    this.tabletPenTarget.set(
+      this.tabletPadCenterX + (cx - 0.5) * 2 * padHalfW,
+      0,
+      (cy - 0.5) * 2 * padHalfD,
+    );
   }
 
   public pulseScrollWheel(): void {
@@ -1034,7 +2264,17 @@ export class KeyboardAndMouse3D {
 
   public mouseTopWorld(out = new THREE.Vector3()): THREE.Vector3 {
     this.deskGroup.updateMatrixWorld(false);
+    if (this.tabletActive) {
+      this.tabletGroup.updateMatrixWorld(false);
+      this.stylusGroup.updateMatrixWorld(false);
+      return out.set(0, 0.165, 0).applyMatrix4(this.stylusGroup.matrixWorld);
+    }
     this.mouseGroup.updateMatrixWorld(false);
+    if (this.pad.enabled) {
+      const p = padPosition(this.pad.target, false, this.padWidth * PAD_USABLE, this.padDepth * PAD_USABLE);
+      this.padGroup.updateWorldMatrix(true, false);
+      return out.set(p.x, this.pad.pressed ? 0.047 : 0.067, p.y).applyMatrix4(this.padGroup.matrixWorld);
+    }
     this.mouseShape.updateMatrixWorld(false);
     return out.set(0, 0.115, -0.05).applyMatrix4(this.mouseShape.matrixWorld);
   }
@@ -1045,6 +2285,7 @@ export class KeyboardAndMouse3D {
     rightDown: boolean,
     deskHopY: number,
     privacyAlpha: number,
+    mousing = true,
   ): void {
     if (deskHopY !== this.lastDeskHopY) {
       this.deskGroup.position.y = deskHopY;
@@ -1062,7 +2303,7 @@ export class KeyboardAndMouse3D {
       const kUpGlow = approach(6.5, dt);
 
       for (const k of this.activeKeys) {
-        const targetDepth = k.down ? 0.032 : 0;
+        const targetDepth = k.down ? Math.min(0.032, this.capH * 0.7) : 0;
         k.depth += (targetDepth - k.depth) * (k.down ? kDownDepth : kUpDepth);
         k.glow += ((k.down ? 1 : 0) - k.glow) * (k.down ? kDownGlow : kUpGlow);
 
@@ -1104,7 +2345,21 @@ export class KeyboardAndMouse3D {
 
     this.mouseTarget.multiplyScalar(1 - approach(1.6, dt));
     this.mouseOffset.copy(this.mouseFollow.step(this.mouseTarget, dt));
-    this.mouseGroup.position.copy(this.mouseHome).add(this.mouseOffset);
+    this.mouseGroup.position.copy(this.mouseHome);
+    if (this.pad.enabled) {
+      this.mouseGroup.position.copy(this.padHome);
+      const mark = this.pad.clickMark();
+      this.clickMarker.visible = !!mark && privacyAlpha < 0.02;
+      if (mark && this.clickMarker.visible) {
+        const p = padPosition(mark.point, false, this.padWidth * PAD_USABLE, this.padDepth * PAD_USABLE);
+        this.clickMarker.position.set(p.x, 0.049, p.y);
+        this.clickMarker.scale.setScalar(0.15 * mark.scale);
+        this.clickMarker.material.opacity = mark.opacity;
+      }
+      this.padGroup.position.y = leftDown || rightDown || this.pad.pressed ? -0.012 : 0;
+    } else {
+      this.mouseGroup.position.add(this.mouseOffset);
+    }
 
     this.leftPress += ((leftDown ? 1 : 0) - this.leftPress) * approach(32, dt);
     this.rightPress += ((rightDown ? 1 : 0) - this.rightPress) * approach(32, dt);
@@ -1124,9 +2379,194 @@ export class KeyboardAndMouse3D {
 
     const anyPress = Math.max(this.leftPress, this.rightPress);
     this.mouseShape.scale.set(1 + 0.03 * anyPress, 1 - 0.10 * anyPress, 1);
+
+    if (this.tabletActive) {
+      this.tabletClock += dt;
+      const idleGoal = mousing ? 0 : 1;
+      this.tabletIdleBlend += (idleGoal - this.tabletIdleBlend) * approach(mousing ? 16 : 6.5, dt);
+      const idle = this.tabletIdleBlend;
+
+      if (!mousing) {
+        this.tabletPenTarget.x += (this.tabletPadCenterX - this.tabletPenTarget.x) * approach(1.4, dt);
+        this.tabletPenTarget.z += (0.02 - this.tabletPenTarget.z) * approach(1.4, dt);
+      }
+      this.tabletPenPos.copy(this.tabletPenFollow.step(this.tabletPenTarget, dt));
+
+      const hoverY = this.tabletThickness + mix(0.024, 0.005, this.leftPress);
+      const restY = this.tabletThickness + 0.022;
+      this.stylusGroup.position.set(
+        this.tabletPenPos.x,
+        mix(hoverY, restY, idle),
+        this.tabletPenPos.z,
+      );
+      const dynLeanX = clamp(this.tabletPenFollow.v.z * 0.08, -0.14, 0.14) * (1 - idle);
+      const dynLeanZ = clamp(-this.tabletPenFollow.v.x * 0.08, -0.16, 0.16) * (1 - idle);
+      this.stylusGroup.rotation.set(
+        mix(0.22 + this.leftPress * 0.07 + dynLeanX, 0.12, idle),
+        mix(0, 0.48, idle),
+        mix(-0.34 - this.leftPress * 0.08 + dynLeanZ, -1.32, idle),
+      );
+
+      this.tabletLedMat.color
+        .set('#4a5264')
+        .lerp(this.hitColor, Math.max(this.leftPress, this.rightPress * 0.6));
+
+      // Record live fading glowing strokes on the drawing pad while pen nib touches down!
+      const isDrawing = leftDown && mousing && privacyAlpha < 0.2;
+      if (isDrawing) {
+        const padW = this.tabletPadW - 0.016;
+        const padD = this.tabletPadD - 0.016;
+        const u = clamp((this.tabletPenPos.x - this.tabletPadCenterX) / padW + 0.5, 0.04, 0.96);
+        const v = clamp(this.tabletPenPos.z / padD + 0.5, 0.04, 0.96);
+        const prev = this.tabletStrokes.length > 0 ? this.tabletStrokes[this.tabletStrokes.length - 1] : null;
+        const moved = !prev || !this.tabletWasDrawing || Math.hypot(u - prev.u, v - prev.v) >= 0.012;
+        if (moved) {
+          this.tabletStrokes.push({ u, v, t: this.tabletClock, breakLine: !this.tabletWasDrawing });
+          if (this.tabletStrokes.length > 72) {
+            this.tabletStrokes.shift();
+          }
+          this.tabletPadDirty = true;
+        }
+      }
+      this.tabletWasDrawing = isDrawing;
+
+      if (this.tabletStrokes.length > 0) {
+        let expired = 0;
+        while (expired < this.tabletStrokes.length && this.tabletClock - this.tabletStrokes[expired].t > 1.38) {
+          expired += 1;
+        }
+        if (expired > 0) {
+          this.tabletStrokes.splice(0, expired);
+        }
+        this.tabletPadDirty = true;
+      }
+      if (this.tabletPadDirty) {
+        this.redrawTabletPadCanvas();
+      }
+    }
+
+    if (this.gamepadActive) {
+      this.gpClock += dt;
+      const stickStep = approach(32, dt);
+      this.gpSmLx += (this.gpTarget.lx - this.gpSmLx) * stickStep;
+      this.gpSmLy += (this.gpTarget.ly - this.gpSmLy) * stickStep;
+      this.gpSmRx += (this.gpTarget.rx - this.gpSmRx) * stickStep;
+      this.gpSmRy += (this.gpTarget.ry - this.gpSmRy) * stickStep;
+      this.gpSmLt += (this.gpTarget.lt - this.gpSmLt) * stickStep;
+      this.gpSmRt += (this.gpTarget.rt - this.gpSmRt) * stickStep;
+
+      const btnDownStep = approach(48, dt);
+      const btnUpStep = approach(20, dt);
+      let anyBtnEnergy = 0;
+      for (let i = 0; i < 12; i++) {
+        const down = (this.gpTarget.buttons & (1 << i)) !== 0 ? 1 : 0;
+        const cur = this.gpBtnAnim[i];
+        const next = cur + (down - cur) * (down ? btnDownStep : btnUpStep);
+        this.gpBtnAnim[i] = !down && next < 0.002 ? 0 : next;
+        if (this.gpBtnAnim[i] > anyBtnEnergy) anyBtnEnergy = this.gpBtnAnim[i];
+      }
+
+      // Left & right analog thumbsticks pivot smoothly in their recessed wells
+      this.gpLeftStick.rotation.set(-this.gpSmLy * 0.48, 0, -this.gpSmLx * 0.48);
+      this.gpRightStick.rotation.set(-this.gpSmRy * 0.48, 0, -this.gpSmRx * 0.48);
+      const lMag = clamp(Math.hypot(this.gpSmLx, this.gpSmLy), 0, 1);
+      const rMag = clamp(Math.hypot(this.gpSmRx, this.gpSmRy), 0, 1);
+      this.gpLeftStickCapMat.color.copy(this.gpStickRimIdle).lerp(this.hitColor, lMag * 0.85);
+      this.gpRightStickCapMat.color.copy(this.gpStickRimIdle).lerp(this.hitColor, rMag * 0.85);
+
+      // 4-Way Cross D-Pad arms sink and glow neon accent on press
+      const syncDpad = (
+        part: { mesh: THREE.Mesh; mat: THREE.MeshBasicMaterial; baseY: number },
+        amt: number,
+      ) => {
+        part.mesh.position.y = part.baseY - amt * 0.015;
+        part.mat.color.copy(this.gpBaseDark).lerp(this.hitColor, amt * 0.92);
+      };
+      syncDpad(this.gpDpadMeshes.up, this.gpBtnAnim[6]);
+      syncDpad(this.gpDpadMeshes.down, this.gpBtnAnim[7]);
+      syncDpad(this.gpDpadMeshes.left, this.gpBtnAnim[8]);
+      syncDpad(this.gpDpadMeshes.right, this.gpBtnAnim[9]);
+
+      // Diamond ABXY buttons depress & flash bright highlight
+      for (let i = 0; i < this.gpFaceBtns.length; i++) {
+        const fb = this.gpFaceBtns[i];
+        const amt = this.gpBtnAnim[i];
+        fb.group.position.y = fb.baseY - amt * 0.022;
+        fb.sideMat.color.copy(fb.baseColor).lerp(this.whiteColor, amt * 0.55);
+        fb.topMat.color.copy(this.whiteColor).lerp(this.hitColor, amt * 0.35);
+      }
+
+      // BACK / START mini pills
+      this.gpBackBtn.mesh.position.y = this.gpBackBtn.baseY - this.gpBtnAnim[11] * 0.010;
+      this.gpBackBtn.mat.color.copy(this.gpBaseDark).lerp(this.hitColor, this.gpBtnAnim[11] * 0.9);
+      this.gpStartBtn.mesh.position.y = this.gpStartBtn.baseY - this.gpBtnAnim[10] * 0.010;
+      this.gpStartBtn.mat.color.copy(this.gpBaseDark).lerp(this.hitColor, this.gpBtnAnim[10] * 0.9);
+
+      // Authentic Xbox Stacked Shoulders: Upper Curved Bumper (Cyan) + Lower Hinged Curved Trigger (Orange) + Press-Time Callout Pills
+      const GP_TOP = 0.145;
+      const syncShoulderPair = (pair: typeof this.gpShoulderL, bAmt: number, tAmt: number) => {
+        pair.bumperGroup.position.set(0, GP_TOP + 0.002 - bAmt * 0.012, -0.018 + bAmt * 0.028);
+        pair.bumperMat.color.copy(this.gpBumperDark).lerp(this.gpBumperActive, bAmt * 0.96);
+        pair.bumperAccentMat.color.set(bAmt > 0.10 ? '#e0f2fe' : '#58657f');
+
+        pair.triggerPivot.position.set(0, GP_TOP - 0.050 - tAmt * 0.008, -0.315 + tAmt * 0.032);
+        pair.triggerPivot.rotation.x = tAmt * 0.42;
+        pair.triggerMat.color.copy(this.gpTriggerDark).lerp(this.gpTriggerActive, tAmt * 0.98);
+
+        const both = bAmt > 0.08 && tAmt > 0.08;
+        const bShow = bAmt > 0.06;
+        pair.bBadgeGroup.visible = bShow;
+        if (bShow) {
+          const pop = smoothstep(0.06, 0.28, bAmt);
+          pair.bBadgeMat.opacity = pop;
+          pair.bBadgeGroup.scale.setScalar(0.84 + 0.20 * pop);
+          pair.bBadgeGroup.position.set(
+            pair.side * 0.335,
+            GP_TOP + (both ? 0.105 : 0.052) + pop * 0.022,
+            -0.455,
+          );
+        }
+
+        const tShow = tAmt > 0.06;
+        pair.tBadgeGroup.visible = tShow;
+        if (tShow) {
+          const pop = smoothstep(0.06, 0.28, tAmt);
+          pair.tBadgeMat.opacity = pop;
+          pair.tBadgeGroup.scale.setScalar(0.84 + 0.20 * pop);
+          pair.tBadgeGroup.position.set(
+            pair.side * 0.335,
+            GP_TOP + (both ? -0.036 : 0.015) - pop * 0.014,
+            -0.495,
+          );
+          const fill = clamp(tAmt, 0.08, 1);
+          const fullW = 0.192;
+          pair.tGaugeFill.scale.set(fill, 1, 1);
+          // Inside gamepadRig (rotY=PI), local +X is screen-LEFT, so anchor fill on +fullW/2 to grow left->right
+          pair.tGaugeFill.position.x = (fullW * (1 - fill)) * 0.5;
+        }
+      };
+      syncShoulderPair(this.gpShoulderL, this.gpBtnAnim[4], this.gpSmLt);
+      syncShoulderPair(this.gpShoulderR, this.gpBtnAnim[5], this.gpSmRt);
+
+      // Home LED gentle breathing + reactive burst on button mash
+      const ledPulse = 0.72 + 0.16 * Math.sin(this.gpClock * 3.4) + anyBtnEnergy * 0.28;
+      this.gpHomeLedMat.color
+        .copy(this.hitColor)
+        .multiplyScalar(clamp(ledPulse, 0.55, 1.0));
+
+      // Grounded flat-on-desk tactile bounce (sturdy on desk, subtle press squash when mashing combos!)
+      this.gpBounce = Math.max(0, this.gpBounce - dt * 5.2);
+      this.gpTapL = Math.max(0, this.gpTapL - dt * 8.5);
+      this.gpTapR = Math.max(0, this.gpTapR - dt * 8.5);
+      const squash = this.gpBounce * 0.055;
+      this.gamepadBody.position.set(0, 0.015 - squash * 0.14, 0.0);
+      this.gamepadBody.scale.set(1.30 * (1 + squash * 0.25), 1.30 * (1 - squash), 1.30 * (1 + squash * 0.20));
+      this.gamepadBody.rotation.set(0.14, 0, 0);
+    }
   }
 
   public dispose(): void {
+    this.clickMarker.material.map?.dispose();
     this.deskGroup.traverse((obj: THREE.Object3D) => {
       const mesh = obj as THREE.Mesh;
       if (mesh.geometry) mesh.geometry.dispose();
@@ -1145,6 +2585,7 @@ export class KeyboardAndMouse3D {
     this.capTopBaseGeo.dispose();
     this.capSideMat.dispose();
     this.chassisMat.dispose();
+    this.tabletPadTex.dispose();
     this.kbShadowMat.dispose();
     disposeKeyboardCaches();
   }

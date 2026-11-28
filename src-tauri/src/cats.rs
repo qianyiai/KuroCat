@@ -939,7 +939,7 @@ pub fn cat_exists(id: &str) -> bool {
 
 pub fn cat_schema_guide() -> serde_json::Value {
     serde_json::json!({
-        "description": "KuroCat Custom Cat & Animal Skin Schema (v5.1.3). Pass any JSON to upsert_cat (with activate: true) or partially modify an existing cat with patch_cat — hot-reloads live in both 2D & 3D!",
+        "description": "KuroCat Custom Cat Skin Schema. Pass any JSON to upsert_cat (with activate: true) or partially modify an existing cat with patch_cat — hot-reloads live in both 2D & 3D!",
         "patterns": {
             "solid": "Single coat color (e.g., British Shorthair blue, white Persian, golden chinchilla, black cat, capybara)",
             "bicolor": "Ragdoll / bicolor inverted-V face mask (uses maskColor, foreheadBridgeColor, flankColor)",
@@ -951,13 +951,13 @@ pub fn cat_schema_guide() -> serde_json::Value {
         "contourOptions": {
             "faceShape": {
                 "values": ["round", "square", "wide", "fox", "oval"],
-                "guide": "round = classic chubby cat; square = boxy Tibetan fox (藏狐方脸); wide = bold broad tiger/bear/lion cheeks (老虎宽腮); fox = sleek tapered fox/shiba chin; oval = taller bunny/capybara face"
+                "guide": "round = classic chubby cat; square = boxy Tibetan fox (藏狐方脸); wide = bold broad tiger/bear/lion cheeks (老虎宽腮); fox = sleek tapered fox chin; oval = taller bunny/capybara face"
             },
             "headWidth": "Horizontal head width multiplier (0.78..1.32, default 1.0)",
             "jawSquareness": "Jaw/cheek angularity (0.0..1.0; 0.85..0.95 creates a crisp square face)",
             "earShape": {
                 "values": ["cat", "round", "tall", "small", "wide", "folded", "floppy"],
-                "guide": "cat = pointed cat ears; round = tiger/panda/bear round ears; tall = fox/bunny/corgi tall ears; small = Tibetan fox compact ears; wide = fennec flared ears; folded = Scottish Fold bent ears (折耳猫); floppy = puppy/lop-bunny hanging ears (垂耳狗/兔)"
+                "guide": "cat = pointed cat ears; round = tiger/panda/bear round ears; tall = fox/bunny tall ears; small = Tibetan fox compact ears; wide = fennec flared ears; folded = Scottish Fold bent ears (折耳猫); floppy = lop-bunny hanging ears (垂耳兔)"
             },
             "earScale": "Ear size multiplier (0.55..1.55, default 1.0)",
             "earSpacing": "Horizontal ear spread multiplier (0.70..1.35, default 1.0)",
@@ -969,17 +969,17 @@ pub fn cat_schema_guide() -> serde_json::Value {
             "eyeAspect": "Eye height/width ratio (0.60 sleek narrow almond .. 1.40 big tall round eyes, default 1.0)",
             "eyeSpacing": "Horizontal eye distance multiplier (0.72 close-set .. 1.35 wide-set, default 1.0)",
             "eyeOffsetY": "Vertical eye placement (-1.0 higher on forehead .. +1.0 lower cute baby face, default 0.0)",
-            "eyeTilt": "Outer eye corner slant in radians (-0.50 droopy puppy eyes .. +0.50 upturned fox eyes, default 0.0)",
+            "eyeTilt": "Outer eye corner slant in radians (-0.50 droopy gentle eyes .. +0.50 upturned fox eyes, default 0.0)",
             "eyeSquint": "Resting upper-eyelid droop (0.0..0.75; e.g. 0.50 for Tibetan fox deadpan gaze)",
             "pupilShape": {
                 "values": ["oval", "round", "slit", "dot", "star"],
-                "guide": "oval = classic cat oval; round = big anime/puppy pupil; slit = sharp vertical cat slit; dot = tiny kawaii bead/button eyes (Shiba/hamster/Snoopy); star = sparkling 4-point star pupil"
+                "guide": "oval = classic cat oval; round = big anime pupil; slit = sharp vertical cat slit; dot = tiny kawaii bead/button eyes (hamster/minimalist); star = sparkling 4-point star pupil"
             },
             "pupilScale": "Pupil size multiplier (0.40..1.45, default 1.0)",
-            "heterochromia": "Set rightEyeColorTop (and optional rightEyeColorBottom) differently from eyeColorTop/eyeColorBottom for odd-eyed pets (异瞳/鸳鸯眼)!",
+            "heterochromia": "Set rightEyeColorTop (and optional rightEyeColorBottom) differently from eyeColorTop/eyeColorBottom for odd-eyed cats (异瞳/鸳鸯眼)!",
             "noseShape": {
                 "values": ["cat", "round", "wide", "small", "none"],
-                "guide": "cat = inverted triangle; round = dog/bear button nose; wide = tiger/capybara snout; small = tiny cute dot; none = hide nose"
+                "guide": "cat = inverted triangle; round = bear button nose; wide = tiger/capybara snout; small = tiny cute dot; none = hide nose"
             },
             "noseScale": "Nose size multiplier (0.50..1.80, default 1.0)",
             "noseOffsetY": "Vertical nose placement (-1.0 higher .. +1.0 lower, default 0.0)",
@@ -989,10 +989,10 @@ pub fn cat_schema_guide() -> serde_json::Value {
             },
             "mouthScale": "Mouth size/width multiplier (0.55..1.70, default 1.0)",
             "mouthOffsetY": "Vertical mouth placement (-1.0 higher .. +1.0 lower, default 0.0)",
-            "whiskerLength": "Whisker length multiplier (0.0 hides whiskers for dogs/bears/anime .. 1.60 long whiskers, default 1.0)",
+            "whiskerLength": "Whisker length multiplier (0.0 hides whiskers .. 1.60 long whiskers, default 1.0)",
             "eyebrowStyle": {
                 "values": ["none", "soft", "thick", "angry", "worried"],
-                "guide": "none = hidden; soft = thin arched brows; thick = adorable Shiba/husky dot-oval brows (豆豆眉); angry = fierce slanted brows; worried = sympathetic upturned-inner brows (八字眉)"
+                "guide": "none = hidden; soft = thin arched brows; thick = adorable bold oval brows (豆豆眉); angry = fierce slanted brows; worried = sympathetic upturned-inner brows (八字眉)"
             },
             "eyebrowColor": "Optional eyebrow CSS color",
             "blushAlways": "true keeps soft rosy cheeks permanently visible even when not being petted",
@@ -1132,46 +1132,6 @@ pub fn cat_schema_guide() -> serde_json::Value {
                 "blushScale": 1.15,
                 "accentColor": "#8ad4ff",
                 "accentSideColor": "#4690d8"
-            },
-            "shibaInu": {
-                "id": "shiba-inu",
-                "name": "豆豆眉柴犬",
-                "emoji": "🐕",
-                "pattern": "bicolor",
-                "faceShape": "fox",
-                "headWidth": 1.08,
-                "earShape": "tall",
-                "earScale": 0.96,
-                "earSpacing": 1.08,
-                "eyeScale": 0.86,
-                "eyeAspect": 0.92,
-                "eyeSpacing": 1.06,
-                "eyeTilt": 0.10,
-                "pupilShape": "dot",
-                "pupilScale": 0.95,
-                "eyebrowStyle": "thick",
-                "eyebrowColor": "#fff7e8",
-                "whiskerLength": 0.0,
-                "noseShape": "round",
-                "noseScale": 1.32,
-                "noseColor": "#282220",
-                "mouthShape": "smile",
-                "mouthScale": 1.18,
-                "mouthColor": "#443730",
-                "blushColor": "#f49aa6",
-                "blushAlways": true,
-                "furColor": "#e39848",
-                "maskColor": "#e39848",
-                "bellyBibColor": "#fff8ec",
-                "outlineColor": "#593b1d",
-                "earInnerColor": "#f0c8b0",
-                "tailFluffy": true,
-                "eyeColorTop": "#3b2c20",
-                "eyeColorBottom": "#5c4532",
-                "eyeCatchlight": true,
-                "pawColor": "#fff8ec",
-                "accentColor": "#f5b041",
-                "accentSideColor": "#ba7318"
             }
         }
     })
@@ -1190,7 +1150,7 @@ mod tests {
         cat.pupil_shape = Some("SLIT".to_string());
         cat.nose_shape = Some("Wide".to_string());
         cat.mouth_shape = Some("BLEP".to_string());
-        cat.eyebrow_style = Some("Shiba".to_string());
+        cat.eyebrow_style = Some("Bold".to_string());
         cat.right_eye_color_top = Some("#2c7be5".to_string());
         cat.eyebrow_color = Some("#fff7e8".to_string());
         cat.head_width = Some(2.5);

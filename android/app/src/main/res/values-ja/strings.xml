@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat タイピング連動＆パスワード保護</string>
+    <string name="accessibility_service_desc">入力リズムに合わせてペットがキーボードを叩き、パスワード欄では自動的に目隠しします。文字やパスワードの読み取り・保存・送信は一切行いません。</string>
+</resources>

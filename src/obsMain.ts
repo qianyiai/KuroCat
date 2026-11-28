@@ -1,3 +1,4 @@
+import type { PadPoint } from './trackpad';
 import {
   DEFAULT_TAIL_KEY_IDS,
   KuroCatEngine,
@@ -6,9 +7,11 @@ import {
 } from './catEngine';
 import { catAudio } from './audio';
 import { AgentCompanionController, type AgentCompanionEvent } from './agentCompanion';
+import { applyPetInteraction, type PetInteractionEvent } from './petInteraction';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
-import type { KeyboardLayoutId } from './keyboardLayout';
+import { isKeyboardLayoutId, normalizeKeyboardLayout, type KeyboardLayoutId } from './keyboardLayout';
 import type { CollarColorId, KuroCatEngine3D } from './catEngine3d';
+import type { GamepadInputState } from './keyboard3d';
 
 type ObsRenderMode = '2d' | '3d';
 type ObsHeadphoneMode = 'auto' | 'on' | 'off';
@@ -32,20 +35,26 @@ interface ObsAppSettings {
   scale?: number;
   showKeyBubbles?: boolean;
   catBreed?: string;
+  laoWuHandover?: boolean;
   keyboardLayout?: KeyboardLayoutId;
+  trackpadEnabled?: boolean;
+  whiteKeyboard?: boolean;
   keyboardOrientation?: KeyboardOrientation;
   tailKeyMode?: TailKeyMode;
   tailKeyIds?: string[];
   renderMode?: ObsRenderMode;
   collarColor?: CollarColorId;
   headphoneMode?: ObsHeadphoneMode;
+  tabletMode?: 'auto' | 'mouse' | 'tablet';
+  gamepadMode?: 'auto' | 'off' | 'on';
   liveChromaColor?: LiveChromaColor;
 }
 
 type InputEvent =
   | { kind: 'keyDown'; vk: number; scan: number; repeat: boolean }
   | { kind: 'keyUp'; vk: number; scan: number }
-  | { kind: 'mouseDown'; button: string }
+  | { kind: 'trackpad'; points: PadPoint[] }
+  | { kind: 'mouseDown'; button: string; point?: PadPoint }
   | { kind: 'mouseUp'; button: string }
   | { kind: 'mouseWheel'; delta: number }
   | { kind: 'mouseMove'; x: number; y: number; nx: number; ny: number }
@@ -56,6 +65,8 @@ interface ObsStateSnapshot {
   cats?: CatSkinConfig[];
   privacy?: boolean;
   gameActive?: boolean;
+  tabletActive?: boolean;
+  gamepadActive?: boolean;
 }
 
 const canvas = document.getElementById('obs-canvas') as HTMLCanvasElement;
@@ -70,10 +81,16 @@ const engine = new KuroCatEngine(canvas);
 
 let engine3d: KuroCatEngine3D | null = null;
 let loading3d: Promise<void> | null = null;
+let lastPadPoints: readonly PadPoint[] = [];
 let active3d = false;
 let webglBlocked = false;
 let privacyActive = false;
 let gameActive = false;
+let gpuEcoActive = false;
+let tabletActive = false;
+let gamepadActive = false;
+let appliedObsCatId: string | null = null;
+let appliedObsCatSkin: CatSkinConfig | null = null;
 
 const obsAgentCompanion = new AgentCompanionController({
   bubbleEl: agentBubbleEl,
@@ -113,7 +130,20 @@ const overrideHeadphones: ObsHeadphoneMode | null =
   overrideHeadphoneRaw === 'auto' || overrideHeadphoneRaw === 'on' || overrideHeadphoneRaw === 'off'
     ? overrideHeadphoneRaw
     : null;
-const overrideLayout = params.get('layout') === '108' ? '108' : params.get('layout') === '65' ? '65' : null;
+const overrideTabletRaw = params.get('tablet')?.trim().toLowerCase() || null;
+const overrideTablet: 'auto' | 'mouse' | 'tablet' | null =
+  overrideTabletRaw === 'auto' || overrideTabletRaw === 'mouse' || overrideTabletRaw === 'tablet'
+    ? overrideTabletRaw
+    : null;
+const overrideGamepadRaw = params.get('gamepad')?.trim().toLowerCase() || null;
+const overrideGamepad: 'auto' | 'off' | 'on' | null =
+  overrideGamepadRaw === 'auto' || overrideGamepadRaw === 'off' || overrideGamepadRaw === 'on'
+    ? overrideGamepadRaw
+    : null;
+const overrideLayoutRaw = params.get('layout');
+const overrideLayout: KeyboardLayoutId | null = isKeyboardLayoutId(overrideLayoutRaw)
+  ? overrideLayoutRaw
+  : null;
 const overrideOrient = params.get('orient') === 'viewer' ? 'viewer' : params.get('orient') === 'cat' ? 'cat' : null;
 const overrideBubbles = params.has('bubbles') ? params.get('bubbles') !== '0' && params.get('bubbles') !== 'false' : null;
 const rawScaleParam = params.get('scale');
@@ -146,6 +176,7 @@ let currentSettings: ObsAppSettings = {
   renderMode: '3d',
   collarColor: 'none',
   headphoneMode: 'off',
+  tabletMode: 'auto',
   liveChromaColor: 'blue',
 };
 
@@ -266,7 +297,37 @@ function computeObsHeadphonesOn(activeCat: CatSkinConfig | undefined): boolean {
       : 'off');
   if (hm === 'on') return true;
   if (hm === 'off') return false;
-  return gameActive;
+  return gameActive || gamepadActive;
+}
+
+function computeObsTabletOn(activeCat: CatSkinConfig | undefined): boolean {
+  if (activeCat?.id === 'dafeiyu') return false;
+  const tm =
+    overrideTablet ||
+    (currentSettings.tabletMode === 'mouse' || currentSettings.tabletMode === 'tablet'
+      ? currentSettings.tabletMode
+      : 'auto');
+  if (tm === 'tablet') return true;
+  if (tm === 'mouse') return false;
+  return tabletActive;
+}
+
+function computeObsGamepadOn(activeCat: CatSkinConfig | undefined): boolean {
+  if (activeCat?.id === 'dafeiyu') return false;
+  const gm =
+    overrideGamepad ||
+    (currentSettings.gamepadMode === 'off' || currentSettings.gamepadMode === 'on'
+      ? currentSettings.gamepadMode
+      : 'auto');
+  if (gm === 'on') return true;
+  if (gm === 'off') return false;
+  return gamepadActive;
+}
+
+function wantsObs3D(activeCat: CatSkinConfig | undefined, mode: ObsRenderMode): boolean {
+  return mode === '3d' &&
+    !webglBlocked &&
+    activeCat?.id !== 'dafeiyu';
 }
 
 function syncObs3D(
@@ -279,8 +340,7 @@ function syncObs3D(
   tailIds: string[],
   showBubbles: boolean,
 ): void {
-  const want3d = mode === '3d' && activeCat?.id !== 'dafeiyu' && !webglBlocked;
-  if (!want3d) {
+  if (!wantsObs3D(activeCat, mode)) {
     if (active3d) {
       engine3d?.stop();
       canvas3d.classList.add('hidden');
@@ -296,14 +356,19 @@ function syncObs3D(
   if (engine3d) {
     engine3d.showKeyBubbles = showBubbles;
     engine3d.setRenderStyle('3d');
-    if (activeCat) engine3d.setCatSkin(activeCat);
-    engine3d.setCollar(collar);
+    if (activeCat && !engine3d.isHandoverActive()) engine3d.setCatSkin(activeCat);
+    engine3d.setCollar(activeCat?.id === 'dafeiyu' ? 'none' : collar);
     engine3d.setHeadphones(computeObsHeadphonesOn(activeCat));
-    engine3d.setKeyboardConfig(layout, orient);
+    engine3d.setTabletActive(computeObsTabletOn(activeCat));
+    engine3d.setGamepadActive(computeObsGamepadOn(activeCat));
+    if (!currentSettings.trackpadEnabled) lastPadPoints = [];
+    engine3d.setTrackpad(currentSettings.trackpadEnabled === true);
+    engine3d.onTrackpad(lastPadPoints);
+    engine3d.setKeyboardConfig(layout, orient, currentSettings.whiteKeyboard === true);
     engine3d.setTailKeyConfig(tailMode, tailIds);
     engine3d.setRenderScale(overrideScale ?? 1.0);
     engine3d.setPrivacyMode(privacyActive);
-    engine3d.setGameActive(gameActive);
+    engine3d.setGameActive(gameActive || gpuEcoActive);
     engine3d.setChromaKeyBg(getActiveChromaHex());
     if (!active3d) {
       engine.stop();
@@ -337,7 +402,7 @@ function applyState(): void {
   const breedId = overrideBreed || currentSettings.catBreed || 'black';
   const activeCat = catList.find((c) => c.id === breedId) ?? catList[0];
   const layout: KeyboardLayoutId =
-    overrideLayout || (currentSettings.keyboardLayout === '108' ? '108' : '65');
+    overrideLayout || normalizeKeyboardLayout(currentSettings.keyboardLayout);
   const orient: KeyboardOrientation =
     overrideOrient || (currentSettings.keyboardOrientation === 'viewer' ? 'viewer' : 'cat');
   const tailMode: TailKeyMode =
@@ -364,12 +429,38 @@ function applyState(): void {
 
   syncChromaAppearance();
   engine.showKeyBubbles = showBubbles;
-  engine.setCatAppearance(activeCat?.id || 'black', activeCat);
+  const nextObsId = activeCat?.id || 'black';
+  const prevObsId = appliedObsCatId;
+  const prevObsSkin = appliedObsCatSkin;
+  const obsBreedChanged = prevObsId !== null && prevObsId !== nextObsId;
+  const allowObsHandover = currentSettings.laoWuHandover !== false && !privacyActive;
+
+  engine.setCatAppearance(nextObsId, activeCat);
+  if (!allowObsHandover || mode !== '3d' || nextObsId === 'dafeiyu' || webglBlocked) {
+    engine3d?.cancelHandover();
+  } else if (
+    obsBreedChanged &&
+    active3d &&
+    engine3d &&
+    !engine3d.isContextLost() &&
+    prevObsId !== 'dafeiyu' &&
+    activeCat
+  ) {
+    engine3d.transitionToSkin(activeCat, prevObsSkin ?? undefined);
+  }
+  appliedObsCatId = nextObsId;
+  appliedObsCatSkin = activeCat ? { ...activeCat } : null;
+
   engine.setHeadphones(computeObsHeadphonesOn(activeCat));
-  engine.setKeyboardConfig(layout, orient);
+  engine.setTabletActive(computeObsTabletOn(activeCat));
+  engine.setGamepadActive(computeObsGamepadOn(activeCat));
+  if (!currentSettings.trackpadEnabled) lastPadPoints = [];
+  engine.setTrackpad(currentSettings.trackpadEnabled === true);
+  engine.onTrackpad(lastPadPoints);
+  engine.setKeyboardConfig(layout, orient, currentSettings.whiteKeyboard === true);
   engine.setTailKeyConfig(tailMode, tailIds);
   engine.setRenderScale(overrideScale ?? 1.0);
-  engine.setGameActive(gameActive);
+  engine.setGameActive(gameActive || gpuEcoActive);
   syncObs3D(activeCat, mode, collar, layout, orient, tailMode, tailIds, showBubbles);
 }
 
@@ -393,9 +484,14 @@ function handleInput(p: InputEvent): void {
         engine.onWindowCursor(p.nx, p.ny, false);
       }
       break;
+    case 'trackpad':
+      lastPadPoints = p.points;
+      if (active3d && engine3d) engine3d.onTrackpad(p.points);
+      else engine.onTrackpad(p.points);
+      break;
     case 'mouseDown':
-      if (active3d && engine3d) engine3d.onMouseDown(p.button);
-      else engine.onMouseDown(p.button);
+      if (active3d && engine3d) engine3d.onMouseDown(p.button, p.point);
+      else engine.onMouseDown(p.button, p.point);
       break;
     case 'mouseUp':
       if (active3d && engine3d) engine3d.onMouseUp(p.button);
@@ -432,10 +528,12 @@ async function connectTauriLive(): Promise<void> {
       void currentWin.startDragging().catch(() => {});
     });
 
-    const [loadedSettings, loadedCats, loadedGameActive] = await Promise.all([
+    const [loadedSettings, loadedCats, loadedGameActive, loadedTabletActive, loadedGamepadActive] = await Promise.all([
       invoke<ObsAppSettings & Record<string, unknown>>('get_settings'),
       invoke<CatSkinConfig[]>('get_cats'),
       invoke<boolean>('get_game_active').catch(() => false),
+      invoke<boolean>('get_tablet_active').catch(() => false),
+      invoke<boolean>('get_gamepad_active').catch(() => false),
     ]);
 
     if (loadedSettings && typeof loadedSettings === 'object') {
@@ -452,6 +550,8 @@ async function connectTauriLive(): Promise<void> {
       catList = loadedCats;
     }
     gameActive = Boolean(loadedGameActive);
+    tabletActive = Boolean(loadedTabletActive);
+    gamepadActive = Boolean(loadedGamepadActive);
     resolveTauriInit();
     applyState();
 
@@ -483,13 +583,40 @@ async function connectTauriLive(): Promise<void> {
         engine3d?.setPrivacyMode(privacyActive);
         obsAgentCompanion.setPrivacyMode(privacyActive);
       }),
-      listen<boolean | { active?: boolean }>('kuro-game-active', (ev) => {
+      listen<boolean | { active?: boolean; gpuEco?: boolean }>('kuro-game-active', (ev) => {
         const parsed = ev.payload;
         gameActive = typeof parsed === 'boolean' ? parsed : Boolean(parsed?.active);
+        gpuEcoActive = typeof parsed === 'boolean' ? parsed : Boolean(parsed?.gpuEco) || gameActive;
         applyState();
+      }),
+      listen<boolean | { active?: boolean }>('kuro-tablet-active', (ev) => {
+        const parsed = ev.payload;
+        tabletActive = typeof parsed === 'boolean' ? parsed : Boolean(parsed?.active);
+        applyState();
+      }),
+      listen<GamepadInputState>('kuro-gamepad', (ev) => {
+        const p = ev.payload;
+        if (!p) return;
+        const prev = gamepadActive;
+        gamepadActive = Boolean(p.active);
+        if (gamepadActive !== prev) applyState();
+        const breedId = overrideBreed || currentSettings.catBreed || 'black';
+        const activeCat = catList.find((c) => c.id === breedId) ?? catList[0];
+        if (computeObsGamepadOn(activeCat)) {
+          if (active3d && engine3d) engine3d.onGamepadState(p);
+          else engine.onGamepadState(p);
+        }
       }),
       listen<AgentCompanionEvent>('kuro-agent-event', (ev) => {
         if (ev.payload) obsAgentCompanion.handleEvent(ev.payload);
+      }),
+      listen<PetInteractionEvent>('kuro-pet-interaction', (ev) => {
+        if (!ev.payload || privacyActive) return;
+        applyPetInteraction(
+          active3d && engine3d ? engine3d : engine,
+          Boolean(active3d && engine3d),
+          ev.payload,
+        );
       }),
     ]);
   } catch (err) {
@@ -535,6 +662,12 @@ function connectStream(): void {
       if (typeof snap.gameActive === 'boolean') {
         gameActive = snap.gameActive;
       }
+      if (typeof snap.tabletActive === 'boolean') {
+        tabletActive = snap.tabletActive;
+      }
+      if (typeof snap.gamepadActive === 'boolean') {
+        gamepadActive = snap.gamepadActive;
+      }
       applyState();
     } catch {}
   });
@@ -578,11 +711,47 @@ function connectStream(): void {
     } catch {}
   });
 
+  es.addEventListener('petInteraction', (ev) => {
+    try {
+      if (privacyActive) return;
+      const payload = JSON.parse((ev as MessageEvent).data) as PetInteractionEvent;
+      applyPetInteraction(
+        active3d && engine3d ? engine3d : engine,
+        Boolean(active3d && engine3d),
+        payload,
+      );
+    } catch {}
+  });
+
   es.addEventListener('gameActive', (ev) => {
     try {
-      const parsed = JSON.parse((ev as MessageEvent).data) as boolean | { active?: boolean };
+      const parsed = JSON.parse((ev as MessageEvent).data) as boolean | { active?: boolean; gpuEco?: boolean };
       gameActive = typeof parsed === 'boolean' ? parsed : Boolean(parsed?.active);
+      gpuEcoActive = typeof parsed === 'boolean' ? parsed : Boolean(parsed?.gpuEco) || gameActive;
       applyState();
+    } catch {}
+  });
+
+  es.addEventListener('tabletActive', (ev) => {
+    try {
+      const parsed = JSON.parse((ev as MessageEvent).data) as boolean | { active?: boolean };
+      tabletActive = typeof parsed === 'boolean' ? parsed : Boolean(parsed?.active);
+      applyState();
+    } catch {}
+  });
+
+  es.addEventListener('gamepad', (ev) => {
+    try {
+      const parsed = JSON.parse((ev as MessageEvent).data) as GamepadInputState;
+      const prev = gamepadActive;
+      gamepadActive = Boolean(parsed?.active);
+      if (gamepadActive !== prev) applyState();
+      const breedId = overrideBreed || currentSettings.catBreed || 'black';
+      const activeCat = catList.find((c) => c.id === breedId) ?? catList[0];
+      if (computeObsGamepadOn(activeCat)) {
+        if (active3d && engine3d) engine3d.onGamepadState(parsed);
+        else engine.onGamepadState(parsed);
+      }
     } catch {}
   });
 

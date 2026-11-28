@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat Sincronización y protección de contraseñas</string>
+    <string name="accessibility_service_desc">Sincroniza el ritmo de tecleo con la mascota flotante y oculta los campos de contraseña automáticamente. Nunca lee, guarda ni envía ningún texto.</string>
+</resources>

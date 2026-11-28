@@ -142,7 +142,7 @@ pub fn is_at_display_corner(window: &WebviewWindow, preferred: &str) -> bool {
     .unwrap_or(true)
 }
 
-pub fn configure_fullscreen(window: &WebviewWindow, always_on_top: bool) {
+pub fn configure_fullscreen(window: &WebviewWindow, always_on_top: bool, yield_on_fullscreen: bool) {
     let window = window.clone();
     let _ = window.clone().run_on_main_thread(move || {
         let _ = with_native_window(&window, |_, native| {
@@ -155,7 +155,14 @@ pub fn configure_fullscreen(window: &WebviewWindow, always_on_top: bool) {
                     | Behavior::FullScreenNone,
             );
 
-            if objc2::available!(macos = 13.0) {
+            if yield_on_fullscreen {
+                if objc2::available!(macos = 13.0) {
+                    behavior.remove(
+                        Behavior::Primary | Behavior::Auxiliary | Behavior::CanJoinAllApplications,
+                    );
+                }
+                behavior.insert(Behavior::FullScreenNone);
+            } else if objc2::available!(macos = 13.0) {
                 behavior.remove(Behavior::Primary | Behavior::Auxiliary);
                 behavior.insert(Behavior::CanJoinAllApplications);
             } else {

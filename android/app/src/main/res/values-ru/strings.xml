@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat Синхронизация ввода и защита паролей</string>
+    <string name="accessibility_service_desc">Синхронизирует ритм печати с питомцем и автоматически закрывает глаза в полях пароля. Не читает, не сохраняет и не отправляет текст.</string>
+</resources>

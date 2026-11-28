@@ -8,9 +8,11 @@ import java.util.concurrent.atomic.AtomicBoolean
 interface KuroPetListener {
     fun onTypingBurst(count: Int, kind: String) {}
     fun onHardwareKey(vk: Int, isDown: Boolean, repeat: Boolean) {}
+    fun onGamepadState(json: String) {}
     fun onScreenTap(nx: Float, ny: Float) {}
     fun onPrivacyChanged(active: Boolean) {}
     fun onPrivacyTyping() {}
+    fun onImeVisibilityChanged(visible: Boolean) {}
     fun onSettingsChanged() {}
     fun onOverlayStateChanged(running: Boolean) {}
 }
@@ -22,6 +24,9 @@ object KuroEventBus {
     val overlayRunning = AtomicBoolean(false)
     val accessibilityConnected = AtomicBoolean(false)
     val privacyActive = AtomicBoolean(false)
+    val imeVisible = AtomicBoolean(false)
+    @Volatile
+    var lastTypingSignalMs: Long = 0L
 
     fun register(listener: KuroPetListener) {
         listeners.add(listener)
@@ -32,6 +37,7 @@ object KuroEventBus {
     }
 
     fun postTypingBurst(count: Int, kind: String = "char") {
+        lastTypingSignalMs = System.currentTimeMillis()
         mainHandler.post {
             listeners.forEach { it.onTypingBurst(count, kind) }
         }
@@ -40,6 +46,12 @@ object KuroEventBus {
     fun postHardwareKey(vk: Int, isDown: Boolean, repeat: Boolean = false) {
         mainHandler.post {
             listeners.forEach { it.onHardwareKey(vk, isDown, repeat) }
+        }
+    }
+
+    fun postGamepadState(json: String) {
+        mainHandler.post {
+            listeners.forEach { it.onGamepadState(json) }
         }
     }
 
@@ -61,6 +73,15 @@ object KuroEventBus {
     fun postPrivacyTyping() {
         mainHandler.post {
             listeners.forEach { it.onPrivacyTyping() }
+        }
+    }
+
+    fun postImeVisibilityChanged(visible: Boolean) {
+        val prev = imeVisible.getAndSet(visible)
+        if (prev != visible) {
+            mainHandler.post {
+                listeners.forEach { it.onImeVisibilityChanged(visible) }
+            }
         }
     }
 

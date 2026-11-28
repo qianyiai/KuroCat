@@ -137,11 +137,27 @@
         background: rgba(255, 86, 86, 0.28);
         color: #ff9c9c;
       }
-      .agent-bubble {
+      /* 多会话气泡栈：容器负责定位，子气泡按会话顺序竖向排列 */
+      .agent-bubble-stack {
         position: fixed;
         top: 8px;
         left: 50%;
         transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        max-width: 88vw;
+        pointer-events: none;
+        z-index: 50;
+      }
+      .agent-bubble-stack.hidden {
+        display: none;
+      }
+      .agent-bubble {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 6px;
         max-width: 88vw;
         padding: 4px 11px;
         border-radius: 999px;
@@ -158,6 +174,15 @@
         pointer-events: none;
         box-shadow: 0 4px 14px rgba(0, 0, 0, 0.34);
         z-index: 50;
+      }
+      .agent-bubble-text {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .agent-bubble.leaving {
+        opacity: 0;
+        transition: opacity 0.18s ease-in;
       }
       .agent-bubble[data-tone='working'] { border-color: rgba(200, 245, 56, 0.65); color: #e9ff9b; }
       .agent-bubble[data-tone='thinking'] { border-color: rgba(114, 196, 255, 0.65); color: #cdeaff; }
@@ -210,7 +235,7 @@
         title="关闭直播采集窗口"
       >×</button>
     </div>
-    <div id="agent-bubble" class="agent-bubble hidden" role="status" aria-live="polite"></div>
+    <div id="agent-bubble" class="agent-bubble-stack hidden" role="status" aria-live="polite"></div>
     <script type="module" src="/src/obsMain.ts"></script>
   </body>
 </html>

@@ -1,4 +1,14 @@
-export type KeyboardLayoutId = '65' | '108';
+import { MACBOOK_LAYOUT } from './macbookLayout';
+
+export type KeyboardLayoutId = '65' | '98' | '108' | 'macbook';
+
+export function isKeyboardLayoutId(raw: unknown): raw is KeyboardLayoutId {
+  return raw === '65' || raw === '98' || raw === '108' || raw === 'macbook';
+}
+
+export function normalizeKeyboardLayout(raw: unknown): KeyboardLayoutId {
+  return isKeyboardLayoutId(raw) ? raw : '65';
+}
 
 export interface KeySpec {
   id: string;
@@ -25,9 +35,32 @@ export const VK_NUMPAD_ENTER = 0x10d;
 export const TOTAL_UNITS = 15;
 export const TOTAL_ROWS = 5;
 
+// Same rule as isMacPlatform() in i18n.ts (not imported: i18n.ts pulls in every locale bundle).
+const IS_MAC = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || navigator.userAgent);
+
+// Space-row modifiers per platform. Native hooks report the same VKs everywhere
+// (Command = Win 0x5B/0x5C, Option = Alt 0xA4/0xA5); only the physical order and legends differ.
+const SPACE_ROW_65_WIN: KeySpec[] = [
+  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 4, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lwin', label: 'Win', bubble: 'Win', row: 4, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b, 0x5c] },
+  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'space', label: '␣', bubble: '␣', row: 4, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0xa5, 0xa3] },
+];
+
+// MacBook order ⌃ ⌥ ⌘ ␣ ⌘ ⌥: space gives up 1U for the right ⌘; a stray right Control lights ⌃.
+const SPACE_ROW_65_MAC: KeySpec[] = [
+  { id: 'lctrl', label: '⌃', bubble: '⌃', row: 4, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11, 0xa3] },
+  { id: 'lalt', label: '⌥', bubble: '⌥', row: 4, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'lwin', label: '⌘', bubble: '⌘', row: 4, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'space', label: '␣', bubble: '␣', row: 4, uStart: 3.75, uWidth: 5.25, vkCodes: [0x20] },
+  { id: 'rwin', label: '⌘', bubble: '⌘', row: 4, uStart: 9, uWidth: 1, accent: 'mod', vkCodes: [0x5c] },
+  { id: 'ralt', label: '⌥', bubble: '⌥', row: 4, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0xa5] },
+];
+
 export const KEYBOARD_KEYS_65: KeySpec[] = [
-  // Row 0: Orange Esc (rotates 180° to bottom-right corner facing cat!) + 1..0 + - + = + Backspace (15U total)
-  { id: 'esc', label: 'ESC', bubble: 'Esc', row: 0, uStart: 0, uWidth: 1, accent: 'orange', vkCodes: [0x1b, 0xc0] },
+  // Row 0: Esc + 1..0 + - + = + Backspace (15U total)
+  { id: 'esc', label: 'ESC', bubble: 'Esc', row: 0, uStart: 0, uWidth: 1, accent: 'mod', vkCodes: [0x1b, 0xc0] },
   { id: '1', label: '1', bubble: '1', row: 0, uStart: 1, uWidth: 1, vkCodes: [0x31, 0x61, 0x70] },
   { id: '2', label: '2', bubble: '2', row: 0, uStart: 2, uWidth: 1, vkCodes: [0x32, 0x62, 0x71] },
   { id: '3', label: '3', bubble: '3', row: 0, uStart: 3, uWidth: 1, vkCodes: [0x33, 0x63, 0x72] },
@@ -42,10 +75,10 @@ export const KEYBOARD_KEYS_65: KeySpec[] = [
   { id: 'equal', label: '=', bubble: '=', row: 0, uStart: 12, uWidth: 1, vkCodes: [0xbb, 0x6b, 0x7b] },
   { id: 'bs', label: '⌫', bubble: '⌫', row: 0, uStart: 13, uWidth: 2, accent: 'mod', vkCodes: [0x08, 0x2e] },
 
-  // Row 1: Tab + Q..P + [ ] \ (15U total)
+  // Row 1: Tab + Q..P + [ ] \ (15U total; W orange gamer accent)
   { id: 'tab', label: '↹', bubble: 'Tab', row: 1, uStart: 0, uWidth: 1.5, accent: 'mod', vkCodes: [0x09] },
   { id: 'q', label: 'Q', bubble: 'Q', row: 1, uStart: 1.5, uWidth: 1, vkCodes: [0x51] },
-  { id: 'w', label: 'W', bubble: 'W', row: 1, uStart: 2.5, uWidth: 1, vkCodes: [0x57] },
+  { id: 'w', label: 'W', bubble: 'W', row: 1, uStart: 2.5, uWidth: 1, accent: 'orange', vkCodes: [0x57] },
   { id: 'e', label: 'E', bubble: 'E', row: 1, uStart: 3.5, uWidth: 1, vkCodes: [0x45] },
   { id: 'r', label: 'R', bubble: 'R', row: 1, uStart: 4.5, uWidth: 1, vkCodes: [0x52] },
   { id: 't', label: 'T', bubble: 'T', row: 1, uStart: 5.5, uWidth: 1, vkCodes: [0x54] },
@@ -58,11 +91,11 @@ export const KEYBOARD_KEYS_65: KeySpec[] = [
   { id: 'rb', label: ']', bubble: ']', row: 1, uStart: 12.5, uWidth: 1, vkCodes: [0xdd] },
   { id: 'bslash', label: '\\', bubble: '\\', row: 1, uStart: 13.5, uWidth: 1.5, accent: 'mod', vkCodes: [0xdc, 0x2d, 0x24] },
 
-  // Row 2: Caps + A..L + ; ' + Enter (15U total)
+  // Row 2: Caps + A..L + ; ' + Enter (15U total; A/S/D orange accents)
   { id: 'caps', label: '⇪', bubble: 'Caps', row: 2, uStart: 0, uWidth: 1.75, accent: 'mod', vkCodes: [0x14] },
-  { id: 'a', label: 'A', bubble: 'A', row: 2, uStart: 1.75, uWidth: 1, vkCodes: [0x41] },
-  { id: 's', label: 'S', bubble: 'S', row: 2, uStart: 2.75, uWidth: 1, vkCodes: [0x53] },
-  { id: 'd', label: 'D', bubble: 'D', row: 2, uStart: 3.75, uWidth: 1, vkCodes: [0x44] },
+  { id: 'a', label: 'A', bubble: 'A', row: 2, uStart: 1.75, uWidth: 1, accent: 'orange', vkCodes: [0x41] },
+  { id: 's', label: 'S', bubble: 'S', row: 2, uStart: 2.75, uWidth: 1, accent: 'orange', vkCodes: [0x53] },
+  { id: 'd', label: 'D', bubble: 'D', row: 2, uStart: 3.75, uWidth: 1, accent: 'orange', vkCodes: [0x44] },
   { id: 'f', label: 'F', bubble: 'F', row: 2, uStart: 4.75, uWidth: 1, vkCodes: [0x46] },
   { id: 'g', label: 'G', bubble: 'G', row: 2, uStart: 5.75, uWidth: 1, vkCodes: [0x47] },
   { id: 'h', label: 'H', bubble: 'H', row: 2, uStart: 6.75, uWidth: 1, vkCodes: [0x48] },
@@ -71,9 +104,9 @@ export const KEYBOARD_KEYS_65: KeySpec[] = [
   { id: 'l', label: 'L', bubble: 'L', row: 2, uStart: 9.75, uWidth: 1, vkCodes: [0x4c] },
   { id: 'semi', label: ';', bubble: ';', row: 2, uStart: 10.75, uWidth: 1, vkCodes: [0xba] },
   { id: 'quote', label: "'", bubble: "'", row: 2, uStart: 11.75, uWidth: 1, vkCodes: [0xde] },
-  { id: 'enter', label: '↵', bubble: '↵', row: 2, uStart: 12.75, uWidth: 2.25, accent: 'mod', vkCodes: [0x0d, VK_NUMPAD_ENTER] },
+  { id: 'enter', label: '↵', bubble: '↵', row: 2, uStart: 12.75, uWidth: 2.25, accent: 'orange', vkCodes: [0x0d, VK_NUMPAD_ENTER] },
 
-  // Row 3: LShift + Z..M + , . / + Orange RShift (rotates 180° to iconic upper-left orange bar facing cat!) (15U total)
+  // Row 3: LShift + Z..M + , . / + RShift (15U total)
   { id: 'lshift', label: '⇧', bubble: '⇧', row: 3, uStart: 0, uWidth: 2.25, accent: 'mod', vkCodes: [0xa0, 0x10] },
   { id: 'z', label: 'Z', bubble: 'Z', row: 3, uStart: 2.25, uWidth: 1, vkCodes: [0x5a] },
   { id: 'x', label: 'X', bubble: 'X', row: 3, uStart: 3.25, uWidth: 1, vkCodes: [0x58] },
@@ -85,14 +118,10 @@ export const KEYBOARD_KEYS_65: KeySpec[] = [
   { id: 'comma', label: ',', bubble: ',', row: 3, uStart: 9.25, uWidth: 1, vkCodes: [0xbc] },
   { id: 'dot', label: '.', bubble: '.', row: 3, uStart: 10.25, uWidth: 1, vkCodes: [0xbe, 0x6e] },
   { id: 'slash', label: '/', bubble: '/', row: 3, uStart: 11.25, uWidth: 1, vkCodes: [0xbf, 0x6f] },
-  { id: 'rshift', label: '⇧', bubble: '⇧', row: 3, uStart: 12.25, uWidth: 2.75, accent: 'orange', vkCodes: [0xa1] },
+  { id: 'rshift', label: '⇧', bubble: '⇧', row: 3, uStart: 12.25, uWidth: 2.75, accent: 'mod', vkCodes: [0xa1] },
 
-  // Row 4: Ctrl Win Alt Space Alt Left Down Up Right (rotates 180° to top row closest to cat!) (15U total)
-  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 4, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
-  { id: 'lwin', label: 'Win', bubble: 'Win', row: 4, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b, 0x5c] },
-  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
-  { id: 'space', label: '␣', bubble: '␣', row: 4, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
-  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 4, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0xa5, 0xa3] },
+  // Row 4: space-row modifiers (per platform) + Left Down Up Right (rotates 180° to top row closest to cat!) (15U total)
+  ...(IS_MAC ? SPACE_ROW_65_MAC : SPACE_ROW_65_WIN),
   { id: 'left', label: '←', bubble: '←', row: 4, uStart: 11, uWidth: 1, accent: 'mod', vkCodes: [0x25, 0x23] },
   { id: 'down', label: '↓', bubble: '↓', row: 4, uStart: 12, uWidth: 1, accent: 'mod', vkCodes: [0x28, 0x22] },
   { id: 'up', label: '↑', bubble: '↑', row: 4, uStart: 13, uWidth: 1, accent: 'mod', vkCodes: [0x26, 0x21] },
@@ -103,9 +132,32 @@ export const KEYBOARD_KEYS_65: KeySpec[] = [
 const NAV_X = 15.35;
 const NUM_X = 18.7;
 
+const SPACE_ROW_108_WIN: KeySpec[] = [
+  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 10, uWidth: 1.25, accent: 'mod', vkCodes: [0xa5] },
+  { id: 'rwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 11.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5c] },
+  { id: 'menu', label: '▤', bubble: 'Menu', row: 5, rowY: 5.25, uStart: 12.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5d] },
+  { id: 'rctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 13.75, uWidth: 1.25, accent: 'mod', vkCodes: [0xa3] },
+];
+
+// Apple full-size order ⌃ ⌥ ⌘ ␣ ⌘ ⌥ ▤ ⌃ (▤ kept so the 108-key count and widths stay identical).
+const SPACE_ROW_108_MAC: KeySpec[] = [
+  { id: 'lctrl', label: '⌃', bubble: '⌃', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lalt', label: '⌥', bubble: '⌥', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'lwin', label: '⌘', bubble: '⌘', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'rwin', label: '⌘', bubble: '⌘', row: 5, rowY: 5.25, uStart: 10, uWidth: 1.25, accent: 'mod', vkCodes: [0x5c] },
+  { id: 'ralt', label: '⌥', bubble: '⌥', row: 5, rowY: 5.25, uStart: 11.25, uWidth: 1.25, accent: 'mod', vkCodes: [0xa5] },
+  { id: 'menu', label: '▤', bubble: 'Menu', row: 5, rowY: 5.25, uStart: 12.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5d] },
+  { id: 'rctrl', label: '⌃', bubble: '⌃', row: 5, rowY: 5.25, uStart: 13.75, uWidth: 1.25, accent: 'mod', vkCodes: [0xa3] },
+];
+
 export const KEYBOARD_KEYS_108: KeySpec[] = [
   // Row 0 (rowY=0): Esc + F1..F12 + Prt/Scr/Pau + 4 signature 108-key media/utility keys above Numpad (20 keys)
-  { id: 'esc', label: 'Esc', bubble: 'Esc', row: 0, rowY: 0, uStart: 0, uWidth: 1, accent: 'orange', vkCodes: [0x1b] },
+  { id: 'esc', label: 'Esc', bubble: 'Esc', row: 0, rowY: 0, uStart: 0, uWidth: 1, accent: 'mod', vkCodes: [0x1b] },
   { id: 'f1', label: 'F1', bubble: 'F1', row: 0, rowY: 0, uStart: 2, uWidth: 1, vkCodes: [0x70] },
   { id: 'f2', label: 'F2', bubble: 'F2', row: 0, rowY: 0, uStart: 3, uWidth: 1, vkCodes: [0x71] },
   { id: 'f3', label: 'F3', bubble: 'F3', row: 0, rowY: 0, uStart: 4, uWidth: 1, vkCodes: [0x72] },
@@ -152,7 +204,7 @@ export const KEYBOARD_KEYS_108: KeySpec[] = [
   // Row 2 (rowY=2.25): Tab Q..P [ ] \ | Del End PgD | 7 8 9 +(2U tall) (21 keys)
   { id: 'tab', label: '↹', bubble: 'Tab', row: 2, rowY: 2.25, uStart: 0, uWidth: 1.5, accent: 'mod', vkCodes: [0x09] },
   { id: 'q', label: 'Q', bubble: 'Q', row: 2, rowY: 2.25, uStart: 1.5, uWidth: 1, vkCodes: [0x51] },
-  { id: 'w', label: 'W', bubble: 'W', row: 2, rowY: 2.25, uStart: 2.5, uWidth: 1, vkCodes: [0x57] },
+  { id: 'w', label: 'W', bubble: 'W', row: 2, rowY: 2.25, uStart: 2.5, uWidth: 1, accent: 'orange', vkCodes: [0x57] },
   { id: 'e', label: 'E', bubble: 'E', row: 2, rowY: 2.25, uStart: 3.5, uWidth: 1, vkCodes: [0x45] },
   { id: 'r', label: 'R', bubble: 'R', row: 2, rowY: 2.25, uStart: 4.5, uWidth: 1, vkCodes: [0x52] },
   { id: 't', label: 'T', bubble: 'T', row: 2, rowY: 2.25, uStart: 5.5, uWidth: 1, vkCodes: [0x54] },
@@ -174,9 +226,9 @@ export const KEYBOARD_KEYS_108: KeySpec[] = [
 
   // Row 3 (rowY=3.25): Caps A..L ; ' Enter | (nav gap) | 4 5 6 (16 keys)
   { id: 'caps', label: '⇪', bubble: 'Caps', row: 3, rowY: 3.25, uStart: 0, uWidth: 1.75, accent: 'mod', vkCodes: [0x14] },
-  { id: 'a', label: 'A', bubble: 'A', row: 3, rowY: 3.25, uStart: 1.75, uWidth: 1, vkCodes: [0x41] },
-  { id: 's', label: 'S', bubble: 'S', row: 3, rowY: 3.25, uStart: 2.75, uWidth: 1, vkCodes: [0x53] },
-  { id: 'd', label: 'D', bubble: 'D', row: 3, rowY: 3.25, uStart: 3.75, uWidth: 1, vkCodes: [0x44] },
+  { id: 'a', label: 'A', bubble: 'A', row: 3, rowY: 3.25, uStart: 1.75, uWidth: 1, accent: 'orange', vkCodes: [0x41] },
+  { id: 's', label: 'S', bubble: 'S', row: 3, rowY: 3.25, uStart: 2.75, uWidth: 1, accent: 'orange', vkCodes: [0x53] },
+  { id: 'd', label: 'D', bubble: 'D', row: 3, rowY: 3.25, uStart: 3.75, uWidth: 1, accent: 'orange', vkCodes: [0x44] },
   { id: 'f', label: 'F', bubble: 'F', row: 3, rowY: 3.25, uStart: 4.75, uWidth: 1, vkCodes: [0x46] },
   { id: 'g', label: 'G', bubble: 'G', row: 3, rowY: 3.25, uStart: 5.75, uWidth: 1, vkCodes: [0x47] },
   { id: 'h', label: 'H', bubble: 'H', row: 3, rowY: 3.25, uStart: 6.75, uWidth: 1, vkCodes: [0x48] },
@@ -185,7 +237,7 @@ export const KEYBOARD_KEYS_108: KeySpec[] = [
   { id: 'l', label: 'L', bubble: 'L', row: 3, rowY: 3.25, uStart: 9.75, uWidth: 1, vkCodes: [0x4c] },
   { id: 'semi', label: ';', bubble: ';', row: 3, rowY: 3.25, uStart: 10.75, uWidth: 1, vkCodes: [0xba] },
   { id: 'quote', label: "'", bubble: "'", row: 3, rowY: 3.25, uStart: 11.75, uWidth: 1, vkCodes: [0xde] },
-  { id: 'enter', label: '↵', bubble: '↵', row: 3, rowY: 3.25, uStart: 12.75, uWidth: 2.25, accent: 'mod', vkCodes: [0x0d] },
+  { id: 'enter', label: '↵', bubble: '↵', row: 3, rowY: 3.25, uStart: 12.75, uWidth: 2.25, accent: 'orange', vkCodes: [0x0d] },
   { id: 'np_4', label: '4', bubble: 'Num4', row: 3, rowY: 3.25, uStart: NUM_X, uWidth: 1, vkCodes: [0x64] },
   { id: 'np_5', label: '5', bubble: 'Num5', row: 3, rowY: 3.25, uStart: NUM_X + 1, uWidth: 1, vkCodes: [0x65] },
   { id: 'np_6', label: '6', bubble: 'Num6', row: 3, rowY: 3.25, uStart: NUM_X + 2, uWidth: 1, vkCodes: [0x66] },
@@ -202,27 +254,151 @@ export const KEYBOARD_KEYS_108: KeySpec[] = [
   { id: 'comma', label: ',', bubble: ',', row: 4, rowY: 4.25, uStart: 9.25, uWidth: 1, vkCodes: [0xbc] },
   { id: 'dot', label: '.', bubble: '.', row: 4, rowY: 4.25, uStart: 10.25, uWidth: 1, vkCodes: [0xbe] },
   { id: 'slash', label: '/', bubble: '/', row: 4, rowY: 4.25, uStart: 11.25, uWidth: 1, vkCodes: [0xbf] },
-  { id: 'rshift', label: '⇧', bubble: '⇧', row: 4, rowY: 4.25, uStart: 12.25, uWidth: 2.75, accent: 'orange', vkCodes: [0xa1] },
+  { id: 'rshift', label: '⇧', bubble: '⇧', row: 4, rowY: 4.25, uStart: 12.25, uWidth: 2.75, accent: 'mod', vkCodes: [0xa1] },
   { id: 'up', label: '↑', bubble: '↑', row: 4, rowY: 4.25, uStart: NAV_X + 1, uWidth: 1, accent: 'mod', vkCodes: [0x26] },
   { id: 'np_1', label: '1', bubble: 'Num1', row: 4, rowY: 4.25, uStart: NUM_X, uWidth: 1, vkCodes: [0x61] },
   { id: 'np_2', label: '2', bubble: 'Num2', row: 4, rowY: 4.25, uStart: NUM_X + 1, uWidth: 1, vkCodes: [0x62] },
   { id: 'np_3', label: '3', bubble: 'Num3', row: 4, rowY: 4.25, uStart: NUM_X + 2, uWidth: 1, vkCodes: [0x63] },
-  { id: 'np_ent', label: '↵', bubble: 'Num↵', row: 4, rowY: 4.25, rowSpan: 2, uStart: NUM_X + 3, uWidth: 1, accent: 'orange', vkCodes: [VK_NUMPAD_ENTER] },
+  { id: 'np_ent', label: '↵', bubble: 'Num↵', row: 4, rowY: 4.25, rowSpan: 2, uStart: NUM_X + 3, uWidth: 1, accent: 'mod', vkCodes: [VK_NUMPAD_ENTER] },
 
-  // Row 5 (rowY=5.25): Ctrl Win Alt Space Alt Win Menu Ctrl | Left Down Right | 0(2U) . (13 keys)
-  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
-  { id: 'lwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
-  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
-  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
-  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 10, uWidth: 1.25, accent: 'mod', vkCodes: [0xa5] },
-  { id: 'rwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 11.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5c] },
-  { id: 'menu', label: '▤', bubble: 'Menu', row: 5, rowY: 5.25, uStart: 12.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5d] },
-  { id: 'rctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 13.75, uWidth: 1.25, accent: 'mod', vkCodes: [0xa3] },
+  // Row 5 (rowY=5.25): space-row modifiers (per platform) | Left Down Right | 0(2U) . (13 keys)
+  ...(IS_MAC ? SPACE_ROW_108_MAC : SPACE_ROW_108_WIN),
   { id: 'left', label: '←', bubble: '←', row: 5, rowY: 5.25, uStart: NAV_X, uWidth: 1, accent: 'mod', vkCodes: [0x25] },
   { id: 'down', label: '↓', bubble: '↓', row: 5, rowY: 5.25, uStart: NAV_X + 1, uWidth: 1, accent: 'mod', vkCodes: [0x28] },
   { id: 'right', label: '→', bubble: '→', row: 5, rowY: 5.25, uStart: NAV_X + 2, uWidth: 1, accent: 'mod', vkCodes: [0x27] },
   { id: 'np_0', label: '0', bubble: 'Num0', row: 5, rowY: 5.25, uStart: NUM_X, uWidth: 2, vkCodes: [0x60] },
   { id: 'np_dot', label: '.', bubble: 'Num.', row: 5, rowY: 5.25, uStart: NUM_X + 2, uWidth: 1, vkCodes: [0x6e] },
+];
+
+// Authentic 98-key (1800 Compact) ANSI mechanical keyboard (19.5U x 6.25 rows; 17 + 18 + 18 + 16 + 17 + 12 = 98 keys!)
+// Preserves full F-row + tucked arrow cluster + independent Numpad while dropping the wide 108 nav island.
+const NUM98_X = 15.5;
+
+const SPACE_ROW_98_WIN: KeySpec[] = [
+  { id: 'lctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lwin', label: 'Win', bubble: 'Win', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'lalt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'ralt', label: 'Alt', bubble: 'Alt', row: 5, rowY: 5.25, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0xa5] },
+  { id: 'fn', label: 'Fn', bubble: 'Fn', row: 5, rowY: 5.25, uStart: 11, uWidth: 1, accent: 'mod', vkCodes: [0x5c, 0x5d] },
+  { id: 'rctrl', label: 'Ctrl', bubble: 'Ctrl', row: 5, rowY: 5.25, uStart: 12, uWidth: 1, accent: 'mod', vkCodes: [0xa3] },
+];
+
+// Compact 98-key Mac order ⌃ ⌥ ⌘ ␣ ⌘ ⌥ ⌃ (preserves exact 1.25/1.25/1.25/6.25/1/1/1 widths).
+const SPACE_ROW_98_MAC: KeySpec[] = [
+  { id: 'lctrl', label: '⌃', bubble: '⌃', row: 5, rowY: 5.25, uStart: 0, uWidth: 1.25, accent: 'mod', vkCodes: [0xa2, 0x11] },
+  { id: 'lalt', label: '⌥', bubble: '⌥', row: 5, rowY: 5.25, uStart: 1.25, uWidth: 1.25, accent: 'mod', vkCodes: [0xa4, 0x12] },
+  { id: 'lwin', label: '⌘', bubble: '⌘', row: 5, rowY: 5.25, uStart: 2.5, uWidth: 1.25, accent: 'mod', vkCodes: [0x5b] },
+  { id: 'space', label: '␣', bubble: '␣', row: 5, rowY: 5.25, uStart: 3.75, uWidth: 6.25, vkCodes: [0x20] },
+  { id: 'rwin', label: '⌘', bubble: '⌘', row: 5, rowY: 5.25, uStart: 10, uWidth: 1, accent: 'mod', vkCodes: [0x5c, 0x5d] },
+  { id: 'ralt', label: '⌥', bubble: '⌥', row: 5, rowY: 5.25, uStart: 11, uWidth: 1, accent: 'mod', vkCodes: [0xa5] },
+  { id: 'rctrl', label: '⌃', bubble: '⌃', row: 5, rowY: 5.25, uStart: 12, uWidth: 1, accent: 'mod', vkCodes: [0xa3] },
+];
+
+export const KEYBOARD_KEYS_98: KeySpec[] = [
+  // Row 0 (rowY=0): Esc + F1..F12 + Ins Del PgUp PgDn above Numpad (17 keys)
+  { id: 'esc', label: 'Esc', bubble: 'Esc', row: 0, rowY: 0, uStart: 0, uWidth: 1, accent: 'mod', vkCodes: [0x1b] },
+  { id: 'f1', label: 'F1', bubble: 'F1', row: 0, rowY: 0, uStart: 2, uWidth: 1, vkCodes: [0x70] },
+  { id: 'f2', label: 'F2', bubble: 'F2', row: 0, rowY: 0, uStart: 3, uWidth: 1, vkCodes: [0x71] },
+  { id: 'f3', label: 'F3', bubble: 'F3', row: 0, rowY: 0, uStart: 4, uWidth: 1, vkCodes: [0x72] },
+  { id: 'f4', label: 'F4', bubble: 'F4', row: 0, rowY: 0, uStart: 5, uWidth: 1, vkCodes: [0x73] },
+  { id: 'f5', label: 'F5', bubble: 'F5', row: 0, rowY: 0, uStart: 6.5, uWidth: 1, accent: 'mod', vkCodes: [0x74] },
+  { id: 'f6', label: 'F6', bubble: 'F6', row: 0, rowY: 0, uStart: 7.5, uWidth: 1, accent: 'mod', vkCodes: [0x75] },
+  { id: 'f7', label: 'F7', bubble: 'F7', row: 0, rowY: 0, uStart: 8.5, uWidth: 1, accent: 'mod', vkCodes: [0x76] },
+  { id: 'f8', label: 'F8', bubble: 'F8', row: 0, rowY: 0, uStart: 9.5, uWidth: 1, accent: 'mod', vkCodes: [0x77] },
+  { id: 'f9', label: 'F9', bubble: 'F9', row: 0, rowY: 0, uStart: 11, uWidth: 1, vkCodes: [0x78] },
+  { id: 'f10', label: 'F10', bubble: 'F10', row: 0, rowY: 0, uStart: 12, uWidth: 1, vkCodes: [0x79] },
+  { id: 'f11', label: 'F11', bubble: 'F11', row: 0, rowY: 0, uStart: 13, uWidth: 1, vkCodes: [0x7a] },
+  { id: 'f12', label: 'F12', bubble: 'F12', row: 0, rowY: 0, uStart: 14, uWidth: 1, vkCodes: [0x7b] },
+  { id: 'ins', label: 'Ins', bubble: 'Ins', row: 0, rowY: 0, uStart: NUM98_X, uWidth: 1, accent: 'mod', vkCodes: [0x2d] },
+  { id: 'del', label: 'Del', bubble: 'Del', row: 0, rowY: 0, uStart: NUM98_X + 1, uWidth: 1, accent: 'mod', vkCodes: [0x2e] },
+  { id: 'pgup', label: 'PU', bubble: 'PgUp', row: 0, rowY: 0, uStart: NUM98_X + 2, uWidth: 1, accent: 'mod', vkCodes: [0x21] },
+  { id: 'pgdn', label: 'PD', bubble: 'PgDn', row: 0, rowY: 0, uStart: NUM98_X + 3, uWidth: 1, accent: 'mod', vkCodes: [0x22] },
+
+  // Row 1 (rowY=1.25): ` 1..0 - = Backspace | Num / * - (18 keys)
+  { id: 'grave', label: '`', bubble: '`', row: 1, rowY: 1.25, uStart: 0, uWidth: 1, vkCodes: [0xc0] },
+  { id: '1', label: '1', bubble: '1', row: 1, rowY: 1.25, uStart: 1, uWidth: 1, vkCodes: [0x31] },
+  { id: '2', label: '2', bubble: '2', row: 1, rowY: 1.25, uStart: 2, uWidth: 1, vkCodes: [0x32] },
+  { id: '3', label: '3', bubble: '3', row: 1, rowY: 1.25, uStart: 3, uWidth: 1, vkCodes: [0x33] },
+  { id: '4', label: '4', bubble: '4', row: 1, rowY: 1.25, uStart: 4, uWidth: 1, vkCodes: [0x34] },
+  { id: '5', label: '5', bubble: '5', row: 1, rowY: 1.25, uStart: 5, uWidth: 1, vkCodes: [0x35] },
+  { id: '6', label: '6', bubble: '6', row: 1, rowY: 1.25, uStart: 6, uWidth: 1, vkCodes: [0x36] },
+  { id: '7', label: '7', bubble: '7', row: 1, rowY: 1.25, uStart: 7, uWidth: 1, vkCodes: [0x37] },
+  { id: '8', label: '8', bubble: '8', row: 1, rowY: 1.25, uStart: 8, uWidth: 1, vkCodes: [0x38] },
+  { id: '9', label: '9', bubble: '9', row: 1, rowY: 1.25, uStart: 9, uWidth: 1, vkCodes: [0x39] },
+  { id: '0', label: '0', bubble: '0', row: 1, rowY: 1.25, uStart: 10, uWidth: 1, vkCodes: [0x30] },
+  { id: 'minus', label: '-', bubble: '-', row: 1, rowY: 1.25, uStart: 11, uWidth: 1, vkCodes: [0xbd] },
+  { id: 'equal', label: '=', bubble: '=', row: 1, rowY: 1.25, uStart: 12, uWidth: 1, vkCodes: [0xbb] },
+  { id: 'bs', label: '⌫', bubble: '⌫', row: 1, rowY: 1.25, uStart: 13, uWidth: 2, accent: 'mod', vkCodes: [0x08] },
+  { id: 'numlk', label: 'Num', bubble: 'Num', row: 1, rowY: 1.25, uStart: NUM98_X, uWidth: 1, accent: 'mod', vkCodes: [0x90] },
+  { id: 'np_div', label: '/', bubble: 'Num/', row: 1, rowY: 1.25, uStart: NUM98_X + 1, uWidth: 1, accent: 'mod', vkCodes: [0x6f] },
+  { id: 'np_mul', label: '*', bubble: 'Num*', row: 1, rowY: 1.25, uStart: NUM98_X + 2, uWidth: 1, accent: 'mod', vkCodes: [0x6a] },
+  { id: 'np_sub', label: '-', bubble: 'Num-', row: 1, rowY: 1.25, uStart: NUM98_X + 3, uWidth: 1, accent: 'mod', vkCodes: [0x6d] },
+
+  // Row 2 (rowY=2.25): Tab Q..P [ ] \ | 7 8 9 +(2U tall) (18 keys)
+  { id: 'tab', label: '↹', bubble: 'Tab', row: 2, rowY: 2.25, uStart: 0, uWidth: 1.5, accent: 'mod', vkCodes: [0x09] },
+  { id: 'q', label: 'Q', bubble: 'Q', row: 2, rowY: 2.25, uStart: 1.5, uWidth: 1, vkCodes: [0x51] },
+  { id: 'w', label: 'W', bubble: 'W', row: 2, rowY: 2.25, uStart: 2.5, uWidth: 1, accent: 'orange', vkCodes: [0x57] },
+  { id: 'e', label: 'E', bubble: 'E', row: 2, rowY: 2.25, uStart: 3.5, uWidth: 1, vkCodes: [0x45] },
+  { id: 'r', label: 'R', bubble: 'R', row: 2, rowY: 2.25, uStart: 4.5, uWidth: 1, vkCodes: [0x52] },
+  { id: 't', label: 'T', bubble: 'T', row: 2, rowY: 2.25, uStart: 5.5, uWidth: 1, vkCodes: [0x54] },
+  { id: 'y', label: 'Y', bubble: 'Y', row: 2, rowY: 2.25, uStart: 6.5, uWidth: 1, vkCodes: [0x59] },
+  { id: 'u', label: 'U', bubble: 'U', row: 2, rowY: 2.25, uStart: 7.5, uWidth: 1, vkCodes: [0x55] },
+  { id: 'i', label: 'I', bubble: 'I', row: 2, rowY: 2.25, uStart: 8.5, uWidth: 1, vkCodes: [0x49] },
+  { id: 'o', label: 'O', bubble: 'O', row: 2, rowY: 2.25, uStart: 9.5, uWidth: 1, vkCodes: [0x4f] },
+  { id: 'p', label: 'P', bubble: 'P', row: 2, rowY: 2.25, uStart: 10.5, uWidth: 1, vkCodes: [0x50] },
+  { id: 'lb', label: '[', bubble: '[', row: 2, rowY: 2.25, uStart: 11.5, uWidth: 1, vkCodes: [0xdb] },
+  { id: 'rb', label: ']', bubble: ']', row: 2, rowY: 2.25, uStart: 12.5, uWidth: 1, vkCodes: [0xdd] },
+  { id: 'bslash', label: '\\', bubble: '\\', row: 2, rowY: 2.25, uStart: 13.5, uWidth: 1.5, accent: 'mod', vkCodes: [0xdc] },
+  { id: 'np_7', label: '7', bubble: 'Num7', row: 2, rowY: 2.25, uStart: NUM98_X, uWidth: 1, vkCodes: [0x67, 0x24] },
+  { id: 'np_8', label: '8', bubble: 'Num8', row: 2, rowY: 2.25, uStart: NUM98_X + 1, uWidth: 1, vkCodes: [0x68] },
+  { id: 'np_9', label: '9', bubble: 'Num9', row: 2, rowY: 2.25, uStart: NUM98_X + 2, uWidth: 1, vkCodes: [0x69] },
+  { id: 'np_add', label: '+', bubble: 'Num+', row: 2, rowY: 2.25, rowSpan: 2, uStart: NUM98_X + 3, uWidth: 1, accent: 'mod', vkCodes: [0x6b] },
+
+  // Row 3 (rowY=3.25): Caps A..L ; ' Enter | 4 5 6 (16 keys)
+  { id: 'caps', label: '⇪', bubble: 'Caps', row: 3, rowY: 3.25, uStart: 0, uWidth: 1.75, accent: 'mod', vkCodes: [0x14] },
+  { id: 'a', label: 'A', bubble: 'A', row: 3, rowY: 3.25, uStart: 1.75, uWidth: 1, accent: 'orange', vkCodes: [0x41] },
+  { id: 's', label: 'S', bubble: 'S', row: 3, rowY: 3.25, uStart: 2.75, uWidth: 1, accent: 'orange', vkCodes: [0x53] },
+  { id: 'd', label: 'D', bubble: 'D', row: 3, rowY: 3.25, uStart: 3.75, uWidth: 1, accent: 'orange', vkCodes: [0x44] },
+  { id: 'f', label: 'F', bubble: 'F', row: 3, rowY: 3.25, uStart: 4.75, uWidth: 1, vkCodes: [0x46] },
+  { id: 'g', label: 'G', bubble: 'G', row: 3, rowY: 3.25, uStart: 5.75, uWidth: 1, vkCodes: [0x47] },
+  { id: 'h', label: 'H', bubble: 'H', row: 3, rowY: 3.25, uStart: 6.75, uWidth: 1, vkCodes: [0x48] },
+  { id: 'j', label: 'J', bubble: 'J', row: 3, rowY: 3.25, uStart: 7.75, uWidth: 1, vkCodes: [0x4a] },
+  { id: 'k', label: 'K', bubble: 'K', row: 3, rowY: 3.25, uStart: 8.75, uWidth: 1, vkCodes: [0x4b] },
+  { id: 'l', label: 'L', bubble: 'L', row: 3, rowY: 3.25, uStart: 9.75, uWidth: 1, vkCodes: [0x4c] },
+  { id: 'semi', label: ';', bubble: ';', row: 3, rowY: 3.25, uStart: 10.75, uWidth: 1, vkCodes: [0xba] },
+  { id: 'quote', label: "'", bubble: "'", row: 3, rowY: 3.25, uStart: 11.75, uWidth: 1, vkCodes: [0xde] },
+  { id: 'enter', label: '↵', bubble: '↵', row: 3, rowY: 3.25, uStart: 12.75, uWidth: 2.25, accent: 'orange', vkCodes: [0x0d] },
+  { id: 'np_4', label: '4', bubble: 'Num4', row: 3, rowY: 3.25, uStart: NUM98_X, uWidth: 1, vkCodes: [0x64] },
+  { id: 'np_5', label: '5', bubble: 'Num5', row: 3, rowY: 3.25, uStart: NUM98_X + 1, uWidth: 1, vkCodes: [0x65] },
+  { id: 'np_6', label: '6', bubble: 'Num6', row: 3, rowY: 3.25, uStart: NUM98_X + 2, uWidth: 1, vkCodes: [0x66] },
+
+  // Row 4 (rowY=4.25): LShift Z..M , . / RShift(1.75U orange) | Up | 1 2 3 NumEnter(2U tall, orange) (17 keys)
+  { id: 'lshift', label: '⇧', bubble: '⇧', row: 4, rowY: 4.25, uStart: 0, uWidth: 2.25, accent: 'mod', vkCodes: [0xa0, 0x10] },
+  { id: 'z', label: 'Z', bubble: 'Z', row: 4, rowY: 4.25, uStart: 2.25, uWidth: 1, vkCodes: [0x5a] },
+  { id: 'x', label: 'X', bubble: 'X', row: 4, rowY: 4.25, uStart: 3.25, uWidth: 1, vkCodes: [0x58] },
+  { id: 'c', label: 'C', bubble: 'C', row: 4, rowY: 4.25, uStart: 4.25, uWidth: 1, vkCodes: [0x43] },
+  { id: 'v', label: 'V', bubble: 'V', row: 4, rowY: 4.25, uStart: 5.25, uWidth: 1, vkCodes: [0x56] },
+  { id: 'b', label: 'B', bubble: 'B', row: 4, rowY: 4.25, uStart: 6.25, uWidth: 1, vkCodes: [0x42] },
+  { id: 'n', label: 'N', bubble: 'N', row: 4, rowY: 4.25, uStart: 7.25, uWidth: 1, vkCodes: [0x4e] },
+  { id: 'm', label: 'M', bubble: 'M', row: 4, rowY: 4.25, uStart: 8.25, uWidth: 1, vkCodes: [0x4d] },
+  { id: 'comma', label: ',', bubble: ',', row: 4, rowY: 4.25, uStart: 9.25, uWidth: 1, vkCodes: [0xbc] },
+  { id: 'dot', label: '.', bubble: '.', row: 4, rowY: 4.25, uStart: 10.25, uWidth: 1, vkCodes: [0xbe] },
+  { id: 'slash', label: '/', bubble: '/', row: 4, rowY: 4.25, uStart: 11.25, uWidth: 1, vkCodes: [0xbf] },
+  { id: 'rshift', label: '⇧', bubble: '⇧', row: 4, rowY: 4.25, uStart: 12.25, uWidth: 1.75, accent: 'mod', vkCodes: [0xa1] },
+  { id: 'up', label: '↑', bubble: '↑', row: 4, rowY: 4.25, uStart: 14.25, uWidth: 1, accent: 'mod', vkCodes: [0x26] },
+  { id: 'np_1', label: '1', bubble: 'Num1', row: 4, rowY: 4.25, uStart: NUM98_X, uWidth: 1, vkCodes: [0x61, 0x23] },
+  { id: 'np_2', label: '2', bubble: 'Num2', row: 4, rowY: 4.25, uStart: NUM98_X + 1, uWidth: 1, vkCodes: [0x62] },
+  { id: 'np_3', label: '3', bubble: 'Num3', row: 4, rowY: 4.25, uStart: NUM98_X + 2, uWidth: 1, vkCodes: [0x63] },
+  { id: 'np_ent', label: '↵', bubble: 'Num↵', row: 4, rowY: 4.25, rowSpan: 2, uStart: NUM98_X + 3, uWidth: 1, accent: 'mod', vkCodes: [VK_NUMPAD_ENTER] },
+
+  // Row 5 (rowY=5.25): space-row modifiers (per platform) | Left Down Right | 0(1U) . (12 keys)
+  ...(IS_MAC ? SPACE_ROW_98_MAC : SPACE_ROW_98_WIN),
+  { id: 'left', label: '←', bubble: '←', row: 5, rowY: 5.25, uStart: 13.25, uWidth: 1, accent: 'mod', vkCodes: [0x25] },
+  { id: 'down', label: '↓', bubble: '↓', row: 5, rowY: 5.25, uStart: 14.25, uWidth: 1, accent: 'mod', vkCodes: [0x28] },
+  { id: 'right', label: '→', bubble: '→', row: 5, rowY: 5.25, uStart: 15.25, uWidth: 1, accent: 'mod', vkCodes: [0x27] },
+  { id: 'np_0', label: '0', bubble: 'Num0', row: 5, rowY: 5.25, uStart: NUM98_X + 1, uWidth: 1, vkCodes: [0x60] },
+  { id: 'np_dot', label: '.', bubble: 'Num.', row: 5, rowY: 5.25, uStart: NUM98_X + 2, uWidth: 1, vkCodes: [0x6e] },
 ];
 
 export const KEYBOARD_KEYS = KEYBOARD_KEYS_65;
@@ -234,20 +410,29 @@ export const KEYBOARD_LAYOUTS: Record<KeyboardLayoutId, KeyboardLayoutDef> = {
     totalRows: 5,
     keys: KEYBOARD_KEYS_65,
   },
+  '98': {
+    id: '98',
+    totalUnits: 19.5,
+    totalRows: 6.25,
+    keys: KEYBOARD_KEYS_98,
+  },
   '108': {
     id: '108',
     totalUnits: 22.7,
     totalRows: 6.25,
     keys: KEYBOARD_KEYS_108,
   },
+  macbook: MACBOOK_LAYOUT,
 };
 
 const vkLookups: Record<KeyboardLayoutId, Map<number, KeySpec>> = {
   '65': new Map<number, KeySpec>(),
+  '98': new Map<number, KeySpec>(),
   '108': new Map<number, KeySpec>(),
+  macbook: new Map<number, KeySpec>(),
 };
 
-for (const layoutId of ['65', '108'] as const) {
+for (const layoutId of ['65', '98', '108', 'macbook'] as const) {
   for (const key of KEYBOARD_LAYOUTS[layoutId].keys) {
     for (const vk of key.vkCodes) {
       vkLookups[layoutId].set(vk, key);

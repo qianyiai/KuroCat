@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat 타이핑 연동 및 비밀번호 보호</string>
+    <string name="accessibility_service_desc">타이핑 리듬에 맞춰 플로팅 펫이 키보드를 누르며 비밀번호 입력창에서 자동으로 눈을 가립니다. 텍스트나 비밀번호를 읽거나 저장·전송하지 않습니다.</string>
+</resources>

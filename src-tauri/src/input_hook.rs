@@ -19,8 +19,15 @@ pub enum InputEvent {
         vk: u32,
         scan: u32,
     },
+    #[cfg(target_os = "macos")]
+    Trackpad {
+        points: Vec<crate::trackpad::PadPoint>,
+    },
     MouseDown {
         button: String,
+        #[cfg(target_os = "macos")]
+        #[serde(skip_serializing_if = "Option::is_none")]
+        point: Option<crate::trackpad::PadPoint>,
     },
     MouseUp {
         button: String,
@@ -71,9 +78,66 @@ static KEY_EVENTS_RECEIVED: AtomicU64 = AtomicU64::new(0);
 static ALT_HELD: AtomicBool = AtomicBool::new(false);
 static HOOKS_PAUSED: AtomicBool = AtomicBool::new(false);
 static PASSWORD_PRIVACY_ACTIVE: AtomicBool = AtomicBool::new(false);
+static EXPRESSION_HOTKEYS_ENABLED: AtomicBool = AtomicBool::new(true);
+static PAUSE_HOTKEY_SPEC: OnceLock<std::sync::Mutex<String>> = OnceLock::new();
+/// 0 = disabled, 1 = active/registered, 2 = conflict/unavailable
+static PAUSE_HOTKEY_STATE: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(target_os = "macos")]
+pub fn trackpad_suspended() -> bool {
+    HOOKS_PAUSED.load(Ordering::Relaxed) || PASSWORD_PRIVACY_ACTIVE.load(Ordering::Relaxed)
+}
 
 pub fn set_password_privacy_active(active: bool) {
     PASSWORD_PRIVACY_ACTIVE.store(active, Ordering::SeqCst);
+}
+
+pub fn set_expression_hotkeys_enabled(enabled: bool) {
+    EXPRESSION_HOTKEYS_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+fn pause_hotkey_store() -> &'static std::sync::Mutex<String> {
+    PAUSE_HOTKEY_SPEC.get_or_init(|| std::sync::Mutex::new(crate::config::default_pause_hotkey()))
+}
+
+pub fn pause_hotkey_status() -> &'static str {
+    match PAUSE_HOTKEY_STATE.load(Ordering::SeqCst) {
+        1 => "active",
+        2 => "conflict",
+        _ => "disabled",
+    }
+}
+
+pub fn set_pause_hotkey(spec: &str) {
+    let normalized = crate::config::normalize_pause_hotkey(spec);
+    if let Ok(mut guard) = pause_hotkey_store().lock() {
+        *guard = normalized.clone();
+    }
+    #[cfg(windows)]
+    {
+        let tid = WIN_HOOK_TID.load(Ordering::SeqCst);
+        if tid != 0 {
+            unsafe {
+                windows_sys::Win32::UI::WindowsAndMessaging::PostThreadMessageW(
+                    tid,
+                    WM_KURO_SET_PAUSE_HOTKEY,
+                    0,
+                    0,
+                );
+            }
+        } else if normalized.is_empty() {
+            PAUSE_HOTKEY_STATE.store(0, Ordering::SeqCst);
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        let state = if crate::config::parse_pause_hotkey_vk(&normalized).is_some() {
+            1
+        } else {
+            0
+        };
+        PAUSE_HOTKEY_STATE.store(state, Ordering::SeqCst);
+    }
 }
 #[cfg(windows)]
 static WIN_HOOK_TID: AtomicU32 = AtomicU32::new(0);
@@ -85,8 +149,78 @@ static LAST_HOOK_MOUSE_X: AtomicI32 = AtomicI32::new(i32::MIN);
 static LAST_HOOK_MOUSE_Y: AtomicI32 = AtomicI32::new(i32::MIN);
 #[cfg(windows)]
 static WIN_HOOK_LEFT_DOWN: AtomicBool = AtomicBool::new(false);
+static PEN_EPOCH: OnceLock<Instant> = OnceLock::new();
+static PEN_LAST_SEEN_MS: AtomicU64 = AtomicU64::new(0);
+static MOUSE_LAST_SEEN_MS: AtomicU64 = AtomicU64::new(0);
+static FOCUS_TRIGGER_INPUT_MS: AtomicU64 = AtomicU64::new(0);
+
+#[inline]
+fn monotonic_ms() -> u64 {
+    let base = PEN_EPOCH.get_or_init(Instant::now);
+    (base.elapsed().as_millis() as u64).saturating_add(1)
+}
+
+#[inline]
+pub(crate) fn record_focus_trigger_input() {
+    FOCUS_TRIGGER_INPUT_MS.store(monotonic_ms(), Ordering::Relaxed);
+}
+
+/// Returns `true` when any keyboard key press or mouse button click happened within `window_ms`.
+/// Lets the background privacy watcher back off cross-process UIA queries while the user is only
+/// moving the cursor/reading, yet react instantly the moment they click or press Tab/type.
+pub fn has_recent_key_or_click(window_ms: u64) -> bool {
+    let ts = FOCUS_TRIGGER_INPUT_MS.load(Ordering::Relaxed);
+    if ts == 0 {
+        return false;
+    }
+    monotonic_ms().saturating_sub(ts) <= window_ms
+}
+
+/// Official Microsoft Windows Ink / Pen signature carried in `MSLLHOOKSTRUCT.dwExtraInfo`:
+/// `(extra_info & 0xFFFFFF00) == 0xFF515700` marks pen/touch synthesis; bit `0x80` marks touch,
+/// while bit `0x80 == 0` marks a stylus / drawing-tablet pen!
+#[inline]
+pub fn is_windows_pen_extra_info(extra_info: usize) -> bool {
+    const MI_WP_SIGNATURE: usize = 0xFF51_5700;
+    const SIGNATURE_MASK: usize = 0xFFFF_FF00;
+    const TOUCH_MASK: usize = 0x0000_0080;
+    (extra_info & SIGNATURE_MASK) == MI_WP_SIGNATURE && (extra_info & TOUCH_MASK) == 0
+}
+
+#[inline]
+pub(crate) fn record_pen_input() {
+    PEN_LAST_SEEN_MS.store(monotonic_ms(), Ordering::Relaxed);
+}
+
+#[inline]
+pub(crate) fn record_regular_mouse_input() {
+    MOUSE_LAST_SEEN_MS.store(monotonic_ms(), Ordering::Relaxed);
+}
+
+/// Returns `true` when live stylus/pen input was observed recently and the user has not
+/// switched back to a regular mouse for >= 900 ms afterwards.
+pub fn is_live_pen_active() -> bool {
+    let pen = PEN_LAST_SEEN_MS.load(Ordering::Relaxed);
+    if pen == 0 {
+        return false;
+    }
+    let now = monotonic_ms();
+    if now.saturating_sub(pen) > 6_000 {
+        return false;
+    }
+    let mouse = MOUSE_LAST_SEEN_MS.load(Ordering::Relaxed);
+    if mouse > pen.saturating_add(900) {
+        return false;
+    }
+    true
+}
+
 #[cfg(windows)]
 const WM_KURO_PAUSE_TOGGLE: u32 = 0x8007; // WM_APP + 7
+#[cfg(windows)]
+const WM_KURO_SET_PAUSE_HOTKEY: u32 = 0x8008; // WM_APP + 8
+#[cfg(windows)]
+const HOTKEY_ID_PAUSE_GUARD: i32 = 0x4B50; // 'KP'
 
 /// Queries Windows logical primary mouse button state via `GetAsyncKeyState`, properly
 /// honoring left-handed swapped mouse buttons (`SM_SWAPBUTTON`).
@@ -115,6 +249,105 @@ pub fn win_hook_left_button_down() -> bool {
 
 fn is_alt_vk(vk: u32) -> bool {
     matches!(vk, 0x12 | 0xA4 | 0xA5)
+}
+
+fn resolve_expression_hotkey(vk: u32) -> Option<&'static str> {
+    match vk {
+        0x31 | 0x61 => Some("happy"), // 1 / Num1
+        0x32 | 0x62 => Some("angry"), // 2 / Num2
+        0x33 | 0x63 => Some("boop"),  // 3 / Num3
+        0x34 | 0x64 => Some("chin"),  // 4 / Num4
+        0x35 | 0x65 => Some("dizzy"), // 5 / Num5
+        0x36 | 0x66 => Some("sleep"), // 6 / Num6
+        0x30 | 0x60 => Some("wake"),  // 0 / Num0
+        _ => None,
+    }
+}
+
+fn modifiers_match_expression_hotkey(logical_pressed: &[bool; 512], alt_flag: bool) -> bool {
+    let alt = alt_flag || logical_pressed[0x12] || logical_pressed[0xA4] || logical_pressed[0xA5];
+    let shift = logical_pressed[0x10] || logical_pressed[0xA0] || logical_pressed[0xA1];
+    let ctrl = logical_pressed[0x11] || logical_pressed[0xA2] || logical_pressed[0xA3];
+    alt && shift && !ctrl
+}
+
+/// Cross-platform modifier & trigger tracker used on macOS and Linux so the user's custom
+/// global Pause/Resume hotkey works both to pause AND to resume while `HOOKS_PAUSED` is active
+/// (without forwarding any keystrokes while paused or during password privacy mode).
+#[cfg(any(not(windows), test))]
+#[derive(Default)]
+struct PauseHotkeyMatcher {
+    ctrl_mask: u8,
+    alt_mask: u8,
+    shift_mask: u8,
+    meta_mask: u8,
+    active_trigger_vk: Option<u32>,
+}
+
+#[cfg(any(not(windows), test))]
+impl PauseHotkeyMatcher {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn update_modifier(&mut self, vk: u32, down: bool) -> bool {
+        let apply = |mask: &mut u8, bit: u8| {
+            if down {
+                *mask |= bit;
+            } else {
+                *mask &= !bit;
+            }
+        };
+        match vk {
+            0x11 => apply(&mut self.ctrl_mask, 1),
+            0xA2 => apply(&mut self.ctrl_mask, 2),
+            0xA3 => apply(&mut self.ctrl_mask, 4),
+            0x12 => apply(&mut self.alt_mask, 1),
+            0xA4 => apply(&mut self.alt_mask, 2),
+            0xA5 => apply(&mut self.alt_mask, 4),
+            0x10 => apply(&mut self.shift_mask, 1),
+            0xA0 => apply(&mut self.shift_mask, 2),
+            0xA1 => apply(&mut self.shift_mask, 4),
+            0x5B => apply(&mut self.meta_mask, 1),
+            0x5C => apply(&mut self.meta_mask, 2),
+            _ => return false,
+        }
+        true
+    }
+
+    fn on_key_down(&mut self, vk: u32, spec: &str, treat_meta_as_ctrl: bool) -> bool {
+        if self.update_modifier(vk, true) {
+            return false;
+        }
+        let Some((req_ctrl, req_alt, req_shift, req_vk)) = crate::config::parse_pause_hotkey_vk(spec)
+        else {
+            return false;
+        };
+        if vk != req_vk {
+            return false;
+        }
+        let ctrl = self.ctrl_mask != 0;
+        let alt = self.alt_mask != 0;
+        let shift = self.shift_mask != 0;
+        let meta = self.meta_mask != 0;
+        let effective_ctrl = ctrl || (treat_meta_as_ctrl && meta);
+        let extra_meta = !treat_meta_as_ctrl && meta;
+        if effective_ctrl == req_ctrl && alt == req_alt && shift == req_shift && !extra_meta {
+            if self.active_trigger_vk == Some(vk) {
+                return false;
+            }
+            self.active_trigger_vk = Some(vk);
+            return true;
+        }
+        false
+    }
+
+    fn on_key_up(&mut self, vk: u32) {
+        let _ = self.update_modifier(vk, false);
+        if self.active_trigger_vk == Some(vk) {
+            self.active_trigger_vk = None;
+        }
+    }
 }
 
 pub fn is_alt_pressed() -> bool {
@@ -387,6 +620,8 @@ pub fn linux_evdev_to_vk(code: u16) -> Option<u32> {
 pub fn start_global_hooks(app: AppHandle) {
     let (tx, rx) = mpsc::channel::<RawHookMsg>();
     let _ = HOOK_TX.set(tx);
+    #[cfg(windows)]
+    let app_for_win = app.clone();
     #[cfg(target_os = "macos")]
     let app_for_mac = app.clone();
 
@@ -394,6 +629,13 @@ pub fn start_global_hooks(app: AppHandle) {
     // throttles mouse moves to ~60Hz, and reconciles lost KeyUp/MouseUp events (Fixes #3 & #4).
     std::thread::spawn(move || {
         let mut dedup = KeyDeduplicator::new();
+        let mut suppressed_hotkey_vks = [false; 256];
+        let mut last_emotion_hotkey_at = Instant::now() - Duration::from_secs(1);
+        #[cfg(not(windows))]
+        let mut pause_matcher = PauseHotkeyMatcher::new();
+        #[cfg(not(windows))]
+        let mut last_pause_hotkey_at = Instant::now() - Duration::from_secs(1);
+        let mut was_paused = false;
         let mut last_mouse_emit = Instant::now() - Duration::from_secs(1);
         let mut last_mouse_xy: Option<(i32, i32)> = None;
         let mut mouse_down = [false; 3]; // 0: left, 1: right, 2: middle
@@ -516,14 +758,51 @@ pub fn start_global_hooks(app: AppHandle) {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
 
+            #[cfg(not(windows))]
+            if let Some(ref m) = msg {
+                match *m {
+                    RawHookMsg::KeyDown { vk, .. } => {
+                        let spec = pause_hotkey_store()
+                            .lock()
+                            .map(|g| g.clone())
+                            .unwrap_or_default();
+                        if pause_matcher.on_key_down(vk, &spec, cfg!(target_os = "macos")) {
+                            if (vk as usize) < suppressed_hotkey_vks.len() {
+                                suppressed_hotkey_vks[vk as usize] = true;
+                            }
+                            let now = Instant::now();
+                            if now.duration_since(last_pause_hotkey_at) >= Duration::from_millis(240)
+                            {
+                                last_pause_hotkey_at = now;
+                                let app_toggle = app.clone();
+                                std::thread::spawn(move || {
+                                    let _ = crate::tray::toggle_pause_guard(&app_toggle);
+                                });
+                            }
+                            continue;
+                        }
+                    }
+                    RawHookMsg::KeyUp { vk, .. } => {
+                        pause_matcher.on_key_up(vk);
+                    }
+                    _ => {}
+                }
+            }
+
             if HOOKS_PAUSED.load(Ordering::Relaxed) {
+                if !was_paused {
+                    suppressed_hotkey_vks.fill(false);
+                    was_paused = true;
+                }
                 release_all_held(&app, &mut dedup, &mut mouse_down);
                 continue;
             }
+            was_paused = false;
 
             if let Some(msg) = msg {
                 match msg {
                     RawHookMsg::KeyDown { vk, scan, source } => {
+                        record_focus_trigger_input();
                         if is_alt_vk(vk) {
                             ALT_HELD.store(true, Ordering::Relaxed);
                         }
@@ -536,7 +815,34 @@ pub fn start_global_hooks(app: AppHandle) {
                             }
                             continue;
                         }
-                        if let Some(repeat) = dedup.on_key_down(vk, source, Instant::now()) {
+                        let now = Instant::now();
+                        if let Some(repeat) = dedup.on_key_down(vk, source, now) {
+                            if EXPRESSION_HOTKEYS_ENABLED.load(Ordering::Relaxed)
+                                && modifiers_match_expression_hotkey(
+                                    &dedup.logical_pressed,
+                                    ALT_HELD.load(Ordering::Relaxed),
+                                )
+                            {
+                                if let Some(emotion) = resolve_expression_hotkey(vk) {
+                                    if (vk as usize) < suppressed_hotkey_vks.len() {
+                                        suppressed_hotkey_vks[vk as usize] = true;
+                                    }
+                                    if !repeat
+                                        && now.duration_since(last_emotion_hotkey_at)
+                                            >= Duration::from_millis(160)
+                                    {
+                                        last_emotion_hotkey_at = now;
+                                        let payload = serde_json::json!({
+                                            "kind": "emotion",
+                                            "emotion": emotion,
+                                            "source": "hotkey",
+                                        });
+                                        crate::obs::broadcast_pet_interaction(&payload);
+                                        let _ = app.emit("kuro-pet-interaction", payload);
+                                    }
+                                    continue;
+                                }
+                            }
                             if !repeat {
                                 KEY_EVENTS_RECEIVED.fetch_add(1, Ordering::Relaxed);
                             }
@@ -544,24 +850,48 @@ pub fn start_global_hooks(app: AppHandle) {
                         }
                     }
                     RawHookMsg::KeyUp { vk, scan, source } => {
-                        if is_alt_vk(vk) {
-                            ALT_HELD.store(false, Ordering::Relaxed);
-                        }
+                        let idx = vk as usize;
                         if PASSWORD_PRIVACY_ACTIVE.load(Ordering::Relaxed) {
+                            if idx < suppressed_hotkey_vks.len() {
+                                suppressed_hotkey_vks[idx] = false;
+                            }
+                            let _ = dedup.on_key_up(vk, source);
+                            if is_alt_vk(vk)
+                                && !(dedup.logical_pressed[0x12]
+                                    || dedup.logical_pressed[0xA4]
+                                    || dedup.logical_pressed[0xA5])
+                            {
+                                ALT_HELD.store(false, Ordering::Relaxed);
+                            }
+                            continue;
+                        }
+                        if idx < suppressed_hotkey_vks.len() && suppressed_hotkey_vks[idx] {
+                            suppressed_hotkey_vks[idx] = false;
                             let _ = dedup.on_key_up(vk, source);
                             continue;
                         }
-                        if dedup.on_key_up(vk, source) {
+                        let emitted = dedup.on_key_up(vk, source);
+                        if is_alt_vk(vk)
+                            && !(dedup.logical_pressed[0x12]
+                                || dedup.logical_pressed[0xA4]
+                                || dedup.logical_pressed[0xA5])
+                        {
+                            ALT_HELD.store(false, Ordering::Relaxed);
+                        }
+                        if emitted {
                             emit_input(&app, InputEvent::KeyUp { vk, scan });
                         }
                     }
                     RawHookMsg::MouseDown(btn) => {
+                        record_focus_trigger_input();
                         if let Some(i) = btn_index(btn) {
                             mouse_down[i] = true;
                         }
                         emit_input(
                             &app,
                             InputEvent::MouseDown {
+                                #[cfg(target_os = "macos")]
+                                point: crate::trackpad::click_point(),
                                 button: btn.to_string(),
                             },
                         );
@@ -588,9 +918,9 @@ pub fn start_global_hooks(app: AppHandle) {
                             }
                         }
                         let now = Instant::now();
-                        // Cat eye-tracking & mouse springs smoothly interpolate 30Hz (20Hz in PC games),
-                        // cutting 1000Hz-8000Hz gaming mouse IPC/JSON storms dramatically.
-                        let min_gap = if crate::game_detect::is_game_active() {
+                        // Cat eye-tracking & mouse springs smoothly interpolate 30Hz (20Hz in PC games
+                        // and heavy DirectX CAD/3D viewport apps), cutting 1000Hz-8000Hz IPC storms.
+                        let min_gap = if crate::game_detect::is_heavy_gpu_app_active() {
                             Duration::from_millis(50)
                         } else {
                             Duration::from_millis(33)
@@ -619,8 +949,8 @@ pub fn start_global_hooks(app: AppHandle) {
     });
 
     #[cfg(windows)]
-    std::thread::spawn(|| {
-        run_windows_hook_loop();
+    std::thread::spawn(move || {
+        run_windows_hook_loop(app_for_win);
     });
 
     #[cfg(target_os = "macos")]
@@ -737,6 +1067,14 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isiz
     if code >= 0 {
         let ms = &*(lparam as *const MSLLHOOKSTRUCT);
         let msg = wparam as u32;
+        if is_windows_pen_extra_info(ms.dwExtraInfo) {
+            record_pen_input();
+        } else if matches!(
+            msg,
+            WM_MOUSEMOVE | WM_LBUTTONDOWN | WM_RBUTTONDOWN | WM_MBUTTONDOWN | WM_MOUSEWHEEL
+        ) {
+            record_regular_mouse_input();
+        }
         if let Some(tx) = HOOK_TX.get() {
             match msg {
                 WM_MOUSEMOVE => {
@@ -789,12 +1127,15 @@ unsafe extern "system" fn mouse_hook_proc(code: i32, wparam: usize, lparam: isiz
 }
 
 #[cfg(windows)]
-fn run_windows_hook_loop() {
+fn run_windows_hook_loop(app: AppHandle) {
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
     use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+        RegisterHotKey, UnregisterHotKey, MOD_ALT, MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         GetMessageW, PeekMessageW, SetWindowsHookExW, UnhookWindowsHookEx, MSG, PM_NOREMOVE,
-        WH_KEYBOARD_LL, WH_MOUSE_LL,
+        WH_KEYBOARD_LL, WH_MOUSE_LL, WM_HOTKEY,
     };
 
     unsafe {
@@ -802,6 +1143,47 @@ fn run_windows_hook_loop() {
         let mut init_msg: MSG = std::mem::zeroed();
         PeekMessageW(&mut init_msg, std::ptr::null_mut(), 0, 0, PM_NOREMOVE);
         WIN_HOOK_TID.store(GetCurrentThreadId(), Ordering::SeqCst);
+
+        let mut hotkey_registered = false;
+        let apply_pause_hotkey = |registered: &mut bool, app: &AppHandle| {
+            if *registered {
+                let _ = UnregisterHotKey(std::ptr::null_mut(), HOTKEY_ID_PAUSE_GUARD);
+                *registered = false;
+            }
+            let spec = pause_hotkey_store()
+                .lock()
+                .map(|g| g.clone())
+                .unwrap_or_default();
+            if spec.is_empty() {
+                PAUSE_HOTKEY_STATE.store(0, Ordering::SeqCst);
+                let _ = app.emit("kuro-pause-hotkey-status", "disabled");
+                return;
+            }
+            if let Some((ctrl, alt, shift, vk)) = crate::config::parse_pause_hotkey_vk(&spec) {
+                let mut mods = MOD_NOREPEAT;
+                if ctrl {
+                    mods |= MOD_CONTROL;
+                }
+                if alt {
+                    mods |= MOD_ALT;
+                }
+                if shift {
+                    mods |= MOD_SHIFT;
+                }
+                if RegisterHotKey(std::ptr::null_mut(), HOTKEY_ID_PAUSE_GUARD, mods, vk) != 0 {
+                    *registered = true;
+                    PAUSE_HOTKEY_STATE.store(1, Ordering::SeqCst);
+                    let _ = app.emit("kuro-pause-hotkey-status", "active");
+                } else {
+                    PAUSE_HOTKEY_STATE.store(2, Ordering::SeqCst);
+                    let _ = app.emit("kuro-pause-hotkey-status", "conflict");
+                }
+            } else {
+                PAUSE_HOTKEY_STATE.store(0, Ordering::SeqCst);
+                let _ = app.emit("kuro-pause-hotkey-status", "disabled");
+            }
+        };
+        apply_pause_hotkey(&mut hotkey_registered, &app);
 
         let hmod = GetModuleHandleW(std::ptr::null());
         let mut kb_hook = if HOOKS_PAUSED.load(Ordering::SeqCst) {
@@ -815,6 +1197,7 @@ fn run_windows_hook_loop() {
             SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), hmod, 0)
         };
 
+        let mut last_pause_hotkey_at = Instant::now() - Duration::from_secs(1);
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, std::ptr::null_mut(), 0, 0) > 0 {
             if msg.message == WM_KURO_PAUSE_TOGGLE {
@@ -837,9 +1220,23 @@ fn run_windows_hook_loop() {
                         ms_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook_proc), hmod, 0);
                     }
                 }
+            } else if msg.message == WM_KURO_SET_PAUSE_HOTKEY {
+                apply_pause_hotkey(&mut hotkey_registered, &app);
+            } else if msg.message == WM_HOTKEY && msg.wParam == HOTKEY_ID_PAUSE_GUARD as usize {
+                let now = Instant::now();
+                if now.duration_since(last_pause_hotkey_at) >= Duration::from_millis(240) {
+                    last_pause_hotkey_at = now;
+                    let app_toggle = app.clone();
+                    std::thread::spawn(move || {
+                        let _ = crate::tray::toggle_pause_guard(&app_toggle);
+                    });
+                }
             }
         }
 
+        if hotkey_registered {
+            let _ = UnregisterHotKey(std::ptr::null_mut(), HOTKEY_ID_PAUSE_GUARD);
+        }
         if !kb_hook.is_null() {
             UnhookWindowsHookEx(kb_hook);
         }
@@ -1010,6 +1407,7 @@ pub mod macos_hook {
         hid_usage_to_vk, parse_macos_secure_input_pid, parse_macos_signing_identity,
         stale_macos_tcc_services_to_reset, KeySource, RawHookMsg, HOOK_TX, KEY_EVENTS_RECEIVED,
     };
+    use crate::mac_keycodes::{keyboard_action_vk, macos_keycode_to_vk, modifier_down};
     use block2::{Block, RcBlock};
     use objc2_app_kit::{
         NSEvent, NSEventMask, NSEventType, NSWorkspace, NSWorkspaceDidWakeNotification,
@@ -1104,11 +1502,7 @@ pub mod macos_hook {
     const K_HID_PAGE_KEYBOARD_OR_KEYPAD: u32 = 0x07;
 
     // CGEventFlags modifier masks
-    const FLAG_CAPS_LOCK: u64 = 0x00010000;
-    const FLAG_SHIFT: u64 = 0x00020000;
-    const FLAG_CONTROL: u64 = 0x00040000;
     const FLAG_OPTION: u64 = 0x00080000;
-    const FLAG_COMMAND: u64 = 0x00100000;
 
     type CGEventTapCallBack = extern "C" fn(
         proxy: CGEventTapProxy,
@@ -1288,17 +1682,6 @@ pub mod macos_hook {
     static HID_RECONNECT_REQUESTED: AtomicBool = AtomicBool::new(false);
     static LAST_TICK_WALL_MS: AtomicU64 = AtomicU64::new(0);
 
-    fn modifier_keycode_is_down(kc: u16, flags: u64) -> bool {
-        match kc {
-            0x38 | 0x3C => (flags & FLAG_SHIFT) != 0,
-            0x3B | 0x3E => (flags & FLAG_CONTROL) != 0,
-            0x3A | 0x3D => (flags & FLAG_OPTION) != 0,
-            0x37 | 0x36 => (flags & FLAG_COMMAND) != 0,
-            0x39 => (flags & FLAG_CAPS_LOCK) != 0,
-            _ => false,
-        }
-    }
-
     /// Channel 3 (#63): Passive AppKit `NSEvent` global keyboard monitor backed purely by
     /// Accessibility (`AXIsProcessTrusted`), rescuing keyboard capture on macOS 15/26 when
     /// `ListenEvent` TCC lags behind or external Bluetooth keyboards bypass `IOHIDManager`.
@@ -1342,7 +1725,10 @@ pub mod macos_hook {
                     }
                     NSEventType::FlagsChanged => {
                         let flags = ev_ref.modifierFlags().0 as u64;
-                        if modifier_keycode_is_down(kc, flags) {
+                        let Some(is_down) = modifier_down(kc, flags) else {
+                            return;
+                        };
+                        if is_down {
                             APPKIT_KEY_EVENTS.fetch_add(1, Ordering::Relaxed);
                             let _ = tx.send(RawHookMsg::KeyDown {
                                 vk,
@@ -1724,120 +2110,6 @@ pub mod macos_hook {
         }
     }
 
-    fn macos_keycode_to_vk(kc: u16) -> Option<u32> {
-        let vk = match kc {
-            // Letters
-            0x00 => 0x41, // A
-            0x0B => 0x42, // B
-            0x08 => 0x43, // C
-            0x02 => 0x44, // D
-            0x0E => 0x45, // E
-            0x03 => 0x46, // F
-            0x05 => 0x47, // G
-            0x04 => 0x48, // H
-            0x22 => 0x49, // I
-            0x26 => 0x4A, // J
-            0x28 => 0x4B, // K
-            0x25 => 0x4C, // L
-            0x2E => 0x4D, // M
-            0x2D => 0x4E, // N
-            0x1F => 0x4F, // O
-            0x23 => 0x50, // P
-            0x0C => 0x51, // Q
-            0x0F => 0x52, // R
-            0x01 => 0x53, // S
-            0x11 => 0x54, // T
-            0x20 => 0x55, // U
-            0x09 => 0x56, // V
-            0x0D => 0x57, // W
-            0x07 => 0x58, // X
-            0x10 => 0x59, // Y
-            0x06 => 0x5A, // Z
-            // Digits
-            0x1D => 0x30, // 0
-            0x12 => 0x31, // 1
-            0x13 => 0x32, // 2
-            0x14 => 0x33, // 3
-            0x15 => 0x34, // 4
-            0x17 => 0x35, // 5
-            0x16 => 0x36, // 6
-            0x1A => 0x37, // 7
-            0x1C => 0x38, // 8
-            0x19 => 0x39, // 9
-            // Punctuation
-            0x1B => 0xBD, // -
-            0x18 => 0xBB, // =
-            0x21 => 0xDB, // [
-            0x1E => 0xDD, // ]
-            0x2A => 0xDC, // \
-            0x29 => 0xBA, // ;
-            0x27 => 0xDE, // '
-            0x2B => 0xBC, // ,
-            0x2F => 0xBE, // .
-            0x2C => 0xBF, // /
-            0x32 => 0xC0, // `
-            // Control & editing
-            0x35 => 0x1B,  // Esc
-            0x30 => 0x09,  // Tab
-            0x31 => 0x20,  // Space
-            0x24 => 0x0D,  // Return
-            0x4C => 0x10D, // Numpad Enter
-            0x33 => 0x08,  // Backspace (Delete)
-            0x75 => 0x2E,  // Forward Delete
-            0x39 => 0x14,  // CapsLock
-            // Numpad
-            0x47 => 0x90, // Clear / NumLock
-            0x4B => 0x6F, // Numpad /
-            0x43 => 0x6A, // Numpad *
-            0x4E => 0x6D, // Numpad -
-            0x45 => 0x6B, // Numpad +
-            0x41 => 0x6E, // Numpad .
-            0x52 => 0x60, // Numpad 0
-            0x53 => 0x61, // Numpad 1
-            0x54 => 0x62, // Numpad 2
-            0x55 => 0x63, // Numpad 3
-            0x56 => 0x64, // Numpad 4
-            0x57 => 0x65, // Numpad 5
-            0x58 => 0x66, // Numpad 6
-            0x59 => 0x67, // Numpad 7
-            0x5B => 0x68, // Numpad 8
-            0x5C => 0x69, // Numpad 9
-            // Modifiers
-            0x38 => 0xA0, // LShift
-            0x3C => 0xA1, // RShift
-            0x3B => 0xA2, // LCtrl
-            0x3E => 0xA3, // RCtrl
-            0x3A => 0xA4, // LOption (Alt)
-            0x3D => 0xA5, // ROption (Alt)
-            0x37 => 0x5B, // LCommand (Win)
-            0x36 => 0x5C, // RCommand (Win)
-            // Arrows & navigation
-            0x7B => 0x25, // Left
-            0x7C => 0x27, // Right
-            0x7D => 0x28, // Down
-            0x7E => 0x26, // Up
-            0x73 => 0x24, // Home
-            0x77 => 0x23, // End
-            0x74 => 0x21, // PgUp
-            0x79 => 0x22, // PgDn
-            // Function keys
-            0x7A => 0x70, // F1
-            0x78 => 0x71, // F2
-            0x63 => 0x72, // F3
-            0x76 => 0x73, // F4
-            0x60 => 0x74, // F5
-            0x61 => 0x75, // F6
-            0x62 => 0x76, // F7
-            0x64 => 0x77, // F8
-            0x65 => 0x78, // F9
-            0x6D => 0x79, // F10
-            0x67 => 0x7A, // F11
-            0x6F => 0x7B, // F12
-            _ => return None,
-        };
-        Some(vk)
-    }
-
     extern "C" fn tap_callback(
         _proxy: CGEventTapProxy,
         event_type: CGEventType,
@@ -1884,7 +2156,9 @@ pub mod macos_hook {
                         let kc =
                             CGEventGetIntegerValueField(event, K_CG_KEYBOARD_EVENT_KEYCODE) as u16;
                         let flags = CGEventGetFlags(event);
-                        let is_down = modifier_keycode_is_down(kc, flags);
+                        let Some(is_down) = modifier_down(kc, flags) else {
+                            return event;
+                        };
                         if let Some(vk) = macos_keycode_to_vk(kc) {
                             if is_down {
                                 TAP_KEY_EVENTS.fetch_add(1, Ordering::Relaxed);
@@ -1905,6 +2179,13 @@ pub mod macos_hook {
                     K_CG_EVENT_MOUSE_MOVED
                     | K_CG_EVENT_LEFT_MOUSE_DRAGGED
                     | K_CG_EVENT_RIGHT_MOUSE_DRAGGED => {
+                        // kCGMouseEventSubtype (3): 1 = TabletPoint, 2 = TabletProximity
+                        let subtype = CGEventGetIntegerValueField(event, 3);
+                        if subtype == 1 || subtype == 2 {
+                            crate::input_hook::record_pen_input();
+                        } else {
+                            crate::input_hook::record_regular_mouse_input();
+                        }
                         let pt = CGEventGetLocation(event);
                         let _ = tx.send(RawHookMsg::MouseMove {
                             x: pt.x.round() as i32,
@@ -1912,6 +2193,12 @@ pub mod macos_hook {
                         });
                     }
                     K_CG_EVENT_LEFT_MOUSE_DOWN => {
+                        let subtype = CGEventGetIntegerValueField(event, 3);
+                        if subtype == 1 || subtype == 2 {
+                            crate::input_hook::record_pen_input();
+                        } else {
+                            crate::input_hook::record_regular_mouse_input();
+                        }
                         let _ = tx.send(RawHookMsg::MouseDown("left"));
                     }
                     K_CG_EVENT_LEFT_MOUSE_UP => {
@@ -1983,14 +2270,14 @@ pub mod macos_hook {
             if elem.is_null() {
                 return;
             }
-            if IOHIDElementGetUsagePage(elem) != K_HID_PAGE_KEYBOARD_OR_KEYPAD {
-                return;
-            }
+            let page = IOHIDElementGetUsagePage(elem);
             let usage = IOHIDElementGetUsage(elem);
-            if !(0x04..=0xE7).contains(&usage) {
-                return;
-            }
-            let Some(vk) = hid_usage_to_vk(usage) else {
+            let mapped = if page == K_HID_PAGE_KEYBOARD_OR_KEYPAD {
+                hid_usage_to_vk(usage)
+            } else {
+                keyboard_action_vk(page, usage)
+            };
+            let Some(vk) = mapped else {
                 return;
             };
             let pressed = IOHIDValueGetIntegerValue(value) != 0;
@@ -2795,11 +3082,20 @@ pub mod linux_hook {
         None
     }
 
-    /// Queries the X11 `_NET_ACTIVE_WINDOW`'s `WM_CLASS` and whether `_NET_WM_STATE_FULLSCREEN`
-    /// is active, so Linux X11 sessions can yield below fullscreen Remote Desktop clients (#40)
-    /// using the already-`dlopen`ed `libX11.so.6` without adding any link dependencies.
-    pub fn query_active_window_fullscreen_wm_class() -> Option<(String, bool)> {
+    /// Active X11 window metadata queried read-only via the already-`dlopen`ed `libX11.so.6`.
+    #[derive(Clone, Debug)]
+    pub struct LinuxActiveWindowInfo {
+        pub wm_class: String,
+        pub wm_name: String,
+        pub pid: Option<u32>,
+        pub is_fullscreen: bool,
+    }
+
+    /// Queries `_NET_ACTIVE_WINDOW`'s `WM_CLASS`, `_NET_WM_NAME`/`WM_NAME`, `_NET_WM_PID`,
+    /// and `_NET_WM_STATE_FULLSCREEN` on Linux X11 / XWayland with zero extra link dependencies.
+    pub fn query_active_window_info() -> Option<LinuxActiveWindowInfo> {
         const XA_ATOM: c_ulong = 4;
+        const XA_CARDINAL: c_ulong = 6;
         const XA_STRING: c_ulong = 31;
         const XA_WINDOW: c_ulong = 33;
 
@@ -2839,6 +3135,14 @@ pub mod linux_hook {
                     b"_NET_WM_STATE_FULLSCREEN\0".as_ptr() as *const c_char,
                     1,
                 );
+                let atom_wm_pid =
+                    intern_atom(conn.dpy, b"_NET_WM_PID\0".as_ptr() as *const c_char, 1);
+                let atom_net_wm_name =
+                    intern_atom(conn.dpy, b"_NET_WM_NAME\0".as_ptr() as *const c_char, 1);
+                let atom_wm_name =
+                    intern_atom(conn.dpy, b"WM_NAME\0".as_ptr() as *const c_char, 1);
+                let atom_utf8 =
+                    intern_atom(conn.dpy, b"UTF8_STRING\0".as_ptr() as *const c_char, 1);
                 if atom_active == 0 || atom_wm_class == 0 {
                     return None;
                 }
@@ -2904,8 +3208,76 @@ pub mod linux_hook {
                     if !prop_cls.is_null() {
                         (api.xfree)(prop_cls as *mut c_void);
                     }
-                    return None;
+                    String::new()
                 };
+
+                let mut wm_name = String::new();
+                for &(name_atom, req_type) in &[
+                    (atom_net_wm_name, if atom_utf8 != 0 { atom_utf8 } else { XA_STRING }),
+                    (atom_wm_name, XA_STRING),
+                ] {
+                    if name_atom == 0 {
+                        continue;
+                    }
+                    let mut prop_name: *mut u8 = std::ptr::null_mut();
+                    let mut name_nitems: c_ulong = 0;
+                    let mut name_fmt: c_int = 0;
+                    let rc_name = get_prop(
+                        conn.dpy,
+                        active_win,
+                        name_atom,
+                        0,
+                        64,
+                        0,
+                        req_type,
+                        &mut actual_type,
+                        &mut name_fmt,
+                        &mut name_nitems,
+                        &mut bytes_after,
+                        &mut prop_name,
+                    );
+                    if rc_name == 0 && !prop_name.is_null() && name_fmt == 8 && name_nitems > 0 {
+                        let bytes = std::slice::from_raw_parts(prop_name, name_nitems as usize);
+                        let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
+                        wm_name = String::from_utf8_lossy(&bytes[..end]).trim().to_string();
+                        (api.xfree)(prop_name as *mut c_void);
+                        if !wm_name.is_empty() {
+                            break;
+                        }
+                    } else if !prop_name.is_null() {
+                        (api.xfree)(prop_name as *mut c_void);
+                    }
+                }
+
+                let mut pid: Option<u32> = None;
+                if atom_wm_pid != 0 {
+                    let mut prop_pid: *mut u8 = std::ptr::null_mut();
+                    let mut pid_nitems: c_ulong = 0;
+                    let mut pid_fmt: c_int = 0;
+                    let rc_pid = get_prop(
+                        conn.dpy,
+                        active_win,
+                        atom_wm_pid,
+                        0,
+                        1,
+                        0,
+                        XA_CARDINAL,
+                        &mut actual_type,
+                        &mut pid_fmt,
+                        &mut pid_nitems,
+                        &mut bytes_after,
+                        &mut prop_pid,
+                    );
+                    if rc_pid == 0 && !prop_pid.is_null() && pid_fmt == 32 && pid_nitems > 0 {
+                        let raw_pid = *(prop_pid as *const c_ulong) as u32;
+                        if raw_pid > 0 {
+                            pid = Some(raw_pid);
+                        }
+                    }
+                    if !prop_pid.is_null() {
+                        (api.xfree)(prop_pid as *mut c_void);
+                    }
+                }
 
                 let mut is_fullscreen = false;
                 if atom_wm_state != 0 && atom_fullscreen != 0 {
@@ -2927,7 +3299,8 @@ pub mod linux_hook {
                         &mut prop_st,
                     );
                     if rc_st == 0 && !prop_st.is_null() && st_fmt == 32 && st_nitems > 0 {
-                        let atoms = std::slice::from_raw_parts(prop_st as *const c_ulong, st_nitems as usize);
+                        let atoms =
+                            std::slice::from_raw_parts(prop_st as *const c_ulong, st_nitems as usize);
                         is_fullscreen = atoms.iter().any(|&a| a == atom_fullscreen);
                     }
                     if !prop_st.is_null() {
@@ -2935,9 +3308,29 @@ pub mod linux_hook {
                     }
                 }
 
-                Some((wm_class, is_fullscreen))
+                if wm_class.is_empty() && wm_name.is_empty() && pid.is_none() {
+                    return None;
+                }
+
+                Some(LinuxActiveWindowInfo {
+                    wm_class,
+                    wm_name,
+                    pid,
+                    is_fullscreen,
+                })
             }
         })
+    }
+
+    /// Queries the X11 `_NET_ACTIVE_WINDOW`'s `WM_CLASS` and whether `_NET_WM_STATE_FULLSCREEN`
+    /// is active, so Linux X11 sessions can yield below fullscreen Remote Desktop clients (#40)
+    /// using the already-`dlopen`ed `libX11.so.6` without adding any link dependencies.
+    pub fn query_active_window_fullscreen_wm_class() -> Option<(String, bool)> {
+        let info = query_active_window_info()?;
+        if info.wm_class.is_empty() {
+            return None;
+        }
+        Some((info.wm_class, info.is_fullscreen))
     }
 
     pub fn cursor_pos() -> Option<(i32, i32)> {
@@ -3142,6 +3535,9 @@ pub mod linux_hook {
         const BTN_LEFT: u16 = 272;
         const BTN_RIGHT: u16 = 273;
         const BTN_MIDDLE: u16 = 274;
+        const BTN_TOOL_PEN: u16 = 320;
+        const BTN_TOUCH: u16 = 330;
+        const BTN_STYLUS: u16 = 331;
 
         let mut files: Vec<std::fs::File> = Vec::new();
         let mut last_scan = Instant::now() - Duration::from_secs(10);
@@ -3203,6 +3599,19 @@ pub mod linux_hook {
                                                 let _ = tx.send(RawHookMsg::MouseDown("right"));
                                             } else if val == 0 {
                                                 let _ = tx.send(RawHookMsg::MouseUp("right"));
+                                            }
+                                        }
+                                        BTN_TOOL_PEN | BTN_STYLUS => {
+                                            if val == 1 {
+                                                crate::input_hook::record_pen_input();
+                                            }
+                                        }
+                                        BTN_TOUCH => {
+                                            if val == 1 {
+                                                crate::input_hook::record_pen_input();
+                                                let _ = tx.send(RawHookMsg::MouseDown("left"));
+                                            } else if val == 0 {
+                                                let _ = tx.send(RawHookMsg::MouseUp("left"));
                                             }
                                         }
                                         BTN_MIDDLE => {
@@ -3428,5 +3837,64 @@ mod tests {
         );
         // Brand-new fresh install (no settings.json, no marker) -> no stale entries to reset
         assert!(stale_macos_tcc_services_to_reset(Some(fixed_cert), None, false, false, false).is_empty());
+    }
+
+    #[test]
+    fn resolves_expression_hotkeys_and_guards_modifier_combinations() {
+        assert_eq!(resolve_expression_hotkey(0x31), Some("happy"));
+        assert_eq!(resolve_expression_hotkey(0x61), Some("happy"));
+        assert_eq!(resolve_expression_hotkey(0x32), Some("angry"));
+        assert_eq!(resolve_expression_hotkey(0x33), Some("boop"));
+        assert_eq!(resolve_expression_hotkey(0x34), Some("chin"));
+        assert_eq!(resolve_expression_hotkey(0x35), Some("dizzy"));
+        assert_eq!(resolve_expression_hotkey(0x36), Some("sleep"));
+        assert_eq!(resolve_expression_hotkey(0x30), Some("wake"));
+        assert_eq!(resolve_expression_hotkey(0x41), None);
+
+        let mut pressed = [false; 512];
+        assert!(!modifiers_match_expression_hotkey(&pressed, false));
+        pressed[0xA4] = true; // Left Alt only
+        assert!(!modifiers_match_expression_hotkey(&pressed, true));
+        pressed[0xA0] = true; // Left Alt + Left Shift
+        assert!(modifiers_match_expression_hotkey(&pressed, true));
+        pressed[0xA2] = true; // Ctrl+Alt+Shift should NOT hijack unrelated shortcuts
+        assert!(!modifiers_match_expression_hotkey(&pressed, true));
+    }
+
+    #[test]
+    fn pause_hotkey_matcher_handles_macos_linux_combos_repeats_and_isolation() {
+        let mut m = PauseHotkeyMatcher::new();
+        // macOS default Alt+Shift+P: Option + Shift + P triggers once until released
+        assert!(!m.on_key_down(0xA4, "Alt+Shift+P", true));
+        assert!(!m.on_key_down(0xA0, "Alt+Shift+P", true));
+        assert!(m.on_key_down(0x50, "Alt+Shift+P", true));
+        assert!(!m.on_key_down(0x50, "Alt+Shift+P", true)); // held repeat suppressed
+        m.on_key_up(0x50);
+        // Cmd+Option+Shift+P must NOT hijack Option+Shift+P
+        assert!(!m.on_key_down(0x5B, "Alt+Shift+P", true));
+        assert!(!m.on_key_down(0x50, "Alt+Shift+P", true));
+        m.on_key_up(0x50);
+        m.on_key_up(0x5B);
+        m.on_key_up(0xA0);
+        m.on_key_up(0xA4);
+
+        // macOS Cmd+Shift+K matches normalized Ctrl+Shift+K
+        assert!(!m.on_key_down(0x5B, "Ctrl+Shift+K", true));
+        assert!(!m.on_key_down(0xA0, "Ctrl+Shift+K", true));
+        assert!(m.on_key_down(0x4B, "Ctrl+Shift+K", true));
+        m.on_key_up(0x4B);
+        m.on_key_up(0xA0);
+        m.on_key_up(0x5B);
+
+        // Linux standalone F9 works bare, rejected when Super is held
+        assert!(m.on_key_down(0x78, "F9", false));
+        m.on_key_up(0x78);
+        assert!(!m.on_key_down(0x5B, "F9", false));
+        assert!(!m.on_key_down(0x78, "F9", false));
+        m.on_key_up(0x78);
+        m.on_key_up(0x5B);
+
+        // Disabled hotkey never triggers
+        assert!(!m.on_key_down(0x78, "", false));
     }
 }

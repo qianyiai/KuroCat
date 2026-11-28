@@ -2,10 +2,16 @@ package com.kurocat.pet
 
 import android.accessibilityservice.AccessibilityService
 import android.graphics.Rect
+import android.os.Handler
+import android.os.Looper
+import android.provider.Settings
 import android.text.InputType
+import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import org.json.JSONObject
 import java.util.Locale
 
 /**
@@ -134,12 +140,85 @@ class KuroAccessibilityService : AccessibilityService() {
         )
     }
 
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val delayedImeRefreshRunnable = Runnable { refreshImeWindowState(force = true) }
     private var lastTextEventMs = 0L
     private var lastClickEventMs = 0L
+    private var lastImeContentPulseMs = 0L
+    private var lastSelectionEventMs = 0L
+    private var lastSelectionIndex = -1
+    private var lastSelectionPkg: String? = null
+    private var lastWindowsRefreshMs = 0L
+    private var lastDefaultImeQueryMs = 0L
+    private var cachedDefaultImePkg: String? = null
+    private var activeImeWindowId = -1
+    private var gamepadButtonsMask = 0
+    private var gamepadLtDown = false
+    private var gamepadRtDown = false
+    private val gamepadIdleRunnable = Runnable {
+        gamepadButtonsMask = 0
+        gamepadLtDown = false
+        gamepadRtDown = false
+        emitGamepadSnapshot(active = false)
+    }
+
+    private fun emitGamepadSnapshot(active: Boolean) {
+        val json = JSONObject().apply {
+            put("active", active)
+            put("lx", 0.0)
+            put("ly", 0.0)
+            put("rx", 0.0)
+            put("ry", 0.0)
+            put("lt", if (gamepadLtDown) 1.0 else 0.0)
+            put("rt", if (gamepadRtDown) 1.0 else 0.0)
+            put("buttons", gamepadButtonsMask)
+        }.toString()
+        KuroEventBus.postGamepadState(json)
+    }
+
+    private fun handleGamepadKeyEvent(event: KeyEvent): Boolean {
+        val isGamepadSource = (event.source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+            (event.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+        val isDown = event.action == KeyEvent.ACTION_DOWN
+        val isUp = event.action == KeyEvent.ACTION_UP
+        if (!isDown && !isUp) return false
+
+        val mask = when (event.keyCode) {
+            KeyEvent.KEYCODE_BUTTON_A -> 1 shl 0
+            KeyEvent.KEYCODE_BUTTON_B -> 1 shl 1
+            KeyEvent.KEYCODE_BUTTON_X -> 1 shl 2
+            KeyEvent.KEYCODE_BUTTON_Y -> 1 shl 3
+            KeyEvent.KEYCODE_BUTTON_L1 -> 1 shl 4
+            KeyEvent.KEYCODE_BUTTON_R1 -> 1 shl 5
+            KeyEvent.KEYCODE_DPAD_UP -> if (isGamepadSource) 1 shl 6 else 0
+            KeyEvent.KEYCODE_DPAD_DOWN -> if (isGamepadSource) 1 shl 7 else 0
+            KeyEvent.KEYCODE_DPAD_LEFT -> if (isGamepadSource) 1 shl 8 else 0
+            KeyEvent.KEYCODE_DPAD_RIGHT -> if (isGamepadSource) 1 shl 9 else 0
+            KeyEvent.KEYCODE_BUTTON_START -> 1 shl 10
+            KeyEvent.KEYCODE_BUTTON_SELECT -> 1 shl 11
+            else -> 0
+        }
+        val isL2 = event.keyCode == KeyEvent.KEYCODE_BUTTON_L2
+        val isR2 = event.keyCode == KeyEvent.KEYCODE_BUTTON_R2
+        if (mask == 0 && !isL2 && !isR2) return false
+
+        if (mask != 0) {
+            gamepadButtonsMask = if (isDown) gamepadButtonsMask or mask else gamepadButtonsMask and mask.inv()
+        }
+        if (isL2) gamepadLtDown = isDown
+        if (isR2) gamepadRtDown = isDown
+
+        emitGamepadSnapshot(active = true)
+        mainHandler.removeCallbacks(gamepadIdleRunnable)
+        mainHandler.postDelayed(gamepadIdleRunnable, 12_000L)
+        return true
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         KuroEventBus.accessibilityConnected.set(true)
+        refreshDefaultImePackage(force = true)
+        refreshImeWindowState(force = true)
         KuroEventBus.postSettingsChanged()
     }
 
@@ -148,10 +227,67 @@ class KuroAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(delayedImeRefreshRunnable)
+        mainHandler.removeCallbacks(gamepadIdleRunnable)
         KuroEventBus.accessibilityConnected.set(false)
+        KuroEventBus.postImeVisibilityChanged(false)
         KuroEventBus.postPrivacyChanged(false)
         KuroEventBus.postSettingsChanged()
         super.onDestroy()
+    }
+
+    private fun refreshDefaultImePackage(force: Boolean = false): String? {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastDefaultImeQueryMs < 5000L) {
+            return cachedDefaultImePkg
+        }
+        lastDefaultImeQueryMs = now
+        cachedDefaultImePkg = try {
+            Settings.Secure.getString(contentResolver, Settings.Secure.DEFAULT_INPUT_METHOD)
+                ?.substringBefore('/')
+                ?.lowercase(Locale.ROOT)
+                ?.takeIf { it.isNotBlank() }
+        } catch (_: Throwable) {
+            cachedDefaultImePkg
+        }
+        return cachedDefaultImePkg
+    }
+
+    private fun refreshImeWindowState(force: Boolean = false) {
+        val now = System.currentTimeMillis()
+        if (!force && now - lastWindowsRefreshMs < 120L) return
+        lastWindowsRefreshMs = now
+        var foundImeId = -1
+        try {
+            val winList = windows
+            if (winList != null) {
+                for (w in winList) {
+                    if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
+                        foundImeId = w.id
+                        break
+                    }
+                }
+            }
+        } catch (_: Throwable) {
+            // Safe fallback on restricted OEM builds
+        }
+        activeImeWindowId = foundImeId
+        KuroEventBus.postImeVisibilityChanged(foundImeId != -1)
+    }
+
+    private fun isKnownImePackage(rawPkg: String?): Boolean {
+        if (rawPkg.isNullOrEmpty()) return false
+        val pkg = rawPkg.lowercase(Locale.ROOT)
+        if (pkg == packageName.lowercase(Locale.ROOT) || pkg.contains("systemui") || pkg.contains("autofill")) {
+            return false
+        }
+        val activeDefaultIme = refreshDefaultImePackage()
+        if (activeDefaultIme != null && pkg == activeDefaultIme) return true
+        if (TRANSIENT_PKG_SUBSTRINGS.any { pkg.contains(it) }) return true
+        val segments = pkg.split('.', '_', '-')
+        return segments.any { seg ->
+            seg == "ime" || (seg.endsWith("ime") && NON_IME_SUFFIXES.none { seg.endsWith(it) })
+        }
     }
 
     private fun safeEventSource(event: AccessibilityEvent): AccessibilityNodeInfo? = try {
@@ -417,6 +553,10 @@ class KuroAccessibilityService : AccessibilityService() {
         val privacyGuardOn = KuroPrefs.isPrivacyGuardEnabled(this)
 
         when (event.eventType) {
+            AccessibilityEvent.TYPE_WINDOWS_CHANGED -> {
+                refreshImeWindowState(force = true)
+            }
+
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
                 if (isPasswordEvent(event)) {
                     if (privacyGuardOn) {
@@ -428,25 +568,122 @@ class KuroAccessibilityService : AccessibilityService() {
 
                 val added = event.addedCount
                 val removed = event.removedCount
-                if (added <= 0 && removed <= 0) return
+                val now = System.currentTimeMillis()
 
                 if (KuroEventBus.privacyActive.get()) {
                     KuroEventBus.postPrivacyChanged(false)
                 }
 
-                val now = System.currentTimeMillis()
+                // Pure delete always triggers backspace paw (even right after an IME touch pulse)
+                if (removed > 0 && added <= 0) {
+                    if (now - lastTextEventMs < 35L) return
+                    lastTextEventMs = now
+                    KuroEventBus.postTypingBurst(1, "delete")
+                    return
+                }
+
+                // Some Chinese IMEs emit composing-span updates with addedCount <= 0 && removedCount <= 0
+                if (added <= 0 && removed <= 0) {
+                    if (!KuroEventBus.imeVisible.get()) return
+                    if (now - lastTextEventMs < 75L || now - KuroEventBus.lastTypingSignalMs < 60L) return
+                    lastTextEventMs = now
+                    KuroEventBus.postTypingBurst(1, "char")
+                    return
+                }
+
                 if (now - lastTextEventMs < 35L) return
                 lastTextEventMs = now
 
+                // Avoid double-striking if the IME tap sensor / candidate bar already fired right before commit
+                if (added == 1 && now - KuroEventBus.lastTypingSignalMs < 48L) return
+
                 when {
-                    removed > 0 && added == 0 -> KuroEventBus.postTypingBurst(1, "delete")
-                    added >= 4 -> KuroEventBus.postTypingBurst(3, "char")
-                    added >= 2 -> KuroEventBus.postTypingBurst(2, "char")
+                    added >= 4 -> KuroEventBus.postTypingBurst(2, "char")
+                    added >= 2 -> KuroEventBus.postTypingBurst(1, "char")
                     else -> KuroEventBus.postTypingBurst(1, "char")
                 }
             }
 
+            AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED -> {
+                // Catches inline Chinese Pinyin (9-key / 16-key / 26-key) & English composing cursor
+                // progression inside EditTexts where TYPE_VIEW_TEXT_CHANGED is deferred until word selection.
+                if (privacyGuardOn && (KuroEventBus.privacyActive.get() || event.isPassword)) {
+                    return
+                }
+                if (!KuroEventBus.imeVisible.get()) return
+                val from = event.fromIndex
+                val to = event.toIndex
+                if (from < 0 || from != to) {
+                    lastSelectionIndex = -1
+                    return
+                }
+                val pkg = event.packageName?.toString()
+                val prevIdx = if (pkg == lastSelectionPkg) lastSelectionIndex else -1
+                lastSelectionPkg = pkg
+                lastSelectionIndex = from
+                if (prevIdx < 0 || prevIdx == from) return
+
+                val now = System.currentTimeMillis()
+                // Ignore cursor jumps immediately caused by tapping to focus/move the caret
+                if (now - lastClickEventMs < 160L) return
+                if (now - lastSelectionEventMs < 65L || now - KuroEventBus.lastTypingSignalMs < 55L) return
+                lastSelectionEventMs = now
+                val delta = from - prevIdx
+                if (delta in 1..6) {
+                    KuroEventBus.postTypingBurst(1, "char")
+                } else if (delta in -3..-1) {
+                    KuroEventBus.postTypingBurst(1, "delete")
+                }
+            }
+
+            AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                // Privacy-safe IME candidate/pinyin-strip refresh detector (never reads any text!):
+                // When 9-key / 16-key / 26-key Chinese IMEs update their candidate bar before committing
+                // characters to the EditText, the TYPE_INPUT_METHOD window emits content changes.
+                val pkg = event.packageName?.toString()
+                val matchesImePkg = isKnownImePackage(pkg)
+                val isFromImeWindow =
+                    (activeImeWindowId != -1 && event.windowId == activeImeWindowId) || matchesImePkg
+                if (!isFromImeWindow) return
+
+                // OEM ROM fallback: if the active system IME window is actively refreshing content
+                // before TYPE_WINDOWS_CHANGED fires, promote imeVisible so the tap sensor attaches too.
+                if (matchesImePkg && !KuroEventBus.imeVisible.get()) {
+                    if (event.windowId != -1) {
+                        activeImeWindowId = event.windowId
+                    }
+                    KuroEventBus.postImeVisibilityChanged(true)
+                }
+
+                val changeTypes = event.contentChangeTypes
+                val relevant = changeTypes == 0 ||
+                    (changeTypes and (
+                        AccessibilityEvent.CONTENT_CHANGE_TYPE_TEXT or
+                            AccessibilityEvent.CONTENT_CHANGE_TYPE_SUBTREE or
+                            AccessibilityEvent.CONTENT_CHANGE_TYPE_CONTENT_DESCRIPTION
+                        )) != 0
+                if (!relevant) return
+
+                val now = System.currentTimeMillis()
+                if (privacyGuardOn && KuroEventBus.privacyActive.get()) {
+                    if (now - lastImeContentPulseMs >= 110L) {
+                        lastImeContentPulseMs = now
+                        KuroEventBus.postPrivacyTyping()
+                    }
+                    return
+                }
+                if (now - lastImeContentPulseMs < 75L || now - KuroEventBus.lastTypingSignalMs < 60L) {
+                    return
+                }
+                lastImeContentPulseMs = now
+                KuroEventBus.postTypingBurst(1, "char")
+            }
+
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
+                refreshImeWindowState()
+                mainHandler.removeCallbacks(delayedImeRefreshRunnable)
+                mainHandler.postDelayed(delayedImeRefreshRunnable, 260L)
+                lastSelectionIndex = -1
                 val isPwd = isPasswordEvent(event)
                 if (isPwd) {
                     KuroEventBus.postPrivacyChanged(privacyGuardOn)
@@ -456,6 +693,9 @@ class KuroAccessibilityService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
+                refreshImeWindowState(force = true)
+                mainHandler.removeCallbacks(delayedImeRefreshRunnable)
+                mainHandler.postDelayed(delayedImeRefreshRunnable, 260L)
                 // Detect payment PIN keyboards / safe keyboard dialogs immediately
                 if (isPasswordWindowEvent(event)) {
                     if (privacyGuardOn) {
@@ -491,6 +731,8 @@ class KuroAccessibilityService : AccessibilityService() {
                     if (now - lastClickEventMs < 90L) return
                     lastClickEventMs = now
 
+                    if (!KuroPrefs.isShowMouse(this)) return
+
                     var nx = 0.5f
                     var ny = 0.5f
                     if (src != null) {
@@ -512,6 +754,9 @@ class KuroAccessibilityService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent?): Boolean {
         if (event == null) return false
+        if (handleGamepadKeyEvent(event)) {
+            return false
+        }
         val vk = androidKeyCodeToVk(event.keyCode) ?: return false
         val suppressForPrivacy = KuroEventBus.privacyActive.get() && KuroPrefs.isPrivacyGuardEnabled(this)
         when (event.action) {

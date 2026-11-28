@@ -3,8 +3,21 @@ import zhTW from '../locales/zh-TW.json';
 import enUS from '../locales/en-US.json';
 import jaJP from '../locales/ja-JP.json';
 import koKR from '../locales/ko-KR.json';
+import esES from '../locales/es-ES.json';
+import ptBR from '../locales/pt-BR.json';
+import ruRU from '../locales/ru-RU.json';
+import deDE from '../locales/de-DE.json';
 
-export type ShippedLocale = 'zh-CN' | 'zh-TW' | 'en-US' | 'ja-JP' | 'ko-KR';
+export type ShippedLocale =
+  | 'zh-CN'
+  | 'zh-TW'
+  | 'en-US'
+  | 'ja-JP'
+  | 'ko-KR'
+  | 'es-ES'
+  | 'pt-BR'
+  | 'ru-RU'
+  | 'de-DE';
 export type LanguageSetting = 'auto' | ShippedLocale;
 
 export const SHIPPED_LOCALES: readonly ShippedLocale[] = [
@@ -13,6 +26,10 @@ export const SHIPPED_LOCALES: readonly ShippedLocale[] = [
   'en-US',
   'ja-JP',
   'ko-KR',
+  'es-ES',
+  'pt-BR',
+  'ru-RU',
+  'de-DE',
 ];
 
 const RAW_CATALOGS: Record<ShippedLocale, Record<string, unknown>> = {
@@ -21,6 +38,10 @@ const RAW_CATALOGS: Record<ShippedLocale, Record<string, unknown>> = {
   'en-US': enUS,
   'ja-JP': jaJP,
   'ko-KR': koKR,
+  'es-ES': esES,
+  'pt-BR': ptBR,
+  'ru-RU': ruRU,
+  'de-DE': deDE,
 };
 
 const FLAT_CATALOGS: Record<ShippedLocale, Record<string, string>> = {
@@ -29,6 +50,10 @@ const FLAT_CATALOGS: Record<ShippedLocale, Record<string, string>> = {
   'en-US': {},
   'ja-JP': {},
   'ko-KR': {},
+  'es-ES': {},
+  'pt-BR': {},
+  'ru-RU': {},
+  'de-DE': {},
 };
 
 function flatten(prefix: string, obj: Record<string, unknown>, out: Record<string, string>): void {
@@ -62,6 +87,10 @@ export function resolveLocaleTag(raw?: string | null): ShippedLocale {
   }
   if (primary === 'ja') return 'ja-JP';
   if (primary === 'ko') return 'ko-KR';
+  if (primary === 'es') return 'es-ES';
+  if (primary === 'pt') return 'pt-BR';
+  if (primary === 'ru') return 'ru-RU';
+  if (primary === 'de') return 'de-DE';
   if (primary === 'en') return 'en-US';
   return 'en-US';
 }

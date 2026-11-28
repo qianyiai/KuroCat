@@ -25,11 +25,59 @@ object KuroPrefs {
 
     private fun sp(ctx: Context) = ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
+    fun getLanguage(ctx: Context): String = sp(ctx).getString("language", "auto") ?: "auto"
+    fun setLanguage(ctx: Context, v: String) = sp(ctx).edit().putString("language", v).apply()
+
     fun getBreed(ctx: Context): String = sp(ctx).getString("breed", "black") ?: "black"
     fun setBreed(ctx: Context, v: String) = sp(ctx).edit().putString("breed", v).apply()
 
-    fun getLayout(ctx: Context): String = sp(ctx).getString("layout", "65") ?: "65"
-    fun setLayout(ctx: Context, v: String) = sp(ctx).edit().putString("layout", v).apply()
+    fun getRenderMode(ctx: Context): String =
+        when (val v = sp(ctx).getString("render_mode", "2d")) {
+            "3d", "3d-flat", "2d" -> v
+            else -> "2d"
+        }
+
+    fun setRenderMode(ctx: Context, v: String) {
+        val norm = if (v == "3d" || v == "3d-flat") v else "2d"
+        sp(ctx).edit().putString("render_mode", norm).apply()
+    }
+
+    fun getCollarColor(ctx: Context): String =
+        when (val v = sp(ctx).getString("collar_color", "none")) {
+            "red", "blue", "pink", "green" -> v
+            else -> "none"
+        }
+
+    fun setCollarColor(ctx: Context, v: String) {
+        val norm = if (v in setOf("red", "blue", "pink", "green")) v else "none"
+        sp(ctx).edit().putString("collar_color", norm).apply()
+    }
+
+    fun isLaoWuHandoverEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("lao_wu_handover", true)
+    fun setLaoWuHandoverEnabled(ctx: Context, v: Boolean) =
+        sp(ctx).edit().putBoolean("lao_wu_handover", v).apply()
+
+    fun getTreatFlavor(ctx: Context): String =
+        when (val v = sp(ctx).getString("treat_flavor", "tuna")) {
+            "salmon", "chicken" -> v
+            else -> "tuna"
+        }
+
+    fun setTreatFlavor(ctx: Context, v: String) {
+        val norm = if (v == "salmon" || v == "chicken") v else "tuna"
+        sp(ctx).edit().putString("treat_flavor", norm).apply()
+    }
+
+    fun getLayout(ctx: Context): String =
+        when (val v = sp(ctx).getString("layout", "65")) {
+            "65", "98", "108", "macbook" -> v
+            else -> "65"
+        }
+
+    fun setLayout(ctx: Context, v: String) {
+        val norm = if (v in setOf("65", "98", "108", "macbook")) v else "65"
+        sp(ctx).edit().putString("layout", norm).apply()
+    }
 
     fun getOrientation(ctx: Context): String = sp(ctx).getString("orientation", "cat") ?: "cat"
     fun setOrientation(ctx: Context, v: String) = sp(ctx).edit().putString("orientation", v).apply()
@@ -45,6 +93,10 @@ object KuroPrefs {
     fun isShowKeyBubbles(ctx: Context): Boolean = sp(ctx).getBoolean("show_bubbles", true)
     fun setShowKeyBubbles(ctx: Context, v: Boolean) =
         sp(ctx).edit().putBoolean("show_bubbles", v).apply()
+
+    fun isShowMouse(ctx: Context): Boolean = sp(ctx).getBoolean("show_mouse", true)
+    fun setShowMouse(ctx: Context, v: Boolean) =
+        sp(ctx).edit().putBoolean("show_mouse", v).apply()
 
     fun isSoundEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("sound_enabled", true)
     fun setSoundEnabled(ctx: Context, v: Boolean) =
@@ -65,6 +117,21 @@ object KuroPrefs {
     fun isHeadphonesEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("headphones", false)
     fun setHeadphonesEnabled(ctx: Context, v: Boolean) =
         sp(ctx).edit().putBoolean("headphones", v).apply()
+
+    fun getGamepadMode(ctx: Context): String =
+        when (val v = sp(ctx).getString("gamepad_mode", "auto")) {
+            "on", "off" -> v
+            else -> "auto"
+        }
+
+    fun setGamepadMode(ctx: Context, v: String) {
+        val norm = if (v == "on" || v == "off") v else "auto"
+        sp(ctx).edit().putString("gamepad_mode", norm).apply()
+    }
+
+    fun isTabletEnabled(ctx: Context): Boolean = sp(ctx).getBoolean("tablet_mode", false)
+    fun setTabletEnabled(ctx: Context, v: Boolean) =
+        sp(ctx).edit().putBoolean("tablet_mode", v).apply()
 
     fun getTailKeyMode(ctx: Context): String =
         when (val v = sp(ctx).getString("tail_key_mode", "smart")) {
@@ -106,6 +173,10 @@ object KuroPrefs {
     ): String {
         return JSONObject().apply {
             put("catBreed", getBreed(ctx))
+            put("renderMode", getRenderMode(ctx))
+            put("collarColor", getCollarColor(ctx))
+            put("laoWuHandover", isLaoWuHandoverEnabled(ctx))
+            put("treatFlavor", getTreatFlavor(ctx))
             put("keyboardLayout", getLayout(ctx))
             put("keyboardOrientation", getOrientation(ctx))
             put("opacity", getOpacity(ctx).toDouble())
@@ -114,8 +185,11 @@ object KuroPrefs {
             put("typingSoundEnabled", !audioMuted && isTypingSoundEnabled(ctx))
             put("privacyMode", privacyActive && isPrivacyGuardEnabled(ctx))
             put("headphones", isHeadphonesEnabled(ctx))
+            put("gamepadMode", getGamepadMode(ctx))
+            put("tabletMode", if (isTabletEnabled(ctx)) "on" else "off")
             put("tailKeyMode", getTailKeyMode(ctx))
             put("fpsCap", getFpsCap(ctx))
+            put("showMouse", isShowMouse(ctx))
         }.toString()
     }
 }

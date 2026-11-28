@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat Sincronização e proteção de senhas</string>
+    <string name="accessibility_service_desc">Sincroniza o ritmo de digitação com o pet flutuante e protege campos de senha automaticamente. Nunca lê, armazena ou envia qualquer texto.</string>
+</resources>

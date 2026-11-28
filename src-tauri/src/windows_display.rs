@@ -143,6 +143,7 @@ pub fn initial_placement(window: &WebviewWindow, settings: &AppSettings) -> Opti
 }
 
 fn apply(window: &WebviewWindow, target: Placement) -> tauri::Result<()> {
+    crate::handover_stage::cancel(window.app_handle());
     if win_needs_win7_ulw() {
         window.set_size(target.size)?;
         win7_layered::set_position(target.position.x, target.position.y);

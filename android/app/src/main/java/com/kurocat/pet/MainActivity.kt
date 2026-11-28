@@ -17,9 +17,12 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
@@ -41,13 +44,16 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.webkit.WebViewAssetLoader
 import org.json.JSONObject
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class MainActivity : AppCompatActivity(), KuroPetListener {
 
     private var previewWebView: WebView? = null
     private var previewReady = false
+    private var previewTreatActive = false
 
+    private lateinit var previewBadge: TextView
     private lateinit var overlayStatusBadge: TextView
     private lateinit var overlayPermBtn: TextView
     private lateinit var a11yStatusBadge: TextView
@@ -57,25 +63,49 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
     private lateinit var scaleSeekBar: SeekBar
     private lateinit var opacityValueText: TextView
     private lateinit var opacitySeekBar: SeekBar
+    private lateinit var swHandover: SwitchCompat
     private lateinit var swTouchThrough: SwitchCompat
     private lateinit var swPrivacy: SwitchCompat
     private lateinit var swBubbles: SwitchCompat
+    private lateinit var swShowMouse: SwitchCompat
     private lateinit var swSound: SwitchCompat
     private lateinit var swTypingSound: SwitchCompat
     private lateinit var swHeadphones: SwitchCompat
+    private lateinit var swTablet: SwitchCompat
     private lateinit var swFpsEco: SwitchCompat
 
     private val skinButtons = mutableMapOf<String, TextView>()
+    private val langButtons = mutableMapOf<String, TextView>()
+    private val collarButtons = mutableMapOf<String, TextView>()
+    private val treatFlavorButtons = mutableMapOf<String, TextView>()
+    private lateinit var btnTreatToggle: TextView
+    private lateinit var btnRender3d: TextView
+    private lateinit var btnRender3dFlat: TextView
+    private lateinit var btnRender2d: TextView
     private lateinit var btnLayout65: TextView
+    private lateinit var btnLayout98: TextView
     private lateinit var btnLayout108: TextView
+    private lateinit var btnLayoutMac: TextView
     private lateinit var btnOrientCat: TextView
     private lateinit var btnOrientViewer: TextView
     private lateinit var btnTailSmart: TextView
     private lateinit var btnTailEdge: TextView
     private lateinit var btnTailOff: TextView
+    private lateinit var btnGpAuto: TextView
+    private lateinit var btnGpOn: TextView
+    private lateinit var btnGpOff: TextView
 
     private var inAppPrivacyActive = false
     private var updatingUi = false
+    private var localGpButtons = 0
+    private var localGpLx = 0f
+    private var localGpLy = 0f
+    private var localGpRx = 0f
+    private var localGpRy = 0f
+    private var localGpLt = 0f
+    private var localGpRt = 0f
+
+    private fun t(key: String): String = KuroI18n.t(this, key)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -92,6 +122,9 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
     }
 
     override fun onPause() {
+        if (previewTreatActive) {
+            stopPreviewTreat()
+        }
         previewWebView?.onPause()
         super.onPause()
     }
@@ -101,6 +134,87 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         previewWebView?.destroy()
         previewWebView = null
         super.onDestroy()
+    }
+
+    override fun dispatchGenericMotionEvent(ev: MotionEvent?): Boolean {
+        if (ev != null &&
+            (ev.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK &&
+            ev.action == MotionEvent.ACTION_MOVE
+        ) {
+            fun dz(v: Float): Float = if (abs(v) < 0.16f) 0f else v.coerceIn(-1f, 1f)
+            localGpLx = dz(ev.getAxisValue(MotionEvent.AXIS_X))
+            localGpLy = dz(-ev.getAxisValue(MotionEvent.AXIS_Y))
+            localGpRx = dz(ev.getAxisValue(MotionEvent.AXIS_Z))
+            localGpRy = dz(-ev.getAxisValue(MotionEvent.AXIS_RZ))
+            val ltRaw = maxOf(
+                ev.getAxisValue(MotionEvent.AXIS_LTRIGGER),
+                ev.getAxisValue(MotionEvent.AXIS_BRAKE)
+            ).coerceIn(0f, 1f)
+            val rtRaw = maxOf(
+                ev.getAxisValue(MotionEvent.AXIS_RTRIGGER),
+                ev.getAxisValue(MotionEvent.AXIS_GAS)
+            ).coerceIn(0f, 1f)
+            localGpLt = if (ltRaw < 0.08f) 0f else ltRaw
+            localGpRt = if (rtRaw < 0.08f) 0f else rtRaw
+            val hatX = ev.getAxisValue(MotionEvent.AXIS_HAT_X)
+            val hatY = ev.getAxisValue(MotionEvent.AXIS_HAT_Y)
+            localGpButtons = localGpButtons and (0x0F shl 6).inv()
+            if (hatY < -0.5f) localGpButtons = localGpButtons or (1 shl 6)
+            if (hatY > 0.5f) localGpButtons = localGpButtons or (1 shl 7)
+            if (hatX < -0.5f) localGpButtons = localGpButtons or (1 shl 8)
+            if (hatX > 0.5f) localGpButtons = localGpButtons or (1 shl 9)
+            postLocalGamepadSnapshot()
+        }
+        return super.dispatchGenericMotionEvent(ev)
+    }
+
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if ((event.source and InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD ||
+            (event.source and InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK
+        ) {
+            val isDown = event.action == KeyEvent.ACTION_DOWN
+            val isUp = event.action == KeyEvent.ACTION_UP
+            if (isDown || isUp) {
+                val mask = when (event.keyCode) {
+                    KeyEvent.KEYCODE_BUTTON_A -> 1 shl 0
+                    KeyEvent.KEYCODE_BUTTON_B -> 1 shl 1
+                    KeyEvent.KEYCODE_BUTTON_X -> 1 shl 2
+                    KeyEvent.KEYCODE_BUTTON_Y -> 1 shl 3
+                    KeyEvent.KEYCODE_BUTTON_L1 -> 1 shl 4
+                    KeyEvent.KEYCODE_BUTTON_R1 -> 1 shl 5
+                    KeyEvent.KEYCODE_DPAD_UP -> 1 shl 6
+                    KeyEvent.KEYCODE_DPAD_DOWN -> 1 shl 7
+                    KeyEvent.KEYCODE_DPAD_LEFT -> 1 shl 8
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> 1 shl 9
+                    KeyEvent.KEYCODE_BUTTON_START -> 1 shl 10
+                    KeyEvent.KEYCODE_BUTTON_SELECT -> 1 shl 11
+                    else -> 0
+                }
+                if (mask != 0) {
+                    localGpButtons = if (isDown) localGpButtons or mask else localGpButtons and mask.inv()
+                    postLocalGamepadSnapshot()
+                }
+            }
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun postLocalGamepadSnapshot() {
+        val hasInput = localGpButtons != 0 ||
+            abs(localGpLx) > 0.01f || abs(localGpLy) > 0.01f ||
+            abs(localGpRx) > 0.01f || abs(localGpRy) > 0.01f ||
+            localGpLt > 0.01f || localGpRt > 0.01f
+        val json = JSONObject().apply {
+            put("active", hasInput)
+            put("lx", localGpLx.toDouble())
+            put("ly", localGpLy.toDouble())
+            put("rx", localGpRx.toDouble())
+            put("ry", localGpRy.toDouble())
+            put("lt", localGpLt.toDouble())
+            put("rt", localGpRt.toDouble())
+            put("buttons", localGpButtons)
+        }.toString()
+        KuroEventBus.postGamepadState(json)
     }
 
     private fun dp(v: Int): Int =
@@ -133,6 +247,37 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ) ?: return false
         return enabled.split(':').any { it.equals(expected, ignoreCase = true) }
+    }
+
+    private fun startPreviewTreat() {
+        if (KuroPrefs.getBreed(this) == "dafeiyu") {
+            Toast.makeText(this, t("toast_treat_dafeiyu"), Toast.LENGTH_SHORT).show()
+            return
+        }
+        previewTreatActive = true
+        val flavor = JSONObject.quote(KuroPrefs.getTreatFlavor(this))
+        evalPreviewJs("window.KuroAndroid && window.KuroAndroid.startTreat($flavor);")
+        refreshTreatUi()
+    }
+
+    private fun stopPreviewTreat() {
+        previewTreatActive = false
+        evalPreviewJs("window.KuroAndroid && window.KuroAndroid.stopTreat();")
+        refreshTreatUi()
+    }
+
+    private fun refreshTreatUi() {
+        if (!::previewBadge.isInitialized || !::btnTreatToggle.isInitialized) return
+        previewBadge.text = if (previewTreatActive) t("preview_treat_hint") else t("preview_hint")
+        if (previewTreatActive) {
+            btnTreatToggle.text = t("btn_feed_stop")
+            btnTreatToggle.setTextColor(0xFFFF9696.toInt())
+            btnTreatToggle.background = roundedBg(0x2BFF5C5C, 10, 0x66FF5C5C, 1)
+        } else {
+            btnTreatToggle.text = t("btn_feed_start")
+            btnTreatToggle.setTextColor(0xFF0B0E15.toInt())
+            btnTreatToggle.background = roundedBg(0xFFFFAE42.toInt(), 10)
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -177,14 +322,14 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             typeface = Typeface.DEFAULT_BOLD
         })
         titleCol.addView(TextView(this).apply {
-            text = "v5.1.3 · 透明悬浮打字桌宠 · 免费开源"
+            text = t("subtitle")
             setTextColor(0xFF8F9DB5.toInt())
             textSize = 12.5f
             setPadding(0, dp(2), 0, 0)
         })
         header.addView(titleCol)
         header.addView(TextView(this).apply {
-            text = "7款皮肤"
+            text = t("skins_badge")
             setTextColor(0xFF0B0E15.toInt())
             textSize = 12f
             typeface = Typeface.DEFAULT_BOLD
@@ -193,15 +338,15 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         })
         root.addView(header)
 
-        // Live Interactive Preview Card (mount WebView right after first frame so app opens instantaneously!)
+        // Live Interactive Preview Card
         val previewCard = FrameLayout(this).apply {
             background = roundedBg(0xFF131824.toInt(), 20, 0x33FFFFFF, 1)
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(235)).apply {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(238)).apply {
                 topMargin = dp(14)
             }
         }
         val loadingLabel = TextView(this).apply {
-            text = "🐈‍⬛ 正在唤醒小黑猫..."
+            text = t("waking")
             setTextColor(0xFF8F9DB5.toInt())
             textSize = 13.5f
             gravity = Gravity.CENTER
@@ -212,8 +357,8 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             )
         }
         previewCard.addView(loadingLabel)
-        val previewBadge = TextView(this).apply {
-            text = "实时预览 · 点鼻子/下巴/尾巴或滑动摸头"
+        previewBadge = TextView(this).apply {
+            text = t("preview_hint")
             setTextColor(0xFFA9B7CE.toInt())
             textSize = 11.5f
             background = roundedBg(0x9910141F.toInt(), 99, 0x26FFFFFF, 1)
@@ -246,6 +391,15 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                 settings.domStorageEnabled = true
                 settings.mediaPlaybackRequiresUserGesture = false
                 settings.cacheMode = WebSettings.LOAD_DEFAULT
+                addJavascriptInterface(object {
+                    @JavascriptInterface
+                    fun onTreatEnded() {
+                        runOnUiThread {
+                            previewTreatActive = false
+                            refreshTreatUi()
+                        }
+                    }
+                }, "KuroAndroidHost")
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(
                         view: WebView,
@@ -255,7 +409,6 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                     override fun onPageFinished(view: WebView?, url: String?) {
                         previewReady = true
                         loadingLabel.visibility = View.GONE
-                        android.util.Log.i("KuroCat", "previewReady url=$url")
                         syncPreviewJs()
                     }
                 }
@@ -265,53 +418,77 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                     val h = v.height.coerceAtLeast(1).toFloat()
                     val nx = (ev.x / w).coerceIn(0f, 1f)
                     val ny = (ev.y / h).coerceIn(0f, 1f)
-                    when (ev.actionMasked) {
-                        MotionEvent.ACTION_DOWN -> {
-                            v.parent?.requestDisallowInterceptTouchEvent(true)
-                            downX = ev.x
-                            downY = ev.y
-                            downAt = System.currentTimeMillis()
-                            rubbing = false
-                            lastMoveJsAt = 0L
-                            true
-                        }
-                        MotionEvent.ACTION_MOVE -> {
-                            val dx = ev.x - downX
-                            val dy = ev.y - downY
-                            if (!rubbing && (dx * dx + dy * dy) >= rubSlopSq) {
-                                rubbing = true
+                    if (previewTreatActive) {
+                        when (ev.actionMasked) {
+                            MotionEvent.ACTION_DOWN -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(true)
+                                evalPreviewJs("window.KuroAndroid && window.KuroAndroid.setTreatPointer($nx, $ny, true);")
+                                true
                             }
-                            if (rubbing) {
+                            MotionEvent.ACTION_MOVE -> {
                                 val now = System.currentTimeMillis()
-                                if (now - lastMoveJsAt >= 30L) {
+                                if (now - lastMoveJsAt >= 24L) {
                                     lastMoveJsAt = now
-                                    evalPreviewJs("window.KuroAndroid && window.KuroAndroid.petMove($nx, $ny, true);")
+                                    evalPreviewJs("window.KuroAndroid && window.KuroAndroid.setTreatPointer($nx, $ny, true);")
                                 }
+                                true
                             }
-                            true
+                            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(false)
+                                evalPreviewJs("window.KuroAndroid && window.KuroAndroid.setTreatPointer($nx, $ny, false);")
+                                true
+                            }
+                            else -> false
                         }
-                        MotionEvent.ACTION_UP -> {
-                            v.parent?.requestDisallowInterceptTouchEvent(false)
-                            if (rubbing) {
+                    } else {
+                        when (ev.actionMasked) {
+                            MotionEvent.ACTION_DOWN -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(true)
+                                downX = ev.x
+                                downY = ev.y
+                                downAt = System.currentTimeMillis()
                                 rubbing = false
-                                evalPreviewJs("window.KuroAndroid && window.KuroAndroid.petMove(-1, -1, false);")
-                            } else {
-                                val dt = System.currentTimeMillis() - downAt
-                                if (dt < 450L) {
-                                    evalPreviewJs("window.KuroAndroid && window.KuroAndroid.tapAt($nx, $ny);")
+                                lastMoveJsAt = 0L
+                                true
+                            }
+                            MotionEvent.ACTION_MOVE -> {
+                                val dx = ev.x - downX
+                                val dy = ev.y - downY
+                                if (!rubbing && (dx * dx + dy * dy) >= rubSlopSq) {
+                                    rubbing = true
                                 }
+                                if (rubbing) {
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastMoveJsAt >= 30L) {
+                                        lastMoveJsAt = now
+                                        evalPreviewJs("window.KuroAndroid && window.KuroAndroid.petMove($nx, $ny, true);")
+                                    }
+                                }
+                                true
                             }
-                            true
-                        }
-                        MotionEvent.ACTION_CANCEL -> {
-                            v.parent?.requestDisallowInterceptTouchEvent(false)
-                            if (rubbing) {
-                                rubbing = false
-                                evalPreviewJs("window.KuroAndroid && window.KuroAndroid.petMove(-1, -1, false);")
+                            MotionEvent.ACTION_UP -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(false)
+                                if (rubbing) {
+                                    rubbing = false
+                                    evalPreviewJs("window.KuroAndroid && window.KuroAndroid.petMove(-1, -1, false);")
+                                } else {
+                                    val dt = System.currentTimeMillis() - downAt
+                                    if (dt < 450L) {
+                                        evalPreviewJs("window.KuroAndroid && window.KuroAndroid.tapAt($nx, $ny);")
+                                    }
+                                }
+                                true
                             }
-                            true
+                            MotionEvent.ACTION_CANCEL -> {
+                                v.parent?.requestDisallowInterceptTouchEvent(false)
+                                if (rubbing) {
+                                    rubbing = false
+                                    evalPreviewJs("window.KuroAndroid && window.KuroAndroid.petMove(-1, -1, false);")
+                                }
+                                true
+                            }
+                            else -> false
                         }
-                        else -> false
                     }
                 }
             }
@@ -329,7 +506,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
 
         // Primary Start / Stop Floating Pet Button
         mainToggleBtn = TextView(this).apply {
-            text = "🚀 开启桌面悬浮桌宠"
+            text = t("btn_start")
             gravity = Gravity.CENTER
             textSize = 16.5f
             typeface = Typeface.DEFAULT_BOLD
@@ -347,12 +524,12 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         root.addView(mainToggleBtn)
 
         // 2-Step Permission Setup Card
-        val permCard = makeCard(root, "两步开启完整体验（仅首次需要）")
+        val permCard = makeCard(root, t("card_perms"))
         val (ovBadge, ovBtn) = addPermissionRow(
             permCard,
-            "1. 悬浮窗权限",
-            "让小猫 / 鲸鱼娘透明置顶显示在微信、小红书、桌面等任意页面上层",
-            "去开启"
+            t("perm_overlay_title"),
+            t("perm_overlay_desc"),
+            t("btn_enable")
         ) {
             val intent = Intent(
                 Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -367,18 +544,18 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
 
         val (a11yBadge, a11yBtn) = addPermissionRow(
             permCard,
-            "2. 无障碍打字联动（推荐）",
-            "感知任意 App 打字节奏与密码框自动闭眼捂眼（绝不读取/上传文本）",
-            "去开启"
+            t("perm_a11y_title"),
+            t("perm_a11y_desc"),
+            t("btn_enable")
         ) {
-            Toast.makeText(this, "请在「已下载的应用 / 已安装的服务」中开启 KuroCat", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, t("toast_a11y_guide"), Toast.LENGTH_LONG).show()
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
         a11yStatusBadge = a11yBadge
         a11yPermBtn = a11yBtn
 
-        // Skin Picker Card
-        val skinCard = makeCard(root, "切换外观（6 款猫咪 + 🐳 大肥鱼鲸鱼娘）")
+        // Skin, Render Mode, Collar & Treat Feeding Card
+        val skinCard = makeCard(root, t("card_skin"))
         val skinScroll = HorizontalScrollView(this).apply {
             isHorizontalScrollBarEnabled = false
         }
@@ -388,7 +565,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         }
         KuroPrefs.SKINS.forEachIndexed { idx, skin ->
             val btn = TextView(this).apply {
-                text = "${skin.emoji} ${skin.name}"
+                text = "${skin.emoji} ${KuroI18n.skinName(this@MainActivity, skin.id)}"
                 textSize = 13.5f
                 typeface = Typeface.DEFAULT_BOLD
                 setPadding(dp(14), dp(9), dp(14), dp(9))
@@ -400,6 +577,9 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                 }
                 setOnClickListener {
                     KuroPrefs.setBreed(this@MainActivity, skin.id)
+                    if (skin.id == "dafeiyu" && previewTreatActive) {
+                        stopPreviewTreat()
+                    }
                     KuroEventBus.postSettingsChanged()
                     refreshAllUi()
                 }
@@ -410,76 +590,176 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         skinScroll.addView(skinRow)
         skinCard.addView(skinScroll)
 
-        // Keyboard Layout & Scale Card
-        val styleCard = makeCard(root, "键盘配列、方向与悬浮大小")
+        addSubLabel(skinCard, t("label_render"))
+        val renderRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        btnRender3d = makeSegButton(t("render_3d")) {
+            KuroPrefs.setRenderMode(this, "3d")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        btnRender3dFlat = makeSegButton(t("render_3d_flat")) {
+            KuroPrefs.setRenderMode(this, "3d-flat")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        btnRender2d = makeSegButton(t("render_2d")) {
+            KuroPrefs.setRenderMode(this, "2d")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        renderRow.addView(btnRender3d)
+        renderRow.addView(btnRender3dFlat)
+        renderRow.addView(btnRender2d)
+        skinCard.addView(renderRow)
 
-        val segRow = LinearLayout(this).apply {
+        addSubLabel(skinCard, t("label_collar"))
+        val collarRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        listOf(
+            "none" to t("collar_none"),
+            "red" to t("collar_red"),
+            "blue" to t("collar_blue"),
+            "pink" to t("collar_pink"),
+            "green" to t("collar_green")
+        ).forEach { (id, label) ->
+            val b = makeSegButton(label) {
+                KuroPrefs.setCollarColor(this, id)
+                KuroEventBus.postSettingsChanged()
+                refreshAllUi()
+            }
+            collarButtons[id] = b
+            collarRow.addView(b)
+        }
+        skinCard.addView(collarRow)
+
+        addSubLabel(skinCard, t("label_treat"))
+        val treatRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        listOf(
+            "tuna" to t("treat_tuna"),
+            "salmon" to t("treat_salmon"),
+            "chicken" to t("treat_chicken")
+        ).forEach { (flavor, label) ->
+            val b = makeSegButton(label) {
+                KuroPrefs.setTreatFlavor(this, flavor)
+                if (previewTreatActive) {
+                    startPreviewTreat()
+                }
+                refreshAllUi()
+            }
+            treatFlavorButtons[flavor] = b
+            treatRow.addView(b)
+        }
+        btnTreatToggle = TextView(this).apply {
+            text = t("btn_feed_start")
+            gravity = Gravity.CENTER
+            textSize = 12.5f
+            typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(11), dp(9), dp(11), dp(9))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { leftMargin = dp(6) }
+            setOnClickListener {
+                if (previewTreatActive) stopPreviewTreat() else startPreviewTreat()
+            }
+        }
+        treatRow.addView(btnTreatToggle)
+        skinCard.addView(treatRow)
+
+        // Keyboard Layout & Scale Card
+        val styleCard = makeCard(root, t("card_style"))
+
+        val kbRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
             )
         }
-        btnLayout65 = makeSegButton("65% 紧凑") {
+        btnLayout65 = makeSegButton(t("kb_65")) {
             KuroPrefs.setLayout(this, "65")
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
         }
-        btnLayout108 = makeSegButton("108 全尺寸") {
+        btnLayout98 = makeSegButton(t("kb_98")) {
+            KuroPrefs.setLayout(this, "98")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        btnLayout108 = makeSegButton(t("kb_108")) {
             KuroPrefs.setLayout(this, "108")
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
         }
-        btnOrientCat = makeSegButton("面向猫咪") {
+        btnLayoutMac = makeSegButton(t("kb_mac")) {
+            KuroPrefs.setLayout(this, "macbook")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        kbRow.addView(btnLayout65)
+        kbRow.addView(btnLayout98)
+        kbRow.addView(btnLayout108)
+        kbRow.addView(btnLayoutMac)
+        styleCard.addView(kbRow)
+
+        val orientRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        btnOrientCat = makeSegButton(t("orient_cat")) {
             KuroPrefs.setOrientation(this, "cat")
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
         }
-        btnOrientViewer = makeSegButton("面向观众") {
+        btnOrientViewer = makeSegButton(t("orient_viewer")) {
             KuroPrefs.setOrientation(this, "viewer")
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
         }
-        segRow.addView(btnLayout65)
-        segRow.addView(btnLayout108)
-        segRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(dp(8), 1) })
-        segRow.addView(btnOrientCat)
-        segRow.addView(btnOrientViewer)
-        styleCard.addView(segRow)
+        orientRow.addView(btnOrientCat)
+        orientRow.addView(btnOrientViewer)
+        styleCard.addView(orientRow)
 
-        val tailLabel = TextView(this).apply {
-            text = "尾巴拍键模式"
-            setTextColor(0xFFE6ECF7.toInt())
-            textSize = 13.5f
-            layoutParams = LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(14)
-            }
-        }
-        styleCard.addView(tailLabel)
-
+        addSubLabel(styleCard, t("label_tail"))
         val tailSegRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(8)
-            }
+            ).apply { topMargin = dp(8) }
         }
-        btnTailSmart = makeSegButton("智能") {
+        btnTailSmart = makeSegButton(t("tail_smart")) {
             KuroPrefs.setTailKeyMode(this, "smart")
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
         }
-        btnTailEdge = makeSegButton("边缘") {
+        btnTailEdge = makeSegButton(t("tail_edge")) {
             KuroPrefs.setTailKeyMode(this, "edge")
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
         }
-        btnTailOff = makeSegButton("关闭") {
+        btnTailOff = makeSegButton(t("tail_off")) {
             KuroPrefs.setTailKeyMode(this, "off")
             KuroEventBus.postSettingsChanged()
             refreshAllUi()
@@ -495,12 +775,10 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(16)
-            }
+            ).apply { topMargin = dp(16) }
         }
         scaleHeader.addView(TextView(this).apply {
-            text = "悬浮桌宠缩放大小（点数值重置）"
+            text = t("label_scale")
             setTextColor(0xFFE6ECF7.toInt())
             textSize = 14f
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -516,21 +794,19 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                 KuroPrefs.setScale(this@MainActivity, 0.78f)
                 KuroEventBus.postSettingsChanged()
                 refreshAllUi()
-                Toast.makeText(this@MainActivity, "已恢复默认缩放 78%", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, t("toast_scale_reset"), Toast.LENGTH_SHORT).show()
             }
         }
         scaleHeader.addView(scaleValueText)
         styleCard.addView(scaleHeader)
 
         scaleSeekBar = SeekBar(this).apply {
-            max = 105 // 35..140 -> progress + 35
+            max = 105
             progress = (KuroPrefs.getScale(this@MainActivity) * 100).roundToInt() - 35
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(6)
-            }
+            ).apply { topMargin = dp(6) }
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     val pct = (progress + 35).coerceIn(35, 140)
@@ -552,12 +828,10 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(12)
-            }
+            ).apply { topMargin = dp(12) }
         }
         opacityHeader.addView(TextView(this).apply {
-            text = "悬浮桌宠不透明度（点数值重置）"
+            text = t("label_opacity")
             setTextColor(0xFFE6ECF7.toInt())
             textSize = 14f
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
@@ -573,21 +847,19 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                 KuroPrefs.setOpacity(this@MainActivity, 1.0f)
                 KuroEventBus.postSettingsChanged()
                 refreshAllUi()
-                Toast.makeText(this@MainActivity, "已恢复默认不透明度 100%", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, t("toast_opacity_reset"), Toast.LENGTH_SHORT).show()
             }
         }
         opacityHeader.addView(opacityValueText)
         styleCard.addView(opacityHeader)
 
         opacitySeekBar = SeekBar(this).apply {
-            max = 80 // 20..100 -> progress + 20
+            max = 80
             progress = (KuroPrefs.getOpacity(this@MainActivity) * 100).roundToInt() - 20
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(6)
-            }
+            ).apply { topMargin = dp(6) }
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     val pct = (progress + 20).coerceIn(20, 100)
@@ -609,12 +881,10 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(12)
-            }
+            ).apply { topMargin = dp(12) }
         }
         resetPosRow.addView(TextView(this).apply {
-            text = "拖动跑偏时可一键回到默认角落"
+            text = t("label_reset_pos")
             setTextColor(0xFF8C9AB3.toInt())
             textSize = 12f
             layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
@@ -622,7 +892,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             }
         })
         resetPosRow.addView(TextView(this).apply {
-            text = "重置悬浮位置"
+            text = t("btn_reset_pos")
             setTextColor(0xFFDCE4F2.toInt())
             textSize = 12.5f
             typeface = Typeface.DEFAULT_BOLD
@@ -632,24 +902,33 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                 KuroPrefs.clearOverlayPos(this@MainActivity)
                 if (KuroEventBus.overlayRunning.get()) {
                     val intent = Intent(this@MainActivity, KuroOverlayService::class.java)
-                        .setAction("com.kurocat.pet.ACTION_RESET_POS")
+                        .setAction(KuroOverlayService.ACTION_RESET_POS)
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         startForegroundService(intent)
                     } else {
                         startService(intent)
                     }
                 }
-                Toast.makeText(this@MainActivity, "已重置悬浮位置", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@MainActivity, t("toast_pos_reset"), Toast.LENGTH_SHORT).show()
             }
         })
         styleCard.addView(resetPosRow)
 
-        // Switches Card
-        val switchCard = makeCard(root, "互动与隐私开关")
+        // Switches & Peripherals Card
+        val switchCard = makeCard(root, t("card_switches"))
+        swHandover = addSwitchRow(
+            switchCard,
+            t("sw_handover_title"),
+            t("sw_handover_desc")
+        ) { checked ->
+            KuroPrefs.setLaoWuHandoverEnabled(this, checked)
+            KuroEventBus.postSettingsChanged()
+        }
+        addDivider(switchCard)
         swTouchThrough = addSwitchRow(
             switchCard,
-            "🔒 锁定触摸穿透（不挡打字与点击）",
-            "开启后手指可穿透小猫操作下方 App；下拉通知栏点「解锁穿透」即可随时拖动"
+            t("sw_lock_title"),
+            t("sw_lock_desc")
         ) { checked ->
             KuroPrefs.setTouchThroughLocked(this, checked)
             KuroEventBus.postSettingsChanged()
@@ -657,8 +936,8 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         addDivider(switchCard)
         swPrivacy = addSwitchRow(
             switchCard,
-            "🙈 输密码自动闭眼 / 捂眼防偷窥",
-            "切入密码输入框时猫咪自动闭眼、大肥鱼双手捂眼并隐藏按键气泡"
+            t("sw_privacy_title"),
+            t("sw_privacy_desc")
         ) { checked ->
             KuroPrefs.setPrivacyGuardEnabled(this, checked)
             KuroEventBus.postSettingsChanged()
@@ -666,17 +945,26 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         addDivider(switchCard)
         swBubbles = addSwitchRow(
             switchCard,
-            "💬 显示悬浮 3D 按键气泡",
-            "敲击键盘时在头顶弹出可爱键帽气泡"
+            t("sw_bubbles_title"),
+            t("sw_bubbles_desc")
         ) { checked ->
             KuroPrefs.setShowKeyBubbles(this, checked)
             KuroEventBus.postSettingsChanged()
         }
         addDivider(switchCard)
+        swShowMouse = addSwitchRow(
+            switchCard,
+            t("sw_mouse_title"),
+            t("sw_mouse_desc")
+        ) { checked ->
+            KuroPrefs.setShowMouse(this, checked)
+            KuroEventBus.postSettingsChanged()
+        }
+        addDivider(switchCard)
         swSound = addSwitchRow(
             switchCard,
-            "🔊 摸头呼噜声",
-            "单击悬浮小猫或预览画布摸头时播放真猫温柔呼噜声"
+            t("sw_sound_title"),
+            t("sw_sound_desc")
         ) { checked ->
             KuroPrefs.setSoundEnabled(this, checked)
             KuroEventBus.postSettingsChanged()
@@ -684,8 +972,8 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         addDivider(switchCard)
         swTypingSound = addSwitchRow(
             switchCard,
-            "⌨️ 打字键鼠音效",
-            "敲击键盘时同步播放柔和机械按键音效（默认关闭）"
+            t("sw_typing_title"),
+            t("sw_typing_desc")
         ) { checked ->
             KuroPrefs.setTypingSoundEnabled(this, checked)
             KuroEventBus.postSettingsChanged()
@@ -693,26 +981,98 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         addDivider(switchCard)
         swHeadphones = addSwitchRow(
             switchCard,
-            "🎧 电竞耳机",
-            "为猫咪戴上发光电竞耳机（支持 6 款猫咪皮肤）"
+            t("sw_headphones_title"),
+            t("sw_headphones_desc")
         ) { checked ->
             KuroPrefs.setHeadphonesEnabled(this, checked)
             KuroEventBus.postSettingsChanged()
         }
         addDivider(switchCard)
+        addSubLabel(switchCard, t("label_gamepad"), topMarginDp = 2)
+        val gpRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+        }
+        btnGpAuto = makeSegButton(t("gp_auto")) {
+            KuroPrefs.setGamepadMode(this, "auto")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        btnGpOn = makeSegButton(t("gp_on")) {
+            KuroPrefs.setGamepadMode(this, "on")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        btnGpOff = makeSegButton(t("gp_off")) {
+            KuroPrefs.setGamepadMode(this, "off")
+            KuroEventBus.postSettingsChanged()
+            refreshAllUi()
+        }
+        gpRow.addView(btnGpAuto)
+        gpRow.addView(btnGpOn)
+        gpRow.addView(btnGpOff)
+        switchCard.addView(gpRow)
+        addDivider(switchCard)
+        swTablet = addSwitchRow(
+            switchCard,
+            t("sw_tablet_title"),
+            t("sw_tablet_desc")
+        ) { checked ->
+            KuroPrefs.setTabletEnabled(this, checked)
+            KuroEventBus.postSettingsChanged()
+        }
+        addDivider(switchCard)
         swFpsEco = addSwitchRow(
             switchCard,
-            "🔋 30 FPS 省电模式",
-            "降低后台悬浮帧率，长时间挂机更省电"
+            t("sw_fps_title"),
+            t("sw_fps_desc")
         ) { checked ->
             KuroPrefs.setFpsCap(this, if (checked) 30 else 0)
             KuroEventBus.postSettingsChanged()
         }
 
-        // Built-in Live Test Card (works immediately even before enabling Accessibility!)
-        val testCard = makeCard(root, "现场测试打字 & 密码捂眼")
+        // 9-Language Selector Card
+        val langCard = makeCard(root, t("card_lang"))
+        val langScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+        }
+        val langRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        KuroI18n.LANG_OPTIONS.forEachIndexed { idx, opt ->
+            val btn = TextView(this).apply {
+                text = opt.label
+                textSize = 12.5f
+                typeface = Typeface.DEFAULT_BOLD
+                setPadding(dp(12), dp(8), dp(12), dp(8))
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    if (idx > 0) leftMargin = dp(6)
+                }
+                setOnClickListener {
+                    if (KuroPrefs.getLanguage(this@MainActivity) != opt.code) {
+                        KuroPrefs.setLanguage(this@MainActivity, opt.code)
+                        KuroEventBus.postSettingsChanged()
+                        recreate()
+                    }
+                }
+            }
+            langButtons[opt.code] = btn
+            langRow.addView(btn)
+        }
+        langScroll.addView(langRow)
+        langCard.addView(langScroll)
+
+        // Built-in Live Test Card
+        val testCard = makeCard(root, t("card_test"))
         val normalInput = EditText(this).apply {
-            hint = "在这里随便打几个字，看看上方小猫/鲸鱼娘同步敲键盘…"
+            hint = t("hint_normal")
             setHintTextColor(0xFF6B7791.toInt())
             setTextColor(0xFFF4F6FA.toInt())
             textSize = 13.5f
@@ -741,7 +1101,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         testCard.addView(normalInput)
 
         val pwdInput = EditText(this).apply {
-            hint = "点这里测试输入密码：猫咪自动闭眼 / 大肥鱼捂眼…"
+            hint = t("hint_pwd")
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             setHintTextColor(0xFF6B7791.toInt())
             setTextColor(0xFFF4F6FA.toInt())
@@ -751,9 +1111,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(10)
-            }
+            ).apply { topMargin = dp(10) }
             setOnFocusChangeListener { _, hasFocus ->
                 inAppPrivacyActive = hasFocus
                 KuroEventBus.postPrivacyChanged(hasFocus && KuroPrefs.isPrivacyGuardEnabled(this@MainActivity))
@@ -774,7 +1132,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
 
         // Footer Tip
         root.addView(TextView(this).apply {
-            text = "悬浮手势：按住拖动移位 · 单击猫头摸头呼噜 · 双击打开设置\n免费开源 · 官网：kurocat.org"
+            text = t("footer")
             gravity = Gravity.CENTER
             setTextColor(0xFF6F7B94.toInt())
             textSize = 11.5f
@@ -785,6 +1143,18 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         return scroll
     }
 
+    private fun addSubLabel(parent: LinearLayout, label: String, topMarginDp: Int = 14) {
+        parent.addView(TextView(this).apply {
+            text = label
+            setTextColor(0xFFE6ECF7.toInt())
+            textSize = 13.5f
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(topMarginDp) }
+        })
+    }
+
     private fun makeCard(parent: LinearLayout, title: String): LinearLayout {
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -793,9 +1163,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                topMargin = dp(14)
-            }
+            ).apply { topMargin = dp(14) }
         }
         card.addView(TextView(this).apply {
             text = title
@@ -846,16 +1214,14 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
             typeface = Typeface.DEFAULT_BOLD
         })
         val badge = TextView(this).apply {
-            text = "未开启"
+            text = t("badge_disabled")
             textSize = 11f
             typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(7), dp(2), dp(7), dp(2))
             layoutParams = LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.WRAP_CONTENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply {
-                leftMargin = dp(8)
-            }
+            ).apply { leftMargin = dp(8) }
         }
         titleRow.addView(badge)
         col.addView(titleRow)
@@ -936,14 +1302,13 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
     private fun onClickMainToggle() {
         val running = KuroEventBus.overlayRunning.get()
         val canDraw = Settings.canDrawOverlays(this)
-        android.util.Log.i("KuroCat", "onClickMainToggle running=$running canDraw=$canDraw")
         if (running) {
             KuroOverlayService.stop(this)
             refreshAllUi()
             return
         }
         if (!canDraw) {
-            Toast.makeText(this, "请先授予「悬浮窗权限」后再开启悬浮桌宠", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, t("toast_need_overlay"), Toast.LENGTH_SHORT).show()
             startActivity(
                 Intent(
                     Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
@@ -960,108 +1325,149 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         updatingUi = true
         try {
             val hasOverlay = Settings.canDrawOverlays(this)
-        val hasA11y = isAccessibilityEnabled()
-        val running = KuroEventBus.overlayRunning.get()
+            val hasA11y = isAccessibilityEnabled()
+            val running = KuroEventBus.overlayRunning.get()
 
-        if (hasOverlay) {
-            overlayStatusBadge.text = "✓ 已开启"
-            overlayStatusBadge.setTextColor(0xFF0B0E15.toInt())
-            overlayStatusBadge.background = roundedBg(0xFFC8F538.toInt(), 99)
-            overlayPermBtn.text = "已就绪"
-            overlayPermBtn.setTextColor(0xFF9AA8C0.toInt())
-            overlayPermBtn.background = roundedBg(0x18FFFFFF, 10)
-        } else {
-            overlayStatusBadge.text = "必选"
-            overlayStatusBadge.setTextColor(0xFFFFD859.toInt())
-            overlayStatusBadge.background = roundedBg(0x26FFD859, 99)
-            overlayPermBtn.text = "去开启"
-            overlayPermBtn.setTextColor(0xFF0B0E15.toInt())
-            overlayPermBtn.background = roundedBg(0xFFC8F538.toInt(), 10)
-        }
-
-        if (hasA11y) {
-            a11yStatusBadge.text = "✓ 已开启"
-            a11yStatusBadge.setTextColor(0xFF0B0E15.toInt())
-            a11yStatusBadge.background = roundedBg(0xFF5CC8FF.toInt(), 99)
-            a11yPermBtn.text = "已就绪"
-            a11yPermBtn.setTextColor(0xFF9AA8C0.toInt())
-            a11yPermBtn.background = roundedBg(0x18FFFFFF, 10)
-        } else {
-            a11yStatusBadge.text = "未开启"
-            a11yStatusBadge.setTextColor(0xFF9AA8C0.toInt())
-            a11yStatusBadge.background = roundedBg(0x1AFFFFFF, 99)
-            a11yPermBtn.text = "去开启"
-            a11yPermBtn.setTextColor(0xFF0B0E15.toInt())
-            a11yPermBtn.background = roundedBg(0xFF5CC8FF.toInt(), 10)
-        }
-
-        if (running) {
-            mainToggleBtn.text = "⏹ 关闭桌面悬浮桌宠"
-            mainToggleBtn.setTextColor(0xFFFF9696.toInt())
-            mainToggleBtn.background = roundedBg(0x2BFF5C5C, 16, 0x66FF5C5C, 1)
-        } else {
-            mainToggleBtn.text = "🚀 开启桌面悬浮桌宠"
-            mainToggleBtn.setTextColor(0xFF0B0E15.toInt())
-            mainToggleBtn.background = roundedBg(0xFFC8F538.toInt(), 16)
-        }
-
-        val curBreed = KuroPrefs.getBreed(this)
-        KuroPrefs.SKINS.forEach { skin ->
-            val tv = skinButtons[skin.id] ?: return@forEach
-            if (skin.id == curBreed) {
-                tv.setTextColor(0xFF0B0E15.toInt())
-                tv.background = roundedBg(skin.accentHex, 12)
+            if (hasOverlay) {
+                overlayStatusBadge.text = t("badge_enabled")
+                overlayStatusBadge.setTextColor(0xFF0B0E15.toInt())
+                overlayStatusBadge.background = roundedBg(0xFFC8F538.toInt(), 99)
+                overlayPermBtn.text = t("btn_ready")
+                overlayPermBtn.setTextColor(0xFF9AA8C0.toInt())
+                overlayPermBtn.background = roundedBg(0x18FFFFFF, 10)
             } else {
-                tv.setTextColor(0xFFDCE4F2.toInt())
-                tv.background = roundedBg(0x14FFFFFF, 12, 0x22FFFFFF, 1)
+                overlayStatusBadge.text = t("badge_required")
+                overlayStatusBadge.setTextColor(0xFFFFD859.toInt())
+                overlayStatusBadge.background = roundedBg(0x26FFD859, 99)
+                overlayPermBtn.text = t("btn_enable")
+                overlayPermBtn.setTextColor(0xFF0B0E15.toInt())
+                overlayPermBtn.background = roundedBg(0xFFC8F538.toInt(), 10)
             }
-        }
 
-        val is108 = KuroPrefs.getLayout(this) == "108"
-        styleSeg(btnLayout65, !is108)
-        styleSeg(btnLayout108, is108)
-        val isViewer = KuroPrefs.getOrientation(this) == "viewer"
-        styleSeg(btnOrientCat, !isViewer)
-        styleSeg(btnOrientViewer, isViewer)
-        val tailMode = KuroPrefs.getTailKeyMode(this)
-        styleSeg(btnTailSmart, tailMode == "smart")
-        styleSeg(btnTailEdge, tailMode == "edge")
-        styleSeg(btnTailOff, tailMode == "off")
+            if (hasA11y) {
+                a11yStatusBadge.text = t("badge_enabled")
+                a11yStatusBadge.setTextColor(0xFF0B0E15.toInt())
+                a11yStatusBadge.background = roundedBg(0xFF5CC8FF.toInt(), 99)
+                a11yPermBtn.text = t("btn_ready")
+                a11yPermBtn.setTextColor(0xFF9AA8C0.toInt())
+                a11yPermBtn.background = roundedBg(0x18FFFFFF, 10)
+            } else {
+                a11yStatusBadge.text = t("badge_disabled")
+                a11yStatusBadge.setTextColor(0xFF9AA8C0.toInt())
+                a11yStatusBadge.background = roundedBg(0x1AFFFFFF, 99)
+                a11yPermBtn.text = t("btn_enable")
+                a11yPermBtn.setTextColor(0xFF0B0E15.toInt())
+                a11yPermBtn.background = roundedBg(0xFF5CC8FF.toInt(), 10)
+            }
 
-        val pct = (KuroPrefs.getScale(this) * 100).roundToInt()
-        scaleValueText.text = "$pct%"
-        if (scaleSeekBar.progress != pct - 35) {
-            scaleSeekBar.progress = (pct - 35).coerceIn(0, 105)
-        }
+            if (running) {
+                mainToggleBtn.text = t("btn_stop")
+                mainToggleBtn.setTextColor(0xFFFF9696.toInt())
+                mainToggleBtn.background = roundedBg(0x2BFF5C5C, 16, 0x66FF5C5C, 1)
+            } else {
+                mainToggleBtn.text = t("btn_start")
+                mainToggleBtn.setTextColor(0xFF0B0E15.toInt())
+                mainToggleBtn.background = roundedBg(0xFFC8F538.toInt(), 16)
+            }
 
-        val opacityPct = (KuroPrefs.getOpacity(this) * 100).roundToInt().coerceIn(20, 100)
-        opacityValueText.text = "$opacityPct%"
-        if (opacitySeekBar.progress != opacityPct - 20) {
-            opacitySeekBar.progress = (opacityPct - 20).coerceIn(0, 80)
-        }
+            val curBreed = KuroPrefs.getBreed(this)
+            KuroPrefs.SKINS.forEach { skin ->
+                val tv = skinButtons[skin.id] ?: return@forEach
+                if (skin.id == curBreed) {
+                    tv.setTextColor(0xFF0B0E15.toInt())
+                    tv.background = roundedBg(skin.accentHex, 12)
+                } else {
+                    tv.setTextColor(0xFFDCE4F2.toInt())
+                    tv.background = roundedBg(0x14FFFFFF, 12, 0x22FFFFFF, 1)
+                }
+            }
 
-        if (swTouchThrough.isChecked != KuroPrefs.isTouchThroughLocked(this)) {
-            swTouchThrough.isChecked = KuroPrefs.isTouchThroughLocked(this)
-        }
-        if (swPrivacy.isChecked != KuroPrefs.isPrivacyGuardEnabled(this)) {
-            swPrivacy.isChecked = KuroPrefs.isPrivacyGuardEnabled(this)
-        }
-        if (swBubbles.isChecked != KuroPrefs.isShowKeyBubbles(this)) {
-            swBubbles.isChecked = KuroPrefs.isShowKeyBubbles(this)
-        }
-        if (swSound.isChecked != KuroPrefs.isSoundEnabled(this)) {
-            swSound.isChecked = KuroPrefs.isSoundEnabled(this)
-        }
-        if (swTypingSound.isChecked != KuroPrefs.isTypingSoundEnabled(this)) {
-            swTypingSound.isChecked = KuroPrefs.isTypingSoundEnabled(this)
-        }
-        if (swHeadphones.isChecked != KuroPrefs.isHeadphonesEnabled(this)) {
-            swHeadphones.isChecked = KuroPrefs.isHeadphonesEnabled(this)
-        }
-        val fpsEco = KuroPrefs.getFpsCap(this) == 30
-        if (swFpsEco.isChecked != fpsEco) {
-            swFpsEco.isChecked = fpsEco
-        }
+            val curRender = KuroPrefs.getRenderMode(this)
+            styleSeg(btnRender3d, curRender == "3d")
+            styleSeg(btnRender3dFlat, curRender == "3d-flat")
+            styleSeg(btnRender2d, curRender == "2d")
+
+            val curCollar = KuroPrefs.getCollarColor(this)
+            collarButtons.forEach { (id, tv) -> styleSeg(tv, id == curCollar) }
+
+            val curTreat = KuroPrefs.getTreatFlavor(this)
+            treatFlavorButtons.forEach { (flavor, tv) -> styleSeg(tv, flavor == curTreat) }
+            refreshTreatUi()
+
+            val curLayout = KuroPrefs.getLayout(this)
+            styleSeg(btnLayout65, curLayout == "65")
+            styleSeg(btnLayout98, curLayout == "98")
+            styleSeg(btnLayout108, curLayout == "108")
+            styleSeg(btnLayoutMac, curLayout == "macbook")
+
+            val isViewer = KuroPrefs.getOrientation(this) == "viewer"
+            styleSeg(btnOrientCat, !isViewer)
+            styleSeg(btnOrientViewer, isViewer)
+
+            val tailMode = KuroPrefs.getTailKeyMode(this)
+            styleSeg(btnTailSmart, tailMode == "smart")
+            styleSeg(btnTailEdge, tailMode == "edge")
+            styleSeg(btnTailOff, tailMode == "off")
+
+            val gpMode = KuroPrefs.getGamepadMode(this)
+            styleSeg(btnGpAuto, gpMode == "auto")
+            styleSeg(btnGpOn, gpMode == "on")
+            styleSeg(btnGpOff, gpMode == "off")
+
+            val curLang = KuroPrefs.getLanguage(this)
+            langButtons.forEach { (code, tv) ->
+                if (code == curLang) {
+                    tv.setTextColor(0xFF0B0E15.toInt())
+                    tv.background = roundedBg(0xFFC8F538.toInt(), 10)
+                } else {
+                    tv.setTextColor(0xFFD1DAEB.toInt())
+                    tv.background = roundedBg(0x14FFFFFF, 10)
+                }
+            }
+
+            val pct = (KuroPrefs.getScale(this) * 100).roundToInt()
+            scaleValueText.text = "$pct%"
+            if (scaleSeekBar.progress != pct - 35) {
+                scaleSeekBar.progress = (pct - 35).coerceIn(0, 105)
+            }
+
+            val opacityPct = (KuroPrefs.getOpacity(this) * 100).roundToInt().coerceIn(20, 100)
+            opacityValueText.text = "$opacityPct%"
+            if (opacitySeekBar.progress != opacityPct - 20) {
+                opacitySeekBar.progress = (opacityPct - 20).coerceIn(0, 80)
+            }
+
+            if (swHandover.isChecked != KuroPrefs.isLaoWuHandoverEnabled(this)) {
+                swHandover.isChecked = KuroPrefs.isLaoWuHandoverEnabled(this)
+            }
+            if (swTouchThrough.isChecked != KuroPrefs.isTouchThroughLocked(this)) {
+                swTouchThrough.isChecked = KuroPrefs.isTouchThroughLocked(this)
+            }
+            if (swPrivacy.isChecked != KuroPrefs.isPrivacyGuardEnabled(this)) {
+                swPrivacy.isChecked = KuroPrefs.isPrivacyGuardEnabled(this)
+            }
+            if (swBubbles.isChecked != KuroPrefs.isShowKeyBubbles(this)) {
+                swBubbles.isChecked = KuroPrefs.isShowKeyBubbles(this)
+            }
+            if (swShowMouse.isChecked != KuroPrefs.isShowMouse(this)) {
+                swShowMouse.isChecked = KuroPrefs.isShowMouse(this)
+            }
+            if (swSound.isChecked != KuroPrefs.isSoundEnabled(this)) {
+                swSound.isChecked = KuroPrefs.isSoundEnabled(this)
+            }
+            if (swTypingSound.isChecked != KuroPrefs.isTypingSoundEnabled(this)) {
+                swTypingSound.isChecked = KuroPrefs.isTypingSoundEnabled(this)
+            }
+            if (swHeadphones.isChecked != KuroPrefs.isHeadphonesEnabled(this)) {
+                swHeadphones.isChecked = KuroPrefs.isHeadphonesEnabled(this)
+            }
+            if (swTablet.isChecked != KuroPrefs.isTabletEnabled(this)) {
+                swTablet.isChecked = KuroPrefs.isTabletEnabled(this)
+            }
+            val fpsEco = KuroPrefs.getFpsCap(this) == 30
+            if (swFpsEco.isChecked != fpsEco) {
+                swFpsEco.isChecked = fpsEco
+            }
         } finally {
             updatingUi = false
         }
@@ -1105,6 +1511,11 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         } else {
             evalPreviewJs("window.KuroAndroid && window.KuroAndroid.onKeyUp($vk);")
         }
+    }
+
+    override fun onGamepadState(json: String) {
+        val escaped = JSONObject.quote(json)
+        evalPreviewJs("window.KuroAndroid && window.KuroAndroid.onGamepadState($escaped);")
     }
 
     override fun onPrivacyChanged(active: Boolean) {

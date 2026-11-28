@@ -207,12 +207,12 @@ brew install --cask qianyiai/tap/kurocat
 | 도구 | 설명 |
 | --- | --- |
 | `list_cats` | 모든 기본·커스텀 스킨 및 현재 활성 캐릭터 조회 |
-| `get_cat_schema` | 전체 털 무늬, 16개 반점 좌표 및 7가지 2D/3D 윤곽 스키마 조회 |
-| `upsert_cat` | 커스텀 고양이 생성·수정 및 0.4초 실시간 반영 |
+| `get_cat_schema` | 전체 털 무늬, 16개 반점 좌표 및 2D/3D 윤곽 스키마 조회 |
+| `upsert_cat` | 커스텀 고양이 생성·수정 및 2D/3D 실시간 반영 |
 | `patch_cat` | 기존 또는 기본 스킨 부분 미세 조정 |
 | `switch_cat` | ID로 데스크톱 캐릭터 즉시 전환 |
 | `delete_cat` | 커스텀 고양이 삭제 (또는 기본 스킨 초기화) |
-| `get_settings` / `update_settings` | 크기, 키보드 배열, 버블, 골골송, 클릭 투과, 자동 실행 설정 변경 |
+| `get_settings` / `update_settings` | 크기, 투명도, 키보드 배열, 버블, 골골송, 클릭 투과, 자동 실행 설정 변경 |
 | `set_agent_status` | AI 코딩 에이전트 상태 (생각/코딩/명령 실행/대기/오류/완료) 동기화 |
 | `trigger_action` | 쓰다듬기·기쁨·화남·낮잠 등 인터랙션 애니메이션 실행 |
 
@@ -256,7 +256,7 @@ npm run tauri:build
 [MIT License](LICENSE)로 완전 무료·오픈소스 배포됩니다. 작업이나 방송에 즐거움을 더했다면 ⭐ Star로 응원해 주세요!
 
 - **🐳 고래소녀 (BigFish)** 리소스는 MIT 라이선스 프로젝트 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet) ([QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu) 파생)을 기반으로 제작되었습니다 (`src/assets/dafeiyu/LICENSE-MIT.txt`).
-- **기여자**: [@XYZliang](https://github.com/XYZliang), [@CandySunPlus](https://github.com/CandySunPlus) (#51), [@Jack-GPT](https://github.com/Jack-GPT) (#47, #64), [@Mangome](https://github.com/Mangome) (#67, #68), [@Zyred9](https://github.com/Zyred9) (#42, #48), [@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao) (#65), [@hacksmo](https://github.com/hacksmo) (#45), [@LiMuhua](https://github.com/LiMuhua) (#75) 님께 감사드립니다.
+- **기여자**: [@XYZliang](https://github.com/XYZliang), [@CandySunPlus](https://github.com/CandySunPlus) (#51), [@Jack-GPT](https://github.com/Jack-GPT) (#47, #64), [@Mangome](https://github.com/Mangome) (#67, #68), [@Zyred9](https://github.com/Zyred9) (#42, #48), [@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao) (#65, #93), [@hacksmo](https://github.com/hacksmo) (#45), [@LiMuhua](https://github.com/LiMuhua) (#75), [@wte-81](https://github.com/wte-81) (#56, #83, #111), [@Perfect9s](https://github.com/Perfect9s) (#86), [@hsm-lv](https://github.com/hsm-lv) (#141) 님께 감사드립니다.
 
 ---
 

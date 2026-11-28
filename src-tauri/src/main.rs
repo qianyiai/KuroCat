@@ -10,5 +10,9 @@ fn main() {
         kuro_cat_pet_lib::run_hook_cli(&args);
         return;
     }
+    if let Some(action) = kuro_cat_pet_lib::parse_admin_autostart_cli_action(&args) {
+        let code = kuro_cat_pet_lib::run_admin_autostart_cli(action);
+        std::process::exit(code);
+    }
     kuro_cat_pet_lib::run();
 }

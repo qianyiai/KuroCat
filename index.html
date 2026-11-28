@@ -8,7 +8,7 @@
   <body>
     <canvas id="pet-canvas"></canvas>
     <canvas id="pet-canvas-3d" class="hidden"></canvas>
-    <div id="agent-bubble" class="agent-bubble hidden" role="status" aria-live="polite"></div>
+    <div id="agent-bubble" class="agent-bubble-stack hidden" role="status" aria-live="polite"></div>
 
     <div id="update-toast" class="update-toast hidden" role="status" aria-live="polite">
       <span class="update-toast-text" id="update-toast-text">✨ 新版本</span>
@@ -17,6 +17,14 @@
       <button class="update-toast-btn hidden" id="btn-toast-admin" data-i18n="toast.btn_admin" type="button">管理员重启</button>
       <button class="update-toast-btn secondary hidden" id="btn-toast-open" data-i18n="toast.btn_open" type="button">打开发布页</button>
       <button class="update-toast-close" id="btn-toast-close" type="button" data-i18n-title="menu.close_title" title="关闭">×</button>
+    </div>
+
+    <div id="treat-hud-pill" class="treat-hud-pill hidden" role="status" aria-live="polite">
+      <span class="treat-hud-dot" id="treat-hud-dot" aria-hidden="true"></span>
+      <span class="treat-hud-text" id="treat-hud-text"></span>
+      <span class="treat-hud-bar" aria-hidden="true">
+        <span class="treat-hud-bar-fill" id="treat-hud-bar-fill"></span>
+      </span>
     </div>
 
     <div id="tail-picker-bar" class="tail-picker-bar hidden" role="dialog" aria-label="Custom Tail Keys">
@@ -45,7 +53,13 @@
     <div id="context-menu" class="context-menu hidden">
       <div class="menu-header" id="menu-header">🐈‍⬛ KuroCat 小黑猫</div>
       <div class="menu-scale-row">
-        <span class="menu-scale-label" data-i18n="menu.breed_label">角色外观（支持 MCP 定制）</span>
+        <div class="card-head">
+          <span class="menu-scale-label" data-i18n="menu.section_breed">角色外观</span>
+          <button class="handover-switch" data-action="toggle-switch-animation" type="button" role="switch" aria-checked="true" id="chk-switch-animation">
+            <span data-i18n="menu.toggle_switch_animation">老吴换班</span>
+            <span class="toggle-track" aria-hidden="true"><span class="toggle-thumb"></span></span>
+          </button>
+        </div>
         <div class="breed-pills" id="breed-pills">
           <button class="breed-pill active" data-breed="black">🐈‍⬛ 小黑猫</button>
           <button class="breed-pill" data-breed="ragdoll">🐱 布偶猫</button>
@@ -77,7 +91,33 @@
           <button class="kb-pill" data-headphonemode="on" data-i18n="menu.headphone_on" type="button">🎧 常戴</button>
         </div>
       </div>
+      <div class="menu-scale-row" id="tablet-row">
+        <span class="menu-scale-label" data-i18n="menu.tablet_short">数位板</span>
+        <div class="render-mode-pills">
+          <button class="kb-pill active" data-tabletmode="auto" data-i18n="menu.tablet_auto_short" type="button">自动</button>
+          <button class="kb-pill" data-tabletmode="mouse" data-i18n="menu.tablet_mouse_short" type="button">鼠标</button>
+          <button class="kb-pill" data-tabletmode="tablet" data-i18n="menu.tablet_on_short" type="button">常开</button>
+        </div>
+      </div>
+      <div class="menu-scale-row" id="gamepad-row">
+        <span class="menu-scale-label" data-i18n="menu.gamepad_short">游戏手柄</span>
+        <div class="render-mode-pills">
+          <button class="kb-pill active" data-gamepadmode="auto" data-i18n="menu.gamepad_auto_short" type="button">自动</button>
+          <button class="kb-pill" data-gamepadmode="off" data-i18n="menu.gamepad_off_short" type="button">关闭</button>
+          <button class="kb-pill" data-gamepadmode="on" data-i18n="menu.gamepad_on_short" type="button">常开</button>
+        </div>
+      </div>
+      <div class="menu-scale-row" id="eye-gaze-row">
+        <span class="menu-scale-label" data-i18n="menu.eye_gaze_short">眼神跟随</span>
+        <div class="kb-pills">
+          <button class="kb-pill active" data-eyegazemode="screen" data-i18n="menu.eye_gaze_screen" data-i18n-title="menu.eye_gaze_screen_title" type="button">自然居中</button>
+          <button class="kb-pill" data-eyegazemode="window" data-i18n="menu.eye_gaze_window" data-i18n-title="menu.eye_gaze_window_title" type="button">直视鼠标</button>
+        </div>
+      </div>
       <div class="menu-sep"></div>
+      <button class="menu-item" data-action="feed-treat" id="btn-legacy-feed-treat">
+        <span data-i18n="menu.treat_feed_btn">🐟 喂一根猫条</span>
+      </button>
       <button class="menu-item" data-action="toggle-privacy">
         <span data-i18n="menu.toggle_privacy">输密码自动闭眼防偷窥</span>
         <span class="menu-check" id="chk-privacy">✓</span>
@@ -94,17 +134,33 @@
         <span data-i18n="menu.toggle_sound">摸头呼噜声</span>
         <span class="menu-check" id="chk-sound">✓</span>
       </button>
+      <button class="menu-item" data-action="toggle-idle-purr">
+        <span data-i18n="menu.toggle_idle_purr">待机踩奶呼噜声</span>
+        <span class="menu-check" id="chk-idle-purr"></span>
+      </button>
       <button class="menu-item" data-action="toggle-typing-sound">
         <span data-i18n="menu.toggle_typing_sound">打字键鼠音效</span>
         <span class="menu-check" id="chk-typing-sound"></span>
+      </button>
+      <button class="menu-item" data-action="toggle-mute">
+        <span data-i18n="menu.mute_toggle">静音</span>
+        <span class="menu-check" id="chk-mute"></span>
       </button>
       <button class="menu-item" data-action="toggle-top">
         <span data-i18n="menu.toggle_top">始终置顶显示</span>
         <span class="menu-check" id="chk-top">✓</span>
       </button>
+      <button class="menu-item" data-action="toggle-yield-fullscreen">
+        <span data-i18n="menu.toggle_yield_fullscreen">全屏看视频/游戏自动退让</span>
+        <span class="menu-check" id="chk-yield-fullscreen"></span>
+      </button>
       <button class="menu-item" data-action="toggle-autostart">
         <span data-i18n="menu.toggle_autostart">开机自动启动</span>
         <span class="menu-check" id="chk-autostart"></span>
+      </button>
+      <button class="menu-item hidden" data-action="toggle-autostart-admin" id="btn-autostart-admin">
+        <span data-i18n="menu.toggle_autostart_admin">以管理员身份自启</span>
+        <span class="menu-check" id="chk-autostart-admin"></span>
       </button>
       <div class="menu-sep"></div>
       <button class="menu-item" data-action="toggle-mcp">
@@ -122,14 +178,25 @@
       <div class="menu-sep"></div>
       <div class="menu-scale-row">
         <span class="menu-scale-label" data-i18n="menu.kb_label">键盘配列与方向</span>
-        <div class="kb-pills">
-          <button class="kb-pill active" data-kblayout="65" data-i18n="menu.kb_65">65% 紧凑</button>
-          <button class="kb-pill" data-kblayout="108" data-i18n="menu.kb_108">108 全尺寸</button>
+        <div class="kb-pills kb-pills-4">
+          <button class="kb-pill active" data-kblayout="65" data-i18n="menu.kb_65_short">65%</button>
+          <button class="kb-pill" data-kblayout="98" data-i18n="menu.kb_98_short">98 键</button>
+          <button class="kb-pill" data-kblayout="108" data-i18n="menu.kb_108_short">108 键</button>
+          <button class="kb-pill" data-kblayout="macbook" data-i18n="menu.kb_macbook">MacBook</button>
+        </div>
+        <div class="kb-pills hidden" data-mac-finish>
+          <button class="kb-pill active" data-finish="black" data-i18n="menu.kb_black">黑色</button>
+          <button class="kb-pill" data-finish="white" data-i18n="menu.kb_white">白色</button>
         </div>
         <div class="kb-pills">
           <button class="kb-pill active" data-kborient="cat" data-i18n="menu.kb_cat">面向猫咪</button>
           <button class="kb-pill" data-kborient="viewer" data-i18n="menu.kb_viewer">面向观众</button>
         </div>
+        <div class="kb-pills hidden" data-pad-options>
+          <button class="kb-pill active" data-pointer="mouse" data-i18n="menu.mouse">鼠标</button>
+          <button class="kb-pill" data-pointer="trackpad" data-i18n="menu.trackpad">触控板</button>
+        </div>
+        <span class="menu-hint hidden" data-pad-error data-i18n="menu.pad_unavailable">触点暂不可用，仍可显示点击反馈。</span>
       </div>
       <div class="menu-scale-row">
         <div class="scale-header">
@@ -191,6 +258,49 @@
         </div>
       </div>
       <div class="menu-scale-row">
+        <div class="scale-header">
+          <div class="volume-head-left">
+            <button
+              class="volume-mute-btn"
+              id="btn-volume-mute"
+              data-action="toggle-mute"
+              type="button"
+              data-i18n-title="menu.mute_title"
+              title="静音 / 取消静音"
+              aria-label="Mute / Unmute"
+              aria-pressed="false"
+            >
+              <svg class="icon-vol-on" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+              </svg>
+              <svg class="icon-vol-muted" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                <line x1="22" y1="9" x2="16" y2="15"></line>
+                <line x1="16" y1="9" x2="22" y2="15"></line>
+              </svg>
+            </button>
+            <span class="menu-scale-label" data-i18n="menu.volume_label">声音音量</span>
+          </div>
+          <button class="scale-value-btn" id="volume-value" type="button" data-i18n-title="menu.volume_reset_title" title="点击复位 100%">100%</button>
+        </div>
+        <div class="scale-slider-wrap">
+          <input
+            type="range"
+            id="volume-slider"
+            class="scale-slider"
+            min="0"
+            max="100"
+            step="1"
+            value="100"
+          />
+          <div class="scale-ticks">
+            <span>0%</span>
+            <span>100%</span>
+          </div>
+        </div>
+      </div>
+      <div class="menu-scale-row">
         <span class="menu-scale-label" data-i18n="menu.perf_lang_label">帧率上限与界面语言</span>
         <div class="kb-pills">
           <button class="kb-pill active" data-fpscap="0" data-i18n="menu.fps_auto" type="button">60 流畅</button>
@@ -203,6 +313,10 @@
           <button class="kb-pill" data-lang="en-US" type="button">English</button>
           <button class="kb-pill" data-lang="ja-JP" type="button">日本語</button>
           <button class="kb-pill" data-lang="ko-KR" type="button">한국어</button>
+          <button class="kb-pill" data-lang="es-ES" type="button">Español</button>
+          <button class="kb-pill" data-lang="pt-BR" type="button">Português</button>
+          <button class="kb-pill" data-lang="ru-RU" type="button">Русский</button>
+          <button class="kb-pill" data-lang="de-DE" type="button">Deutsch</button>
         </div>
       </div>
       <div class="menu-sep"></div>

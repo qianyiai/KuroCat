@@ -64,6 +64,8 @@ class KuroOverlayService : Service(), KuroPetListener {
     private var rootView: FrameLayout? = null
     private var webView: WebView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
+    private var imeTouchSensorView: View? = null
+    private var lastImeTouchSensorMs = 0L
     private var pageReady = false
     private var petHidden = false
     private var lastNotifKey: String? = null
@@ -104,8 +106,10 @@ class KuroOverlayService : Service(), KuroPetListener {
                 rootView?.visibility = if (petHidden) View.GONE else View.VISIBLE
                 if (petHidden) {
                     webView?.onPause()
+                    detachImeTouchSensor()
                 } else {
                     webView?.onResume()
+                    syncImeTouchSensor(KuroEventBus.imeVisible.get())
                 }
                 updateNotification()
                 return START_STICKY
@@ -144,6 +148,7 @@ class KuroOverlayService : Service(), KuroPetListener {
             syncSettingsToJs()
             updateNotification()
         }
+        syncImeTouchSensor(KuroEventBus.imeVisible.get())
         KuroEventBus.postOverlayStateChanged(true)
         return START_STICKY
     }
@@ -179,10 +184,10 @@ class KuroOverlayService : Service(), KuroPetListener {
             val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             val ch = NotificationChannel(
                 CHANNEL_ID,
-                "KuroCat 悬浮桌宠常驻服务",
+                KuroI18n.t(this, "notif_ch_name"),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "保持悬浮小猫置顶显示，并在通知栏提供一键解锁穿透与切换皮肤快捷按钮"
+                description = KuroI18n.t(this@KuroOverlayService, "notif_ch_desc")
                 setShowBadge(false)
             }
             nm.createNotificationChannel(ch)
@@ -218,29 +223,31 @@ class KuroOverlayService : Service(), KuroPetListener {
         )
 
         val curSkin = KuroPrefs.SKINS.find { it.id == KuroPrefs.getBreed(this) } ?: KuroPrefs.SKINS[0]
+        val skinLabel = "${curSkin.emoji} ${KuroI18n.skinName(this, curSkin.id)}"
         val statusText = when {
-            petHidden -> "已隐藏 · 点击通知栏「显示」恢复"
-            locked -> "已锁定触摸穿透（不挡操作）· 下拉点「解锁穿透」即可拖动"
-            else -> "当前外观：${curSkin.emoji} ${curSkin.name} · 单击摸头 · 拖动移位 · 双击设置"
+            petHidden -> KuroI18n.t(this, "notif_hidden")
+            locked -> KuroI18n.t(this, "notif_locked")
+            else -> String.format(KuroI18n.t(this, "notif_active_fmt"), skinLabel)
         }
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_kurocat)
-            .setContentTitle("KuroCat 桌宠运行中")
+            .setContentTitle(KuroI18n.t(this, "notif_title"))
             .setContentText(statusText)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openAppIntent)
-            .addAction(0, if (locked) "解锁穿透" else "锁定穿透", lockPi)
-            .addAction(0, "换皮肤", skinPi)
-            .addAction(0, if (petHidden) "显示" else "隐藏", visPi)
+            .addAction(0, KuroI18n.t(this, if (locked) "notif_unlock" else "notif_lock"), lockPi)
+            .addAction(0, KuroI18n.t(this, "notif_skin"), skinPi)
+            .addAction(0, KuroI18n.t(this, if (petHidden) "notif_show" else "notif_hide"), visPi)
             .build()
     }
 
     private fun currentNotifKey(): String {
         val locked = KuroPrefs.isTouchThroughLocked(this)
         val breed = KuroPrefs.getBreed(this)
-        return "$petHidden|$locked|$breed"
+        val lang = KuroI18n.resolveLocale(this)
+        return "$petHidden|$locked|$breed|$lang"
     }
 
     private fun startForegroundWithNotification() {
@@ -265,9 +272,17 @@ class KuroOverlayService : Service(), KuroPetListener {
     private fun computeOverlaySizePx(): Pair<Int, Int> {
         val density = resources.displayMetrics.density
         val scale = KuroPrefs.getScale(this)
-        val is108 = KuroPrefs.getLayout(this) == "108"
-        val baseWdp = if (is108) 270f else 210f
-        val baseHdp = if (is108) 228f else 220f
+        val layout = KuroPrefs.getLayout(this)
+        val baseWdp = when (layout) {
+            "108" -> 270f
+            "98" -> 240f
+            else -> 210f
+        }
+        val baseHdp = when (layout) {
+            "108" -> 228f
+            "98" -> 225f
+            else -> 220f
+        }
         val w = (baseWdp * scale * density).roundToInt().coerceAtLeast((90 * density).roundToInt())
         val h = (baseHdp * scale * density).roundToInt().coerceAtLeast((95 * density).roundToInt())
         return w to h
@@ -447,6 +462,7 @@ class KuroOverlayService : Service(), KuroPetListener {
     }
 
     private fun detachOverlayWindow() {
+        detachImeTouchSensor()
         pageReady = false
         val root = rootView
         val wv = webView
@@ -527,6 +543,12 @@ class KuroOverlayService : Service(), KuroPetListener {
         }
     }
 
+    override fun onGamepadState(json: String) {
+        if (petHidden) return
+        val escaped = JSONObject.quote(json)
+        evalJs("window.KuroAndroid && window.KuroAndroid.onGamepadState($escaped);")
+    }
+
     override fun onScreenTap(nx: Float, ny: Float) {
         if (petHidden) return
         evalJs("window.KuroAndroid && window.KuroAndroid.onScreenTap($nx, $ny, false);")
@@ -541,6 +563,79 @@ class KuroOverlayService : Service(), KuroPetListener {
         if (KuroPrefs.isPrivacyGuardEnabled(this)) {
             evalJs("window.KuroAndroid && window.KuroAndroid.onPrivacyTyping();")
         }
+    }
+
+    /**
+     * Privacy-safe 1x1 transparent sensor attached ONLY while the system soft keyboard (IME) is open.
+     * Receives coordinate-free `MotionEvent.ACTION_OUTSIDE` on every finger down so 9-key, 16-key,
+     * and 26-key Chinese/English IMEs (including custom-Canvas keyboards like Sogou / Baidu / WeType)
+     * animate cat paws immediately on every tap instead of waiting for candidate word commit.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun syncImeTouchSensor(imeVisible: Boolean) {
+        if (!imeVisible || petHidden || rootView == null || !Settings.canDrawOverlays(this)) {
+            detachImeTouchSensor()
+            return
+        }
+        if (imeTouchSensorView != null) return
+
+        val sensor = View(this).apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            setOnTouchListener { _, ev ->
+                if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE &&
+                    KuroEventBus.imeVisible.get() &&
+                    !petHidden
+                ) {
+                    val now = System.currentTimeMillis()
+                    if (KuroEventBus.privacyActive.get() && KuroPrefs.isPrivacyGuardEnabled(this@KuroOverlayService)) {
+                        if (now - lastImeTouchSensorMs >= 95L) {
+                            lastImeTouchSensorMs = now
+                            onPrivacyTyping()
+                        }
+                    } else if (now - lastImeTouchSensorMs >= 58L &&
+                        now - KuroEventBus.lastTypingSignalMs >= 52L
+                    ) {
+                        lastImeTouchSensorMs = now
+                        KuroEventBus.lastTypingSignalMs = now
+                        onTypingBurst(1, "char")
+                    }
+                }
+                false
+            }
+        }
+        val lp = WindowManager.LayoutParams(
+            1,
+            1,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+        }
+        try {
+            windowManager.addView(sensor, lp)
+            imeTouchSensorView = sensor
+        } catch (_: Throwable) {
+            imeTouchSensorView = null
+        }
+    }
+
+    private fun detachImeTouchSensor() {
+        val sensor = imeTouchSensorView ?: return
+        imeTouchSensorView = null
+        try {
+            windowManager.removeView(sensor)
+        } catch (_: Throwable) {
+        }
+    }
+
+    override fun onImeVisibilityChanged(visible: Boolean) {
+        syncImeTouchSensor(visible)
     }
 
     override fun onSettingsChanged() {

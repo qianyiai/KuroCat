@@ -20,16 +20,21 @@
         overflow: hidden;
         background: transparent !important;
       }
-      #pet-canvas {
+      #pet-canvas,
+      #pet-canvas-3d {
         display: block;
         width: 100vw;
         height: 100vh;
         background: transparent !important;
       }
+      .hidden {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
     <canvas id="pet-canvas"></canvas>
+    <canvas id="pet-canvas-3d" class="hidden"></canvas>
     <script type="module" src="/src/androidEntry.ts"></script>
   </body>
 </html>

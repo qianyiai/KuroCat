@@ -207,12 +207,12 @@ brew install --cask qianyiai/tap/kurocat
 | ツール | 機能 |
 | --- | --- |
 | `list_cats` | 内蔵・カスタムスキン一覧と現在アクティブな猫を取得 |
-| `get_cat_schema` | 模様・16 スポット座標・7 種の 2D/3D 輪郭スキーマを取得 |
-| `upsert_cat` | カスタム猫を作成・更新し 0.4 秒でホットリロード |
+| `get_cat_schema` | 模様・16 スポット座標・2D/3D 輪郭スキーマを取得 |
+| `upsert_cat` | カスタム猫を作成・更新し 2D/3D に即座反映 |
 | `patch_cat` | 既存または内蔵スキンを部分微調整 |
 | `switch_cat` | ID 指定で即座にスキン切替 |
 | `delete_cat` | カスタム猫を削除（または内蔵スキンをリセット） |
-| `get_settings` / `update_settings` | ズーム・配列・バブル・ゴロゴロ音・透過ロック等を変更 |
+| `get_settings` / `update_settings` | ズーム・不透明度・配列・バブル・ゴロゴロ音・透過ロック等を変更 |
 | `set_agent_status` | AI エージェント状態（思考／実装／実行／待機／エラー／完了）を同期 |
 | `trigger_action` | なでなで・喜び・怒り・居眠りアクションを再生 |
 
@@ -256,7 +256,7 @@ npm run tauri:build
 [MIT License](LICENSE) のもとで完全無料・オープンソースとして公開しています。気に入っていただけたらぜひ ⭐ Star で応援してください！
 
 - **🐳 大肥魚（クジラ娘）** 素材は MIT ライセンスの [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（派生元 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu)）に基づいています（`src/assets/dafeiyu/LICENSE-MIT.txt`）。
-- **コントリビューター**：[@XYZliang](https://github.com/XYZliang), [@CandySunPlus](https://github.com/CandySunPlus) (#51), [@Jack-GPT](https://github.com/Jack-GPT) (#47, #64), [@Mangome](https://github.com/Mangome) (#67, #68), [@Zyred9](https://github.com/Zyred9) (#42, #48), [@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao) (#65), [@hacksmo](https://github.com/hacksmo) (#45), [@LiMuhua](https://github.com/LiMuhua) (#75) の皆様に感謝いたします。
+- **コントリビューター**：[@XYZliang](https://github.com/XYZliang), [@CandySunPlus](https://github.com/CandySunPlus) (#51), [@Jack-GPT](https://github.com/Jack-GPT) (#47, #64), [@Mangome](https://github.com/Mangome) (#67, #68), [@Zyred9](https://github.com/Zyred9) (#42, #48), [@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao) (#65, #93), [@hacksmo](https://github.com/hacksmo) (#45), [@LiMuhua](https://github.com/LiMuhua) (#75), [@wte-81](https://github.com/wte-81) (#56, #83, #111), [@Perfect9s](https://github.com/Perfect9s) (#86), [@hsm-lv](https://github.com/hsm-lv) (#141) の皆様に感謝いたします。
 
 ---
 

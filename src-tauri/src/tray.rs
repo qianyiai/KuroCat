@@ -1,3 +1,4 @@
+use crate::cats::{all_cats, CatSkinConfig};
 use crate::config::AppSettings;
 use crate::i18n::{platform_click_through_key, t, tf};
 use crate::{
@@ -7,31 +8,58 @@ use crate::{
 };
 use std::sync::{Mutex, OnceLock};
 use tauri::image::Image;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::menu::{CheckMenuItem, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Listener, Manager, Wry};
 
 #[derive(Clone)]
 struct TrayCheckHandles {
+    feed_treat: MenuItem<Wry>,
     pause_guard: CheckMenuItem<Wry>,
     click_through: CheckMenuItem<Wry>,
     key_bubbles: CheckMenuItem<Wry>,
     privacy_guard: CheckMenuItem<Wry>,
     sound_toggle: CheckMenuItem<Wry>,
+    idle_purr_toggle: CheckMenuItem<Wry>,
     typing_sound_toggle: CheckMenuItem<Wry>,
+    sound_muted: CheckMenuItem<Wry>,
+    vol_100: CheckMenuItem<Wry>,
+    vol_75: CheckMenuItem<Wry>,
+    vol_50: CheckMenuItem<Wry>,
+    vol_25: CheckMenuItem<Wry>,
     always_on_top: CheckMenuItem<Wry>,
+    yield_on_fullscreen: CheckMenuItem<Wry>,
     autostart: CheckMenuItem<Wry>,
+    #[cfg(windows)]
+    autostart_admin: CheckMenuItem<Wry>,
     obs_toggle: CheckMenuItem<Wry>,
     obs_hide_pet: CheckMenuItem<Wry>,
     live_capture_toggle: CheckMenuItem<Wry>,
     live_hide_pet: CheckMenuItem<Wry>,
     mcp_toggle: CheckMenuItem<Wry>,
+    breed_items: Vec<(String, CheckMenuItem<Wry>)>,
     scale_25: CheckMenuItem<Wry>,
     scale_50: CheckMenuItem<Wry>,
     scale_75: CheckMenuItem<Wry>,
     scale_100: CheckMenuItem<Wry>,
     scale_125: CheckMenuItem<Wry>,
     scale_150: CheckMenuItem<Wry>,
+    kb_65: CheckMenuItem<Wry>,
+    kb_98: CheckMenuItem<Wry>,
+    kb_108: CheckMenuItem<Wry>,
+    kb_macbook: CheckMenuItem<Wry>,
+    finish_black: CheckMenuItem<Wry>,
+    finish_white: CheckMenuItem<Wry>,
+    #[cfg(target_os = "macos")]
+    device_mouse: CheckMenuItem<Wry>,
+    #[cfg(target_os = "macos")]
+    device_pad: CheckMenuItem<Wry>,
+    kb_cat: CheckMenuItem<Wry>,
+    kb_viewer: CheckMenuItem<Wry>,
+    tail_smart: CheckMenuItem<Wry>,
+    tail_custom: CheckMenuItem<Wry>,
+    tail_edge: CheckMenuItem<Wry>,
+    tail_off: CheckMenuItem<Wry>,
     fps_60: CheckMenuItem<Wry>,
     fps_30: CheckMenuItem<Wry>,
     lang_auto: CheckMenuItem<Wry>,
@@ -40,6 +68,10 @@ struct TrayCheckHandles {
     lang_en_us: CheckMenuItem<Wry>,
     lang_ja_jp: CheckMenuItem<Wry>,
     lang_ko_kr: CheckMenuItem<Wry>,
+    lang_es_es: CheckMenuItem<Wry>,
+    lang_pt_br: CheckMenuItem<Wry>,
+    lang_ru_ru: CheckMenuItem<Wry>,
+    lang_de_de: CheckMenuItem<Wry>,
 }
 
 fn active_handles() -> &'static Mutex<Option<TrayCheckHandles>> {
@@ -57,16 +89,167 @@ fn default_tray_tooltip(lang: &str) -> String {
     t(lang, "tray.tooltip")
 }
 
+fn format_tray_breed_label(lang: &str, cat: &CatSkinConfig) -> String {
+    let display_name = if cat.builtin {
+        let key = format!("breeds.{}", cat.id);
+        let localized = t(lang, &key);
+        if localized == key {
+            cat.name.clone()
+        } else {
+            localized
+        }
+    } else {
+        cat.name.clone()
+    };
+    if let Some(emoji) = cat.emoji.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+        if display_name.starts_with(emoji) {
+            display_name
+        } else {
+            format!("{} {}", emoji, display_name)
+        }
+    } else {
+        format!("🐱 {}", display_name)
+    }
+}
+
+/// Builds a dynamic, anti-crowding Pet Skin submenu containing all built-in and custom skins
+/// with live checkmarks. When a user adds many custom MCP skins, they automatically fold into
+/// a clean nested submenu (and 12-item pages past 14 skins) so the native tray menu never overflows.
+fn build_breed_submenu(
+    app: &AppHandle,
+    lang: &str,
+    active_breed: &str,
+) -> tauri::Result<(Submenu<Wry>, Vec<(String, CheckMenuItem<Wry>)>)> {
+    let cats = all_cats();
+    let mut builtins: Vec<CatSkinConfig> = Vec::new();
+    let mut customs: Vec<CatSkinConfig> = Vec::new();
+    for cat in cats {
+        if cat.builtin {
+            builtins.push(cat);
+        } else {
+            customs.push(cat);
+        }
+    }
+
+    let mut handles: Vec<(String, CheckMenuItem<Wry>)> = Vec::new();
+    let mut builtin_items: Vec<CheckMenuItem<Wry>> = Vec::with_capacity(builtins.len());
+    for cat in &builtins {
+        let item = CheckMenuItem::with_id(
+            app,
+            format!("breed_id:{}", cat.id),
+            format_tray_breed_label(lang, cat),
+            true,
+            cat.id == active_breed,
+            None::<&str>,
+        )?;
+        handles.push((cat.id.clone(), item.clone()));
+        builtin_items.push(item);
+    }
+
+    let submenu = Submenu::new(app, t(lang, "tray.breed_menu"), true)?;
+    for item in &builtin_items {
+        submenu.append(item)?;
+    }
+
+    if !customs.is_empty() {
+        let sep = PredefinedMenuItem::separator(app)?;
+        submenu.append(&sep)?;
+
+        if customs.len() <= 6 {
+            for cat in &customs {
+                let item = CheckMenuItem::with_id(
+                    app,
+                    format!("breed_id:{}", cat.id),
+                    format_tray_breed_label(lang, cat),
+                    true,
+                    cat.id == active_breed,
+                    None::<&str>,
+                )?;
+                handles.push((cat.id.clone(), item.clone()));
+                submenu.append(&item)?;
+            }
+        } else {
+            let custom_title = tf(
+                lang,
+                "tray.breed_custom_menu",
+                &[("count", customs.len().to_string())],
+            );
+            let custom_submenu = Submenu::new(app, custom_title, true)?;
+            if customs.len() <= 14 {
+                for cat in &customs {
+                    let item = CheckMenuItem::with_id(
+                        app,
+                        format!("breed_id:{}", cat.id),
+                        format_tray_breed_label(lang, cat),
+                        true,
+                        cat.id == active_breed,
+                        None::<&str>,
+                    )?;
+                    handles.push((cat.id.clone(), item.clone()));
+                    custom_submenu.append(&item)?;
+                }
+            } else {
+                const PAGE_SIZE: usize = 12;
+                for (page_idx, chunk) in customs.chunks(PAGE_SIZE).enumerate() {
+                    let from = page_idx * PAGE_SIZE + 1;
+                    let to = from + chunk.len() - 1;
+                    let page_title = tf(
+                        lang,
+                        "tray.breed_page",
+                        &[("from", from.to_string()), ("to", to.to_string())],
+                    );
+                    let page_menu = Submenu::new(app, page_title, true)?;
+                    for cat in chunk {
+                        let item = CheckMenuItem::with_id(
+                            app,
+                            format!("breed_id:{}", cat.id),
+                            format_tray_breed_label(lang, cat),
+                            true,
+                            cat.id == active_breed,
+                            None::<&str>,
+                        )?;
+                        handles.push((cat.id.clone(), item.clone()));
+                        page_menu.append(&item)?;
+                    }
+                    custom_submenu.append(&page_menu)?;
+                }
+            }
+            submenu.append(&custom_submenu)?;
+        }
+    }
+
+    Ok((submenu, handles))
+}
+
 pub fn sync_checkmarks(s: &AppSettings) {
     if let Ok(guard) = active_handles().lock() {
         if let Some(h) = guard.as_ref() {
+            let _ = h.feed_treat.set_enabled(s.cat_breed != "dafeiyu");
             let _ = h.click_through.set_checked(s.click_through_locked);
             let _ = h.key_bubbles.set_checked(s.show_key_bubbles);
             let _ = h.privacy_guard.set_checked(s.privacy_password_guard);
             let _ = h.sound_toggle.set_checked(s.sound_enabled);
+            let _ = h.idle_purr_toggle.set_checked(s.idle_purr_enabled);
             let _ = h.typing_sound_toggle.set_checked(s.typing_sound_enabled);
+            let effectively_muted = s.sound_muted || s.sound_volume <= 0.001;
+            let _ = h.sound_muted.set_checked(effectively_muted);
+            let _ = h
+                .vol_100
+                .set_checked(!effectively_muted && (s.sound_volume - 1.00).abs() < 0.02);
+            let _ = h
+                .vol_75
+                .set_checked(!effectively_muted && (s.sound_volume - 0.75).abs() < 0.02);
+            let _ = h
+                .vol_50
+                .set_checked(!effectively_muted && (s.sound_volume - 0.50).abs() < 0.02);
+            let _ = h
+                .vol_25
+                .set_checked(!effectively_muted && (s.sound_volume - 0.25).abs() < 0.02);
             let _ = h.always_on_top.set_checked(s.always_on_top);
+            let _ = h.yield_on_fullscreen.set_checked(s.yield_on_fullscreen);
             let _ = h.autostart.set_checked(s.autostart);
+            #[cfg(windows)]
+            let _ = h.autostart_admin.set_checked(s.autostart && s.autostart_admin);
             let _ = h.obs_toggle.set_checked(s.obs_enabled);
             let _ = h.obs_hide_pet.set_checked(s.obs_enabled && s.obs_hide_pet);
             let _ = h.live_capture_toggle.set_checked(s.live_capture_enabled);
@@ -74,12 +257,32 @@ pub fn sync_checkmarks(s: &AppSettings) {
                 .live_hide_pet
                 .set_checked(s.live_capture_enabled && s.live_hide_pet);
             let _ = h.mcp_toggle.set_checked(s.mcp_enabled);
+            for (id, item) in &h.breed_items {
+                let _ = item.set_checked(id == &s.cat_breed);
+            }
             let _ = h.scale_25.set_checked((s.scale - 0.25).abs() < 0.015);
             let _ = h.scale_50.set_checked((s.scale - 0.50).abs() < 0.015);
             let _ = h.scale_75.set_checked((s.scale - 0.75).abs() < 0.015);
             let _ = h.scale_100.set_checked((s.scale - 1.00).abs() < 0.015);
             let _ = h.scale_125.set_checked((s.scale - 1.25).abs() < 0.015);
             let _ = h.scale_150.set_checked((s.scale - 1.50).abs() < 0.015);
+            let _ = h.kb_65.set_checked(s.keyboard_layout == "65");
+            let _ = h.kb_98.set_checked(s.keyboard_layout == "98");
+            let _ = h.kb_108.set_checked(s.keyboard_layout == "108");
+            let _ = h.kb_macbook.set_checked(s.keyboard_layout == "macbook");
+            let _ = h.finish_black.set_checked(!s.white_keyboard);
+            let _ = h.finish_white.set_checked(s.white_keyboard);
+            #[cfg(target_os = "macos")]
+            {
+                let _ = h.device_mouse.set_checked(!s.trackpad_enabled);
+                let _ = h.device_pad.set_checked(s.trackpad_enabled);
+            }
+            let _ = h.kb_cat.set_checked(s.keyboard_orientation != "viewer");
+            let _ = h.kb_viewer.set_checked(s.keyboard_orientation == "viewer");
+            let _ = h.tail_smart.set_checked(s.tail_key_mode == "smart");
+            let _ = h.tail_custom.set_checked(s.tail_key_mode == "custom");
+            let _ = h.tail_edge.set_checked(s.tail_key_mode == "edge");
+            let _ = h.tail_off.set_checked(s.tail_key_mode == "off");
             let _ = h.fps_30.set_checked(s.fps_cap == 30);
             let _ = h.fps_60.set_checked(s.fps_cap != 30);
             let _ = h.lang_auto.set_checked(s.language == "auto");
@@ -88,6 +291,10 @@ pub fn sync_checkmarks(s: &AppSettings) {
             let _ = h.lang_en_us.set_checked(s.language == "en-US");
             let _ = h.lang_ja_jp.set_checked(s.language == "ja-JP");
             let _ = h.lang_ko_kr.set_checked(s.language == "ko-KR");
+            let _ = h.lang_es_es.set_checked(s.language == "es-ES");
+            let _ = h.lang_pt_br.set_checked(s.language == "pt-BR");
+            let _ = h.lang_ru_ru.set_checked(s.language == "ru-RU");
+            let _ = h.lang_de_de.set_checked(s.language == "de-DE");
         }
     }
 }
@@ -104,11 +311,24 @@ fn build_tray_menu(
     #[cfg(target_os = "macos")]
     let display_menu = crate::macos_window::create_display_menu(app)?;
 
+    let open_menu = MenuItem::with_id(app, "open_menu", t(lang, "tray.open_menu"), true, None::<&str>)?;
+    let feed_treat = MenuItem::with_id(
+        app,
+        "feed_treat",
+        t(lang, "tray.feed_treat"),
+        initial.cat_breed != "dafeiyu",
+        None::<&str>,
+    )?;
     let toggle_show = MenuItem::with_id(app, "toggle_show", t(lang, "tray.toggle_show"), true, None::<&str>)?;
+    let pause_guard_label = if initial.pause_hotkey.is_empty() {
+        t(lang, "tray.pause_guard")
+    } else {
+        format!("{} [{}]", t(lang, "tray.pause_guard"), initial.pause_hotkey)
+    };
     let pause_guard = CheckMenuItem::with_id(
         app,
         "pause_guard",
-        t(lang, "tray.pause_guard"),
+        pause_guard_label,
         true,
         paused,
         None::<&str>,
@@ -156,6 +376,14 @@ fn build_tray_menu(
         initial.sound_enabled,
         None::<&str>,
     )?;
+    let idle_purr_toggle = CheckMenuItem::with_id(
+        app,
+        "idle_purr_toggle",
+        t(lang, "tray.idle_purr_toggle"),
+        true,
+        initial.idle_purr_enabled,
+        None::<&str>,
+    )?;
     let typing_sound_toggle = CheckMenuItem::with_id(
         app,
         "typing_sound_toggle",
@@ -163,6 +391,61 @@ fn build_tray_menu(
         true,
         initial.typing_sound_enabled,
         None::<&str>,
+    )?;
+    let init_muted = initial.sound_muted || initial.sound_volume <= 0.001;
+    let sound_muted = CheckMenuItem::with_id(
+        app,
+        "sound_muted",
+        t(lang, "tray.sound_muted"),
+        true,
+        init_muted,
+        None::<&str>,
+    )?;
+    let vol_100 = CheckMenuItem::with_id(
+        app,
+        "vol_100",
+        "100%",
+        true,
+        !init_muted && (initial.sound_volume - 1.00).abs() < 0.02,
+        None::<&str>,
+    )?;
+    let vol_75 = CheckMenuItem::with_id(
+        app,
+        "vol_75",
+        "75%",
+        true,
+        !init_muted && (initial.sound_volume - 0.75).abs() < 0.02,
+        None::<&str>,
+    )?;
+    let vol_50 = CheckMenuItem::with_id(
+        app,
+        "vol_50",
+        "50%",
+        true,
+        !init_muted && (initial.sound_volume - 0.50).abs() < 0.02,
+        None::<&str>,
+    )?;
+    let vol_25 = CheckMenuItem::with_id(
+        app,
+        "vol_25",
+        "25%",
+        true,
+        !init_muted && (initial.sound_volume - 0.25).abs() < 0.02,
+        None::<&str>,
+    )?;
+    let vol_sep = PredefinedMenuItem::separator(app)?;
+    let volume_menu = Submenu::with_items(
+        app,
+        t(lang, "tray.volume_menu"),
+        true,
+        &[
+            &vol_100 as &dyn IsMenuItem<Wry>,
+            &vol_75,
+            &vol_50,
+            &vol_25,
+            &vol_sep,
+            &sound_muted,
+        ],
     )?;
     let always_on_top = CheckMenuItem::with_id(
         app,
@@ -172,12 +455,29 @@ fn build_tray_menu(
         initial.always_on_top,
         None::<&str>,
     )?;
+    let yield_on_fullscreen = CheckMenuItem::with_id(
+        app,
+        "yield_on_fullscreen",
+        t(lang, "tray.yield_on_fullscreen"),
+        true,
+        initial.yield_on_fullscreen,
+        None::<&str>,
+    )?;
     let autostart = CheckMenuItem::with_id(
         app,
         "autostart",
         t(lang, "tray.autostart"),
         true,
         initial.autostart,
+        None::<&str>,
+    )?;
+    #[cfg(windows)]
+    let autostart_admin = CheckMenuItem::with_id(
+        app,
+        "autostart_admin",
+        t(lang, "tray.autostart_admin"),
+        true,
+        initial.autostart && initial.autostart_admin,
         None::<&str>,
     )?;
     let mcp_toggle = CheckMenuItem::with_id(
@@ -244,27 +544,7 @@ fn build_tray_menu(
         ],
     )?;
 
-    let breed_black = MenuItem::with_id(app, "breed_black", t(lang, "breeds.black"), true, None::<&str>)?;
-    let breed_ragdoll = MenuItem::with_id(app, "breed_ragdoll", t(lang, "breeds.ragdoll"), true, None::<&str>)?;
-    let breed_orange = MenuItem::with_id(app, "breed_orange", t(lang, "breeds.orange-tabby"), true, None::<&str>)?;
-    let breed_calico = MenuItem::with_id(app, "breed_calico", t(lang, "breeds.calico"), true, None::<&str>)?;
-    let breed_tuxedo = MenuItem::with_id(app, "breed_tuxedo", t(lang, "breeds.tuxedo"), true, None::<&str>)?;
-    let breed_siamese = MenuItem::with_id(app, "breed_siamese", t(lang, "breeds.siamese"), true, None::<&str>)?;
-    let breed_dafeiyu = MenuItem::with_id(app, "breed_dafeiyu", t(lang, "breeds.dafeiyu"), true, None::<&str>)?;
-    let breed_menu = Submenu::with_items(
-        app,
-        t(lang, "tray.breed_menu"),
-        true,
-        &[
-            &breed_black,
-            &breed_ragdoll,
-            &breed_orange,
-            &breed_calico,
-            &breed_tuxedo,
-            &breed_siamese,
-            &breed_dafeiyu,
-        ],
-    )?;
+    let (breed_menu, breed_items) = build_breed_submenu(app, lang, &initial.cat_breed)?;
 
     let scale_25 = CheckMenuItem::with_id(app, "scale_25", t(lang, "tray.scale_25"), true, (initial.scale - 0.25).abs() < 0.015, None::<&str>)?;
     let scale_50 = CheckMenuItem::with_id(app, "scale_50", t(lang, "tray.scale_50"), true, (initial.scale - 0.50).abs() < 0.015, None::<&str>)?;
@@ -279,22 +559,44 @@ fn build_tray_menu(
         &[&scale_25, &scale_50, &scale_75, &scale_100, &scale_125, &scale_150],
     )?;
 
-    let kb_65 = MenuItem::with_id(app, "kb_65", t(lang, "tray.kb_65"), true, None::<&str>)?;
-    let kb_108 = MenuItem::with_id(app, "kb_108", t(lang, "tray.kb_108"), true, None::<&str>)?;
+    let kb_65 = CheckMenuItem::with_id(app, "kb_65", t(lang, "tray.kb_65"), true, initial.keyboard_layout == "65", None::<&str>)?;
+    let kb_98 = CheckMenuItem::with_id(app, "kb_98", t(lang, "tray.kb_98"), true, initial.keyboard_layout == "98", None::<&str>)?;
+    let kb_108 = CheckMenuItem::with_id(app, "kb_108", t(lang, "tray.kb_108"), true, initial.keyboard_layout == "108", None::<&str>)?;
+    let kb_macbook = CheckMenuItem::with_id(app, "kb_macbook", t(lang, "tray.kb_macbook"), true, initial.keyboard_layout == "macbook", None::<&str>)?;
+    let finish_black = CheckMenuItem::with_id(app, "finish_black", t(lang, "menu.kb_black"), true, !initial.white_keyboard, None::<&str>)?;
+    let finish_white = CheckMenuItem::with_id(app, "finish_white", t(lang, "menu.kb_white"), true, initial.white_keyboard, None::<&str>)?;
+    let finish_menu = Submenu::with_items(app, t(lang, "menu.kb_finish"), true, &[&finish_black, &finish_white])?;
     let kb_sep = PredefinedMenuItem::separator(app)?;
-    let kb_cat = MenuItem::with_id(app, "kb_cat", t(lang, "tray.kb_cat"), true, None::<&str>)?;
-    let kb_viewer = MenuItem::with_id(app, "kb_viewer", t(lang, "tray.kb_viewer"), true, None::<&str>)?;
+    let kb_cat = CheckMenuItem::with_id(app, "kb_cat", t(lang, "tray.kb_cat"), true, initial.keyboard_orientation != "viewer", None::<&str>)?;
+    let kb_viewer = CheckMenuItem::with_id(app, "kb_viewer", t(lang, "tray.kb_viewer"), true, initial.keyboard_orientation == "viewer", None::<&str>)?;
     let kb_menu = Submenu::with_items(
         app,
         t(lang, "tray.kb_menu"),
         true,
-        &[&kb_65, &kb_108, &kb_sep, &kb_cat, &kb_viewer],
+        &[
+            &kb_65 as &dyn IsMenuItem<Wry>,
+            &kb_98,
+            &kb_108,
+            &kb_macbook,
+            &finish_menu,
+            &kb_sep,
+            &kb_cat,
+            &kb_viewer,
+        ],
     )?;
+    #[cfg(target_os = "macos")]
+    let (device_mouse, device_pad) = {
+        let dm = CheckMenuItem::with_id(app, "device_mouse", t(lang, "menu.mouse"), true, !initial.trackpad_enabled, None::<&str>)?;
+        let dp = CheckMenuItem::with_id(app, "device_pad", t(lang, "menu.trackpad"), true, initial.trackpad_enabled, None::<&str>)?;
+        let ptr_menu = Submenu::with_items(app, t(lang, "menu.pointer"), true, &[&dm, &dp])?;
+        kb_menu.append(&ptr_menu)?;
+        (dm, dp)
+    };
 
-    let tail_smart = MenuItem::with_id(app, "tail_smart", t(lang, "tray.tail_smart"), true, None::<&str>)?;
-    let tail_custom = MenuItem::with_id(app, "tail_custom", t(lang, "tray.tail_custom"), true, None::<&str>)?;
-    let tail_edge = MenuItem::with_id(app, "tail_edge", t(lang, "tray.tail_edge"), true, None::<&str>)?;
-    let tail_off = MenuItem::with_id(app, "tail_off", t(lang, "tray.tail_off"), true, None::<&str>)?;
+    let tail_smart = CheckMenuItem::with_id(app, "tail_smart", t(lang, "tray.tail_smart"), true, initial.tail_key_mode == "smart", None::<&str>)?;
+    let tail_custom = CheckMenuItem::with_id(app, "tail_custom", t(lang, "tray.tail_custom"), true, initial.tail_key_mode == "custom", None::<&str>)?;
+    let tail_edge = CheckMenuItem::with_id(app, "tail_edge", t(lang, "tray.tail_edge"), true, initial.tail_key_mode == "edge", None::<&str>)?;
+    let tail_off = CheckMenuItem::with_id(app, "tail_off", t(lang, "tray.tail_off"), true, initial.tail_key_mode == "off", None::<&str>)?;
     let tail_sep = PredefinedMenuItem::separator(app)?;
     let tail_pick = MenuItem::with_id(app, "tail_pick_keys", t(lang, "tray.tail_pick"), true, None::<&str>)?;
     let tail_menu = Submenu::with_items(
@@ -322,6 +624,10 @@ fn build_tray_menu(
     let lang_en_us = CheckMenuItem::with_id(app, "lang_en-US", "English", true, initial.language == "en-US", None::<&str>)?;
     let lang_ja_jp = CheckMenuItem::with_id(app, "lang_ja-JP", "日本語", true, initial.language == "ja-JP", None::<&str>)?;
     let lang_ko_kr = CheckMenuItem::with_id(app, "lang_ko-KR", "한국어", true, initial.language == "ko-KR", None::<&str>)?;
+    let lang_es_es = CheckMenuItem::with_id(app, "lang_es-ES", "Español", true, initial.language == "es-ES", None::<&str>)?;
+    let lang_pt_br = CheckMenuItem::with_id(app, "lang_pt-BR", "Português", true, initial.language == "pt-BR", None::<&str>)?;
+    let lang_ru_ru = CheckMenuItem::with_id(app, "lang_ru-RU", "Русский", true, initial.language == "ru-RU", None::<&str>)?;
+    let lang_de_de = CheckMenuItem::with_id(app, "lang_de-DE", "Deutsch", true, initial.language == "de-DE", None::<&str>)?;
     let lang_menu = Submenu::with_items(
         app,
         t(lang, "tray.lang_menu"),
@@ -334,6 +640,10 @@ fn build_tray_menu(
             &lang_en_us,
             &lang_ja_jp,
             &lang_ko_kr,
+            &lang_es_es,
+            &lang_pt_br,
+            &lang_ru_ru,
+            &lang_de_de,
         ],
     )?;
 
@@ -406,11 +716,27 @@ fn build_tray_menu(
     )?;
     let quit = MenuItem::with_id(app, "quit", t(lang, "tray.quit"), true, None::<&str>)?;
 
-    let interact_menu = Submenu::with_items(
+    // Consolidate appearance/scale/keyboard/tail/interaction toggles into one clean submenu
+    // so the top-level tray popup stays compact and scannable instead of sprawling vertically.
+    let appearance_sep = PredefinedMenuItem::separator(app)?;
+    let appearance_menu = Submenu::with_items(
         app,
-        t(lang, "tray.interact_menu"),
+        t(lang, "tray.appearance_menu"),
         true,
-        &[&privacy_guard, &key_bubbles, &sound_toggle, &typing_sound_toggle, &always_on_top],
+        &[
+            &scale_menu as &dyn IsMenuItem<Wry>,
+            &kb_menu,
+            &tail_menu,
+            &appearance_sep,
+            &privacy_guard,
+            &key_bubbles,
+            &sound_toggle,
+            &idle_purr_toggle,
+            &typing_sound_toggle,
+            &volume_menu,
+            &always_on_top,
+            &yield_on_fullscreen,
+        ],
     )?;
 
     let sys_sep = PredefinedMenuItem::separator(app)?;
@@ -425,6 +751,7 @@ fn build_tray_menu(
             &display_menu,
             &sys_sep,
             &autostart,
+            &autostart_admin,
             &mcp_toggle,
             &desktop_shortcut,
             &reset_pos,
@@ -468,16 +795,15 @@ fn build_tray_menu(
     let menu = Menu::with_items(
         app,
         &[
+            &open_menu,
+            &feed_treat,
             &toggle_show,
+            &click_through,
             &pause_guard,
             &restart_as_admin,
             &sep1,
-            &click_through,
             &breed_menu,
-            &scale_menu,
-            &kb_menu,
-            &tail_menu,
-            &interact_menu,
+            &appearance_menu,
             &obs_menu,
             &system_menu,
             &sep2,
@@ -486,40 +812,18 @@ fn build_tray_menu(
         ],
     )?;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(not(windows))]
     let menu = Menu::with_items(
         app,
         &[
+            &open_menu,
+            &feed_treat,
             &toggle_show,
+            &click_through,
             &pause_guard,
             &sep1,
-            &click_through,
             &breed_menu,
-            &scale_menu,
-            &kb_menu,
-            &tail_menu,
-            &interact_menu,
-            &obs_menu,
-            &system_menu,
-            &sep2,
-            &check_update,
-            &quit,
-        ],
-    )?;
-
-    #[cfg(all(not(windows), not(target_os = "macos")))]
-    let menu = Menu::with_items(
-        app,
-        &[
-            &toggle_show,
-            &pause_guard,
-            &sep1,
-            &click_through,
-            &breed_menu,
-            &scale_menu,
-            &kb_menu,
-            &tail_menu,
-            &interact_menu,
+            &appearance_menu,
             &obs_menu,
             &system_menu,
             &sep2,
@@ -529,25 +833,52 @@ fn build_tray_menu(
     )?;
 
     let handles = TrayCheckHandles {
+        feed_treat,
         pause_guard,
         click_through,
         key_bubbles,
         privacy_guard,
         sound_toggle,
+        idle_purr_toggle,
         typing_sound_toggle,
+        sound_muted,
+        vol_100,
+        vol_75,
+        vol_50,
+        vol_25,
         always_on_top,
+        yield_on_fullscreen,
         autostart,
+        #[cfg(windows)]
+        autostart_admin,
         obs_toggle,
         obs_hide_pet,
         live_capture_toggle,
         live_hide_pet,
         mcp_toggle,
+        breed_items,
         scale_25,
         scale_50,
         scale_75,
         scale_100,
         scale_125,
         scale_150,
+        kb_65,
+        kb_98,
+        kb_108,
+        kb_macbook,
+        finish_black,
+        finish_white,
+        #[cfg(target_os = "macos")]
+        device_mouse,
+        #[cfg(target_os = "macos")]
+        device_pad,
+        kb_cat,
+        kb_viewer,
+        tail_smart,
+        tail_custom,
+        tail_edge,
+        tail_off,
         fps_60,
         fps_30,
         lang_auto,
@@ -556,12 +887,16 @@ fn build_tray_menu(
         lang_en_us,
         lang_ja_jp,
         lang_ko_kr,
+        lang_es_es,
+        lang_pt_br,
+        lang_ru_ru,
+        lang_de_de,
     };
 
     Ok((menu, handles))
 }
 
-pub fn refresh_tray_language(app: &AppHandle) {
+pub fn refresh_tray_menu(app: &AppHandle) {
     let state = app.state::<AppState>();
     let settings = state.settings.lock().unwrap().clone();
     let paused = state.paused_guard.load(std::sync::atomic::Ordering::SeqCst);
@@ -581,6 +916,41 @@ pub fn refresh_tray_language(app: &AppHandle) {
     }
 }
 
+pub fn toggle_pause_guard(app: &AppHandle) -> bool {
+    let state = app.state::<AppState>();
+    let next = !state
+        .paused_guard
+        .load(std::sync::atomic::Ordering::SeqCst);
+    state
+        .paused_guard
+        .store(next, std::sync::atomic::Ordering::SeqCst);
+    crate::input_hook::set_hooks_paused(next);
+    if let Ok(guard) = active_handles().lock() {
+        if let Some(h) = guard.as_ref() {
+            let _ = h.pause_guard.set_checked(next);
+        }
+    }
+    let (lang, should_hide) = {
+        let s = state.settings.lock().unwrap();
+        (s.language.clone(), crate::should_hide_desktop_pet(&s))
+    };
+    if let Some(tray) = app.tray_by_id("kuro-tray") {
+        let tip = if next {
+            format!("KuroCat ({})", t(&lang, "tray.pause_guard"))
+        } else {
+            default_tray_tooltip(&lang)
+        };
+        let _ = tray.set_tooltip(Some(tip));
+    }
+    set_pet_visible(app, !next && !should_hide);
+    let _ = app.emit("kuro-pause-guard", next);
+    next
+}
+
+pub fn refresh_tray_language(app: &AppHandle) {
+    refresh_tray_menu(app);
+}
+
 fn apply_language_and_save(app: &AppHandle, raw_lang: &str) {
     let state = app.state::<AppState>();
     let updated = {
@@ -589,7 +959,7 @@ fn apply_language_and_save(app: &AppHandle, raw_lang: &str) {
         crate::config::save_settings(&s);
         s.clone()
     };
-    refresh_tray_language(app);
+    refresh_tray_menu(app);
     let _ = app.emit("kuro-settings", updated);
 }
 
@@ -618,6 +988,12 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         if let Ok(s) = serde_json::from_str::<AppSettings>(ev.payload()) {
             sync_checkmarks(&s);
         }
+    });
+
+    // Rebuild dynamic Pet Skin submenu whenever custom skins are added/updated/deleted via MCP.
+    let app_for_cats = app.clone();
+    app.listen("kuro-cats", move |_| {
+        refresh_tray_menu(&app_for_cats);
     });
 
     TrayIconBuilder::with_id("kuro-tray")
@@ -665,7 +1041,24 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
         })
         .on_menu_event(move |app, event| {
             let state = app.state::<AppState>();
-            match event.id().as_ref() {
+            let id = event.id().as_ref();
+            if let Some(breed_id) = id.strip_prefix("breed_id:") {
+                apply_breed_and_save(app, breed_id);
+                return;
+            }
+            match id {
+                "open_menu" => {
+                    if !state.paused_guard.load(std::sync::atomic::Ordering::SeqCst) {
+                        set_pet_visible(app, true);
+                    }
+                    let handle = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = crate::open_context_menu_from_tray(handle).await;
+                    });
+                }
+                "feed_treat" => {
+                    crate::trigger_treat_feed_internal(app, None);
+                }
                 "toggle_show" => {
                     if state.paused_guard.load(std::sync::atomic::Ordering::SeqCst) {
                         state
@@ -698,28 +1091,7 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                     }
                 }
                 "pause_guard" => {
-                    let next = !state
-                        .paused_guard
-                        .load(std::sync::atomic::Ordering::SeqCst);
-                    state
-                        .paused_guard
-                        .store(next, std::sync::atomic::Ordering::SeqCst);
-                    crate::input_hook::set_hooks_paused(next);
-                    if let Ok(guard) = active_handles().lock() {
-                        if let Some(h) = guard.as_ref() {
-                            let _ = h.pause_guard.set_checked(next);
-                        }
-                    }
-                    let lang = state.settings.lock().unwrap().language.clone();
-                    if let Some(tray) = app.tray_by_id("kuro-tray") {
-                        let tip = if next {
-                            format!("KuroCat ({})", t(&lang, "tray.pause_guard"))
-                        } else {
-                            default_tray_tooltip(&lang)
-                        };
-                        let _ = tray.set_tooltip(Some(tip));
-                    }
-                    set_pet_visible(app, !next);
+                    let _ = toggle_pause_guard(app);
                 }
                 #[cfg(windows)]
                 "restart_as_admin" => {
@@ -767,10 +1139,55 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                     sync_checkmarks(&updated);
                     let _ = app.emit("kuro-settings", updated);
                 }
+                "idle_purr_toggle" => {
+                    let updated = {
+                        let mut s = state.settings.lock().unwrap();
+                        s.idle_purr_enabled = !s.idle_purr_enabled;
+                        crate::config::save_settings(&s);
+                        s.clone()
+                    };
+                    sync_checkmarks(&updated);
+                    let _ = app.emit("kuro-settings", updated);
+                }
                 "typing_sound_toggle" => {
                     let updated = {
                         let mut s = state.settings.lock().unwrap();
                         s.typing_sound_enabled = !s.typing_sound_enabled;
+                        crate::config::save_settings(&s);
+                        s.clone()
+                    };
+                    sync_checkmarks(&updated);
+                    let _ = app.emit("kuro-settings", updated);
+                }
+                "sound_muted" => {
+                    let updated = {
+                        let mut s = state.settings.lock().unwrap();
+                        let currently_muted = s.sound_muted || s.sound_volume <= 0.001;
+                        if currently_muted {
+                            s.sound_muted = false;
+                            if s.sound_volume <= 0.001 {
+                                s.sound_volume = 0.5;
+                            }
+                        } else {
+                            s.sound_muted = true;
+                        }
+                        crate::config::save_settings(&s);
+                        s.clone()
+                    };
+                    sync_checkmarks(&updated);
+                    let _ = app.emit("kuro-settings", updated);
+                }
+                id @ ("vol_100" | "vol_75" | "vol_50" | "vol_25") => {
+                    let next_vol = match id {
+                        "vol_25" => 0.25,
+                        "vol_50" => 0.50,
+                        "vol_75" => 0.75,
+                        _ => 1.00,
+                    };
+                    let updated = {
+                        let mut s = state.settings.lock().unwrap();
+                        s.sound_volume = next_vol;
+                        s.sound_muted = false;
                         crate::config::save_settings(&s);
                         s.clone()
                     };
@@ -789,16 +1206,41 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                     set_pet_always_on_top(app, on_top);
                     let _ = app.emit("kuro-settings", updated);
                 }
-                "autostart" => {
-                    let mut s = state.settings.lock().unwrap();
-                    let next = !s.autostart;
-                    if crate::config::set_windows_autostart(next).is_ok() {
-                        s.autostart = next;
+                "yield_on_fullscreen" => {
+                    let (on_top, updated) = {
+                        let mut s = state.settings.lock().unwrap();
+                        s.yield_on_fullscreen = !s.yield_on_fullscreen;
+                        let on_top = s.always_on_top;
                         crate::config::save_settings(&s);
-                        let updated = s.clone();
-                        drop(s);
-                        sync_checkmarks(&updated);
-                        let _ = app.emit("kuro-settings", updated);
+                        (on_top, s.clone())
+                    };
+                    sync_checkmarks(&updated);
+                    set_pet_always_on_top(app, on_top);
+                    let _ = app.emit("kuro-settings", updated);
+                }
+                "autostart" => {
+                    let (next_auto, next_admin) = {
+                        let s = state.settings.lock().unwrap();
+                        let next = !s.autostart;
+                        (next, if next { s.autostart_admin } else { false })
+                    };
+                    let handle = app.clone();
+                    std::thread::spawn(move || {
+                        let _ = crate::apply_autostart_and_sync(&handle, next_auto, next_admin);
+                    });
+                }
+                "autostart_admin" => {
+                    #[cfg(windows)]
+                    {
+                        let (next_auto, next_admin) = {
+                            let s = state.settings.lock().unwrap();
+                            let next_adm = !(s.autostart && s.autostart_admin);
+                            (true, next_adm)
+                        };
+                        let handle = app.clone();
+                        std::thread::spawn(move || {
+                            let _ = crate::apply_autostart_and_sync(&handle, next_auto, next_admin);
+                        });
                     }
                 }
                 "obs_toggle" => {
@@ -932,13 +1374,6 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                     sync_checkmarks(&updated);
                     let _ = app.emit("kuro-settings", updated);
                 }
-                "breed_black" => apply_breed_and_save(app, "black"),
-                "breed_ragdoll" => apply_breed_and_save(app, "ragdoll"),
-                "breed_orange" => apply_breed_and_save(app, "orange-tabby"),
-                "breed_calico" => apply_breed_and_save(app, "calico"),
-                "breed_tuxedo" => apply_breed_and_save(app, "tuxedo"),
-                "breed_siamese" => apply_breed_and_save(app, "siamese"),
-                "breed_dafeiyu" => apply_breed_and_save(app, "dafeiyu"),
                 "scale_25" => apply_scale_and_save(app, 0.25),
                 "scale_50" => apply_scale_and_save(app, 0.5),
                 "scale_75" => apply_scale_and_save(app, 0.75),
@@ -946,7 +1381,23 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                 "scale_125" => apply_scale_and_save(app, 1.25),
                 "scale_150" => apply_scale_and_save(app, 1.5),
                 "kb_65" => apply_keyboard_layout_and_save(app, "65"),
+                "kb_98" => apply_keyboard_layout_and_save(app, "98"),
                 "kb_108" => apply_keyboard_layout_and_save(app, "108"),
+                "kb_macbook" => apply_keyboard_layout_and_save(app, "macbook"),
+                id @ ("finish_black" | "finish_white" | "device_mouse" | "device_pad") => {
+                    let state = app.state::<AppState>();
+                    let updated = {
+                        let mut s = state.settings.lock().unwrap();
+                        match id {
+                            "finish_black" | "finish_white" => s.white_keyboard = id == "finish_white",
+                            _ => s.trackpad_enabled = id == "device_pad",
+                        }
+                        crate::config::save_settings(&s);
+                        s.clone()
+                    };
+                    sync_checkmarks(&updated);
+                    let _ = app.emit("kuro-settings", updated);
+                }
                 "kb_cat" => apply_keyboard_orientation_and_save(app, "cat"),
                 "kb_viewer" => apply_keyboard_orientation_and_save(app, "viewer"),
                 "tail_smart" => apply_tail_key_mode_and_save(app, "smart"),
@@ -965,6 +1416,10 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                 "lang_en-US" => apply_language_and_save(app, "en-US"),
                 "lang_ja-JP" => apply_language_and_save(app, "ja-JP"),
                 "lang_ko-KR" => apply_language_and_save(app, "ko-KR"),
+                "lang_es-ES" => apply_language_and_save(app, "es-ES"),
+                "lang_pt-BR" => apply_language_and_save(app, "pt-BR"),
+                "lang_ru-RU" => apply_language_and_save(app, "ru-RU"),
+                "lang_de-DE" => apply_language_and_save(app, "de-DE"),
                 "desktop_shortcut" => {
                     let _ = crate::config::create_desktop_shortcut();
                 }
@@ -1041,9 +1496,9 @@ pub fn setup_tray(app: &AppHandle, initial: &AppSettings) -> tauri::Result<()> {
                 }
                 _ => {
                     #[cfg(windows)]
-                    crate::windows_display::handle_menu(app, event.id().as_ref());
+                    crate::windows_display::handle_menu(app, id);
                     #[cfg(target_os = "macos")]
-                    crate::macos_window::handle_display_menu(app, event.id().as_ref());
+                    crate::macos_window::handle_display_menu(app, id);
                 }
             }
         })

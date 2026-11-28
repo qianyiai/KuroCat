@@ -7,13 +7,19 @@ use std::sync::OnceLock;
 pub const DEFAULT_LOCALE: &str = "en-US";
 
 #[allow(dead_code)]
-pub const SHIPPED_LOCALES: [&str; 5] = ["zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR"];
+pub const SHIPPED_LOCALES: [&str; 9] = [
+    "zh-CN", "zh-TW", "en-US", "ja-JP", "ko-KR", "es-ES", "pt-BR", "ru-RU", "de-DE",
+];
 
 const RAW_ZH_CN: &str = include_str!("../../locales/zh-CN.json");
 const RAW_ZH_TW: &str = include_str!("../../locales/zh-TW.json");
 const RAW_EN_US: &str = include_str!("../../locales/en-US.json");
 const RAW_JA_JP: &str = include_str!("../../locales/ja-JP.json");
 const RAW_KO_KR: &str = include_str!("../../locales/ko-KR.json");
+const RAW_ES_ES: &str = include_str!("../../locales/es-ES.json");
+const RAW_PT_BR: &str = include_str!("../../locales/pt-BR.json");
+const RAW_RU_RU: &str = include_str!("../../locales/ru-RU.json");
+const RAW_DE_DE: &str = include_str!("../../locales/de-DE.json");
 
 struct Catalogs {
     maps: BTreeMap<&'static str, BTreeMap<String, String>>,
@@ -57,6 +63,10 @@ fn catalogs() -> &'static Catalogs {
         maps.insert("en-US", parse_catalog(RAW_EN_US));
         maps.insert("ja-JP", parse_catalog(RAW_JA_JP));
         maps.insert("ko-KR", parse_catalog(RAW_KO_KR));
+        maps.insert("es-ES", parse_catalog(RAW_ES_ES));
+        maps.insert("pt-BR", parse_catalog(RAW_PT_BR));
+        maps.insert("ru-RU", parse_catalog(RAW_RU_RU));
+        maps.insert("de-DE", parse_catalog(RAW_DE_DE));
         Catalogs { maps }
     })
 }
@@ -93,6 +103,10 @@ pub fn resolve_locale_tag(raw: &str) -> &'static str {
         }
         "ja" => "ja-JP",
         "ko" => "ko-KR",
+        "es" => "es-ES",
+        "pt" => "pt-BR",
+        "ru" => "ru-RU",
+        "de" => "de-DE",
         "en" => "en-US",
         _ => DEFAULT_LOCALE,
     }
@@ -222,11 +236,15 @@ mod tests {
         assert_eq!(resolve_locale_tag("ja_JP.UTF-8"), "ja-JP");
         assert_eq!(resolve_locale_tag("ko"), "ko-KR");
         assert_eq!(resolve_locale_tag("en-GB"), "en-US");
-        assert_eq!(resolve_locale_tag("de-DE"), "en-US");
+        assert_eq!(resolve_locale_tag("es-MX"), "es-ES");
+        assert_eq!(resolve_locale_tag("pt_PT.UTF-8"), "pt-BR");
+        assert_eq!(resolve_locale_tag("ru-RU"), "ru-RU");
+        assert_eq!(resolve_locale_tag("de-DE"), "de-DE");
+        assert_eq!(resolve_locale_tag("fr-FR"), "en-US");
     }
 
     #[test]
-    fn all_five_locales_have_exact_key_and_placeholder_parity() {
+    fn all_shipped_locales_have_exact_key_and_placeholder_parity() {
         let cats = catalogs();
         let base = cats.maps.get("zh-CN").expect("zh-CN catalog missing");
         let base_keys: BTreeSet<&String> = base.keys().collect();

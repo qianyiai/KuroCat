@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat Tipp-Sync &amp; Passwortschutz</string>
+    <string name="accessibility_service_desc">Synchronisiert den Tipprhythmus mit dem schwebenden Haustier und schützt Passwortfelder automatisch. Liest, speichert oder sendet niemals Text.</string>
+</resources>

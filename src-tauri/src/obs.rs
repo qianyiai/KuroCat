@@ -8,7 +8,7 @@ use crate::cats::all_cats;
 use crate::AppState;
 use serde::Serialize;
 use serde_json::json;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -17,6 +17,32 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const SSE_CLIENT_QUEUE_CAP: usize = 256;
+const LOCAL_WHALE_ASSET: &str = "models/blue-fat-fish.glb";
+const MAX_WHALE_BYTES: u64 = 24 * 1024 * 1024;
+
+// The optional personal model lives outside the application bundle.
+fn local_whale_bytes(app: &AppHandle) -> Option<Vec<u8>> {
+    let path = app.path().app_local_data_dir().ok()?.join(LOCAL_WHALE_ASSET);
+    let file = std::fs::File::open(path).ok()?;
+    let size = file.metadata().ok()?.len();
+    if !(20..=MAX_WHALE_BYTES).contains(&size) {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(size as usize);
+    file.take(MAX_WHALE_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    (bytes.len() == size as usize && bytes.starts_with(b"glTF\x02\x00\x00\x00"))
+        .then_some(bytes)
+}
+
+#[tauri::command]
+pub async fn load_local_whale_avatar(app: AppHandle) -> tauri::ipc::Response {
+    let bytes = tauri::async_runtime::spawn_blocking(move || local_whale_bytes(&app))
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or_default();
+    tauri::ipc::Response::new(bytes)
+}
 
 struct ObsServerControl {
     port: u16,
@@ -28,6 +54,8 @@ static OBS_CLIENTS: OnceLock<Mutex<Vec<mpsc::SyncSender<String>>>> = OnceLock::n
 static OBS_CLIENT_COUNT: AtomicUsize = AtomicUsize::new(0);
 static OBS_PRIVACY_ACTIVE: AtomicBool = AtomicBool::new(false);
 static OBS_GAME_ACTIVE: AtomicBool = AtomicBool::new(false);
+static OBS_TABLET_ACTIVE: AtomicBool = AtomicBool::new(false);
+static OBS_GAMEPAD_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn control_slot() -> &'static Mutex<Option<ObsServerControl>> {
     OBS_CONTROL.get_or_init(|| Mutex::new(None))
@@ -60,6 +88,16 @@ pub fn set_game_active(active: bool, payload_json: &str) {
     broadcast_raw("gameActive", payload_json);
 }
 
+pub fn set_tablet_active(active: bool, payload_json: &str) {
+    OBS_TABLET_ACTIVE.store(active, Ordering::Relaxed);
+    broadcast_raw("tabletActive", payload_json);
+}
+
+pub fn set_gamepad_state(active: bool, payload_json: &str) {
+    OBS_GAMEPAD_ACTIVE.store(active, Ordering::Relaxed);
+    broadcast_raw("gamepad", payload_json);
+}
+
 /// Non-blocking 1ns fast-path broadcast for high-frequency keyboard/mouse events.
 pub fn broadcast_input<T: Serialize>(payload: &T) {
     if OBS_CLIENT_COUNT.load(Ordering::Relaxed) == 0 {
@@ -67,6 +105,16 @@ pub fn broadcast_input<T: Serialize>(payload: &T) {
     }
     if let Ok(json_str) = serde_json::to_string(payload) {
         broadcast_raw("input", &json_str);
+    }
+}
+
+/// Non-blocking 1ns fast-path broadcast for pet interactions & expressions (petting, taps, drags, hotkeys).
+pub fn broadcast_pet_interaction(payload: &serde_json::Value) {
+    if OBS_CLIENT_COUNT.load(Ordering::Relaxed) == 0 {
+        return;
+    }
+    if let Ok(json_str) = serde_json::to_string(payload) {
+        broadcast_raw("petInteraction", &json_str);
     }
 }
 
@@ -96,11 +144,15 @@ fn build_state_snapshot_json(app: &AppHandle) -> String {
     let cats = all_cats();
     let privacy = OBS_PRIVACY_ACTIVE.load(Ordering::Relaxed);
     let game_active = OBS_GAME_ACTIVE.load(Ordering::Relaxed);
+    let tablet_active = OBS_TABLET_ACTIVE.load(Ordering::Relaxed);
+    let gamepad_active = OBS_GAMEPAD_ACTIVE.load(Ordering::Relaxed);
     serde_json::to_string(&json!({
         "settings": settings,
         "cats": cats,
         "privacy": privacy,
         "gameActive": game_active,
+        "tabletActive": tablet_active,
+        "gamepadActive": gamepad_active,
     }))
     .unwrap_or_else(|_| "{}".to_string())
 }
@@ -289,6 +341,22 @@ fn handle_connection(mut stream: TcpStream, app: &AppHandle, running: &Arc<Atomi
     }
 
     let clean_route = raw_path.split('?').next().unwrap_or("/");
+
+    if clean_route == "/obs/models/blue-fat-fish.glb" {
+        let bytes = local_whale_bytes(app);
+        let status = if bytes.is_some() { "200 OK" } else { "404 Not Found" };
+        let body = bytes.as_deref().unwrap_or_default();
+        let _ = write!(
+            stream,
+            "HTTP/1.1 {status}\r\nContent-Type: model/gltf-binary\r\nContent-Length: {}\r\n\
+             Cache-Control: no-store\r\nCross-Origin-Resource-Policy: same-origin\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        if method == "GET" {
+            let _ = stream.write_all(body);
+        }
+        return;
+    }
 
     if clean_route == "/obs/events" {
         handle_sse(stream, app, running);

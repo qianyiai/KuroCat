@@ -423,7 +423,7 @@ export function resolveFurPalette3D(skin: CatSkinConfig, style: RenderStyle3D): 
   }
 }
 
-export type FurPart = 'CAT_BODY' | 'EAR' | 'TAIL' | 'ARM' | 'PAW';
+export type FurPart = 'CAT_BODY' | 'QUADRUPED' | 'EAR' | 'TAIL' | 'ARM' | 'PAW';
 
 /**
  * Unified rest-space GLSL fur shader crafted specifically for KuroCat's
@@ -490,8 +490,14 @@ export class FurShaderSystem {
     if (side < 0) defines.LEFT = 1;
 
     const vertexShader = `
+      #include <morphtarget_pars_vertex>
+      #include <skinning_pars_vertex>
       attribute vec3 rest;
       attribute float along;
+      #ifdef QUADRUPED
+        attribute vec4 quadPart;
+        varying vec4 vQuadPart;
+      #endif
       #ifdef CAT_BODY
         uniform vec4 uBend;
         uniform vec3 uHeadRot;
@@ -501,15 +507,27 @@ export class FurShaderSystem {
       varying vec3 vViewDir;
       varying float vAlong;
       void main() {
-        #if defined(CAT_BODY) || defined(EAR)
+        #if defined(CAT_BODY) || defined(QUADRUPED) || defined(EAR)
           vRest = rest;
         #else
           vRest = position;
         #endif
         vAlong = along;
+        #ifdef QUADRUPED
+          vQuadPart = quadPart;
+        #endif
 
-        vec3 localPos = position;
-        vec3 localNrm = normal;
+        vec3 transformed = position;
+        vec3 objectNormal = normal;
+
+        #include <morphnormal_vertex>
+        #include <morphtarget_vertex>
+        #include <skinbase_vertex>
+        #include <skinnormal_vertex>
+        #include <skinning_vertex>
+
+        vec3 localPos = transformed;
+        vec3 localNrm = objectNormal;
 
         #ifdef CAT_BODY
           const float HEAD_CY = 1.56;
@@ -584,6 +602,9 @@ export class FurShaderSystem {
       varying vec3 vNormal;
       varying vec3 vViewDir;
       varying float vAlong;
+      #ifdef QUADRUPED
+        varying vec4 vQuadPart;
+      #endif
 
       float blob(vec2 p, vec2 c, vec2 r) {
         return 1.0 - smoothstep(0.92, 1.0, length((p - c) / r));
@@ -609,7 +630,7 @@ export class FurShaderSystem {
         float light = 0.0, dark = 0.0, inner = 0.0, point = 0.0;
         float pa = 0.0, pb = 0.0;
 
-        #ifdef CAT_BODY
+        #if defined(CAT_BODY) || defined(QUADRUPED)
           // Unified one-piece KuroCat body+head rest coordinates (y: 0.0 desk -> 1.98 crown, head center at y=1.56)
           vec3 hp = vec3(p.x / 0.62, (p.y - 1.56) / 0.44, p.z / 0.50);
           float headZone = smoothstep(1.22, 1.42, p.y);
@@ -693,8 +714,9 @@ export class FurShaderSystem {
         #endif
 
         #ifdef EAR
-          point = smoothstep(0.02, 0.15, p.y);
-          float rMax = mix(0.24, 0.0, clamp((p.y + 0.05) / 0.36, 0.0, 1.0));
+          float earAbsY = abs(p.y);
+          point = smoothstep(0.02, 0.15, earAbsY);
+          float rMax = mix(0.24, 0.0, clamp((earAbsY + 0.05) / 0.36, 0.0, 1.0));
           inner = (1.0 - smoothstep(0.46, 0.58, abs(p.x) / max(rMax, 0.001)))
                 * smoothstep(0.04, 0.08, p.y)
                 * (1.0 - smoothstep(0.22, 0.25, p.y))
@@ -739,12 +761,41 @@ export class FurShaderSystem {
           }
         #endif
 
+        #ifdef QUADRUPED
+          // Smooth unified quadruped zone blending (legM = x, pawM = y, tailM = z, partAlong = w)
+          float qLeg = vQuadPart.x;
+          float qPaw = vQuadPart.y;
+          float qTail = vQuadPart.z;
+          float qAlong = vQuadPart.w;
+          if (qLeg > 0.005) {
+            float legStripe = rings(qAlong, 3.0, 0.34) * step(0.24, qAlong) * uStripes;
+            dark = mix(dark, legStripe, qLeg);
+            if (uPoints > 0.5 && uTuxedo < 0.5) {
+              // Siamese chocolate stockings
+              point = mix(point, smoothstep(0.18, 0.72, qAlong), qLeg);
+            } else if (uPoints > 0.5 && uTuxedo > 0.5) {
+              // Ragdoll pure snow-white plush legs & mittens
+              light = mix(light, smoothstep(0.06, 0.36, qAlong), qLeg);
+              point *= (1.0 - qLeg * smoothstep(0.04, 0.30, qAlong));
+            }
+          }
+          if (qTail > 0.005) {
+            float tStrip = max(uStripes, uTailStripes);
+            float tDark = max(rings(qAlong, 5.0, 0.40) * step(0.16, qAlong) * tStrip, smoothstep(0.88, 0.91, qAlong) * tStrip);
+            dark = mix(dark, tDark, qTail);
+            pa = mix(pa, rings(qAlong + 0.14, 1.0, 0.32), qTail);
+            pb = mix(pb, 1.0 - rings(qAlong + 0.14, 1.0, 0.32), qTail);
+            point = mix(point, smoothstep(0.0, 0.34, qAlong), qTail);
+            light = mix(light, smoothstep(0.85, 0.90, qAlong) * uTuxedo * (1.0 - uPoints), qTail);
+          }
+        #endif
+
         #ifdef PAW
           col = uPawColor;
         #else
           #ifdef EAR
-            col = mix(col, uEarOuter, uEarOuterAmt * smoothstep(0.0, 0.14, p.y));
-            col = mix(col, uEarTip, uEarTipAmt * smoothstep(0.16, 0.31, p.y));
+            col = mix(col, uEarOuter, uEarOuterAmt * smoothstep(0.0, 0.12, abs(p.y)));
+            col = mix(col, uEarTip, uEarTipAmt * smoothstep(0.16, 0.38, abs(p.y)));
           #endif
           #ifdef ARM
             col = mix(col, uArmColor, uArmColorAmt * smoothstep(0.04, 0.28, vAlong));
@@ -752,12 +803,20 @@ export class FurShaderSystem {
           #ifdef TAIL
             col = mix(col, uTailBase, uTailBaseAmt * smoothstep(0.0, 0.24, vAlong));
           #endif
+          #ifdef QUADRUPED
+            col = mix(col, uArmColor, uArmColorAmt * vQuadPart.x * smoothstep(0.04, 0.28, vQuadPart.w));
+            col = mix(col, uTailBase, uTailBaseAmt * vQuadPart.z * smoothstep(0.0, 0.24, vQuadPart.w));
+          #endif
           col = mix(col, uPatchA, pa * uCalico);
           col = mix(col, uPatchB, pb * uCalico);
           col = mix(col, uPoint, point * uPoints);
           col = mix(col, uDark, dark);
           col = mix(col, uLight, light);
           col = mix(col, uInner, inner * uInnerAmt);
+          #ifdef QUADRUPED
+            col = mix(col, uTailTip, smoothstep(0.70, 0.90, vQuadPart.w) * uTailTipAmt * vQuadPart.z);
+            col = mix(col, uPawColor, vQuadPart.y);
+          #endif
 
           // Full MCP custom spots/birthmarks support on head, body, leftArm, and rightArm!
           if (uSpotCount > 0) {
@@ -770,7 +829,7 @@ export class FurShaderSystem {
               float rot = spMeta.y;
               float smask = 0.0;
 
-              #ifdef CAT_BODY
+              #if defined(CAT_BODY) || defined(QUADRUPED)
                 if (partCode < 0.5) {
                   // Head spot (matches 2D head spot coordinates: +x right, -y up in 3D)
                   vec2 d = vec2(hp.x - spPos.x, hp.y - spPos.y);
@@ -826,7 +885,7 @@ export class FurShaderSystem {
         float fillLit = dot(n, vec3(0.7510, 0.3108, 0.5827));
 
         // Keep crown-to-ear join seamlessly unified in value
-        #ifdef CAT_BODY
+        #if defined(CAT_BODY) || defined(QUADRUPED)
           float earJoin = smoothstep(1.66, 1.94, p.y);
           keyLit = mix(keyLit, max(keyLit, 0.56), earJoin * 0.55);
           // Subtle cozy contact AO right at desk base

@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat 打字聯動與密碼防偷窺</string>
+    <string name="accessibility_service_desc">僅用於在你在其他應用程式打字時同步驅動懸浮小貓/鯨魚娘敲鍵盤，以及偵測到密碼輸入框時自動閉眼/捂眼防偷窺。KuroCat 不會讀取、儲存或上傳任何文字或密碼內容。</string>
+</resources>

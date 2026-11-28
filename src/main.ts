@@ -1,4 +1,6 @@
 import './style.css';
+import type { PadPoint } from './trackpad';
+import { syncDeskOptions } from './deskOptions';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -11,15 +13,20 @@ import {
 } from './catEngine';
 import { catAudio } from './audio';
 import { AgentCompanionController, type AgentCompanionEvent } from './agentCompanion';
+import { applyPetInteraction, type PetInteractionEvent } from './petInteraction';
 import { DEFAULT_BUILTIN_CATS, type CatSkinConfig } from './catSkins';
 import {
   getKeyboardLayout,
+  isKeyboardLayoutId,
+  normalizeKeyboardLayout,
   resolveKeyByVk,
   type KeyboardLayoutDef,
   type KeyboardLayoutId,
   type KeySpec,
 } from './keyboardLayout';
 import type { CollarColorId, KuroCatEngine3D } from './catEngine3d';
+import type { HandoverStageHost } from './handoverStage';
+import { TREAT_FLAVORS, type TreatFlavor, type TreatStatusSnapshot } from './treatTypes';
 import {
   applyDomTranslations,
   isMacPlatform,
@@ -39,15 +46,25 @@ interface AppSettings {
   scale: number;
   opacity?: number;
   alwaysOnTop: boolean;
+  yieldOnFullscreen?: boolean;
   clickThroughLocked: boolean;
   showKeyBubbles: boolean;
   soundEnabled: boolean;
+  idlePurrEnabled?: boolean;
   typingSoundEnabled?: boolean;
+  soundVolume?: number;
+  soundMuted?: boolean;
+  expressionHotkeys?: boolean;
+  pauseHotkey?: string;
   autostart: boolean;
+  autostartAdmin?: boolean;
   catBreed: string;
+  laoWuHandover?: boolean;
   mcpEnabled: boolean;
   mcpPort: number;
   keyboardLayout: KeyboardLayoutId;
+  trackpadEnabled?: boolean;
+  whiteKeyboard?: boolean;
   keyboardOrientation: KeyboardOrientation;
   privacyPasswordGuard: boolean;
   tailKeyMode: TailKeyMode;
@@ -61,14 +78,20 @@ interface AppSettings {
   renderMode?: DesktopRenderMode;
   collarColor?: CollarColorId;
   headphoneMode?: HeadphoneMode;
+  tabletMode?: 'auto' | 'mouse' | 'tablet';
+  gamepadMode?: 'auto' | 'off' | 'on';
+  eyeGazeMode?: 'screen' | 'window';
   fpsCap?: number;
   language?: string;
+  treatFlavor?: TreatFlavor;
+  treatFedCount?: number;
 }
 
 type InputEvent =
   | { kind: 'keyDown'; vk: number; scan: number; repeat: boolean }
   | { kind: 'keyUp'; vk: number; scan: number }
-  | { kind: 'mouseDown'; button: string }
+  | { kind: 'trackpad'; points: PadPoint[] }
+  | { kind: 'mouseDown'; button: string; point?: PadPoint }
   | { kind: 'mouseUp'; button: string }
   | { kind: 'mouseWheel'; delta: number }
   | { kind: 'mouseMove'; x: number; y: number; nx: number; ny: number }
@@ -120,7 +143,7 @@ function saveDismissedVersion(version: string): void {
   }
 }
 
-let appVersion = '5.1.3';
+let appVersion = '5.1.5';
 let latestUpdateInfo: UpdateInfo | null = null;
 let updateBusy = false;
 let dismissedVersion: string | null = loadDismissedVersion();
@@ -130,6 +153,7 @@ const ADMIN_HINT_DISMISSED_KEY = 'kurocat_admin_game_hint_dismissed';
 let adminHintShownThisSession = false;
 let sliderDragging = false;
 let opacitySliderDragging = false;
+let volumeSliderDragging = false;
 let altOverride = false;
 let lastKnownLockState: boolean | null = null;
 let syncWin7OverlayFn: ((focusMenu?: boolean) => void) | null = null;
@@ -147,15 +171,25 @@ let settings: AppSettings = {
   scale: 1,
   opacity: 1,
   alwaysOnTop: true,
+  yieldOnFullscreen: false,
   clickThroughLocked: false,
   showKeyBubbles: true,
   soundEnabled: true,
+  idlePurrEnabled: false,
   typingSoundEnabled: false,
+  soundVolume: 1,
+  soundMuted: false,
+  expressionHotkeys: true,
+  pauseHotkey: 'Alt+Shift+P',
   autostart: false,
+  autostartAdmin: false,
   catBreed: 'black',
+  laoWuHandover: true,
   mcpEnabled: true,
   mcpPort: 27420,
-  keyboardLayout: '65',
+  keyboardLayout: isMacPlatform() ? 'macbook' : '65',
+  trackpadEnabled: false,
+  whiteKeyboard: false,
   keyboardOrientation: 'cat',
   privacyPasswordGuard: true,
   tailKeyMode: 'smart',
@@ -166,8 +200,13 @@ let settings: AppSettings = {
   renderMode: '3d',
   collarColor: 'none',
   headphoneMode: 'off',
+  tabletMode: 'auto',
+  gamepadMode: 'auto',
+  eyeGazeMode: 'screen',
   fpsCap: 0,
   language: 'auto',
+  treatFlavor: 'tuna',
+  treatFedCount: 0,
 };
 
 let catList: CatSkinConfig[] = [...DEFAULT_BUILTIN_CATS];
@@ -175,6 +214,8 @@ let catList: CatSkinConfig[] = [...DEFAULT_BUILTIN_CATS];
 const canvas = document.getElementById('pet-canvas') as HTMLCanvasElement;
 let canvas3d = document.getElementById('pet-canvas-3d') as HTMLCanvasElement;
 let canvas3dMouseDownListener: ((e: MouseEvent) => void) | null = null;
+let canvas3dMouseMoveListener: ((e: MouseEvent) => void) | null = null;
+let canvas3dMouseLeaveListener: (() => void) | null = null;
 let canvas3dContextMenuListener: ((e: MouseEvent) => void) | null = null;
 let canvas3dDblClickListener: (() => void) | null = null;
 let canvas3dDirty = false;
@@ -185,6 +226,9 @@ const scaleSliderEl = document.getElementById('scale-slider') as HTMLInputElemen
 const scaleValueEl = document.getElementById('scale-value') as HTMLButtonElement;
 const opacitySliderEl = document.getElementById('opacity-slider') as HTMLInputElement | null;
 const opacityValueEl = document.getElementById('opacity-value') as HTMLButtonElement | null;
+const volumeSliderEl = document.getElementById('volume-slider') as HTMLInputElement | null;
+const volumeValueEl = document.getElementById('volume-value') as HTMLButtonElement | null;
+const btnVolumeMuteEl = document.getElementById('btn-volume-mute') as HTMLButtonElement | null;
 const updateToastEl = document.getElementById('update-toast') as HTMLDivElement;
 const updateToastTextEl = document.getElementById('update-toast-text') as HTMLSpanElement;
 const btnToastInstallEl = document.getElementById('btn-toast-install') as HTMLButtonElement;
@@ -200,10 +244,179 @@ const btnTailCancelEl = document.getElementById('btn-tail-cancel') as HTMLButton
 const tailModeBadgeEl = document.getElementById('tail-mode-badge') as HTMLSpanElement;
 const tailKeysCountEl = document.getElementById('tail-keys-count') as HTMLSpanElement;
 const agentBubbleEl = document.getElementById('agent-bubble') as HTMLDivElement | null;
+const treatHudPillEl = document.getElementById('treat-hud-pill') as HTMLDivElement | null;
+const treatHudDotEl = document.getElementById('treat-hud-dot') as HTMLSpanElement | null;
+const treatHudTextEl = document.getElementById('treat-hud-text') as HTMLSpanElement | null;
+const treatHudBarFillEl = document.getElementById('treat-hud-bar-fill') as HTMLSpanElement | null;
 const engine = new KuroCatEngine(canvas);
+const isTauriRuntime = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const stageHost: HandoverStageHost | undefined =
+  isTauriRuntime && isWindowsPlatform()
+    ? {
+        begin: (stageId) => invoke('begin_handover_stage', { stageId }),
+        end: (stageId) => invoke('end_handover_stage', { stageId }),
+      }
+    : undefined;
+let appliedCatId: string | null = null;
+let appliedCatSkin: CatSkinConfig | null = null;
 engine.onDeepSleep = () => {
   void invoke('trim_idle_memory').catch(() => {});
 };
+
+let lastPetSyncAt = 0;
+let lastDragVelSyncAt = 0;
+function syncPetInteractionToLive(ev: PetInteractionEvent): void {
+  const now = performance.now();
+  if (ev.kind === 'pet') {
+    if (now - lastPetSyncAt < 140) return;
+    lastPetSyncAt = now;
+  } else if (ev.kind === 'drag' && (typeof ev.vx === 'number' || typeof ev.vy === 'number')) {
+    if (now - lastDragVelSyncAt < 45) return;
+    lastDragVelSyncAt = now;
+  }
+  void invoke('broadcast_pet_interaction', { payload: ev, excludeMain: true }).catch(() => {});
+}
+engine.onInteractionSync = syncPetInteractionToLive;
+
+let treatModeActive = false;
+let treatActiveFlavor: TreatFlavor = 'tuna';
+let treatPointerDown = false;
+let lastTreatClientX = 0;
+let lastTreatClientY = 0;
+let lastTreatDomMoveAt = 0;
+let lastTreatFedCount2d = 0;
+let lastTreatFedCount3d = 0;
+let suppressTreatEndSync = false;
+
+function normalizeTreatFlavor(raw: string | undefined): TreatFlavor {
+  if (raw === 'chicken' || raw === 'salmon' || raw === 'bonito') return raw;
+  return 'tuna';
+}
+
+function getActiveTreatEngine(): KuroCatEngine | KuroCatEngine3D {
+  return active3d && engine3d ? engine3d : engine;
+}
+
+function renderTreatHud(st: TreatStatusSnapshot): void {
+  if (!treatHudPillEl) return;
+  if (!st.active) {
+    if (!treatHudPillEl.classList.contains('hidden')) {
+      treatHudPillEl.classList.add('hidden');
+      syncWin7OverlayFn?.(false);
+    }
+    return;
+  }
+
+  const spec = TREAT_FLAVORS[st.flavor] ?? TREAT_FLAVORS.tuna;
+  const pct = Math.round(Math.max(0, Math.min(1, st.amount)) * 100);
+  if (treatHudDotEl) {
+    treatHudDotEl.style.background = spec.tubePrimary;
+  }
+  if (treatHudBarFillEl) {
+    treatHudBarFillEl.style.width = `${pct}%`;
+    treatHudBarFillEl.style.background = `linear-gradient(90deg, ${spec.tubePrimary}, ${spec.pureeColor})`;
+  }
+  if (treatHudTextEl) {
+    const compact = window.innerWidth < 250;
+    if (st.phase === 'licking') {
+      treatHudTextEl.textContent = compact ? `😋 ${pct}%` : t('toast.treat_hint_licking', { pct });
+    } else if (st.phase === 'impatient') {
+      treatHudTextEl.textContent = compact ? '💢' : t('toast.treat_hint_impatient');
+    } else if (st.phase === 'afterglow') {
+      treatHudTextEl.textContent = compact ? '✨ 💛' : t('toast.treat_hint_afterglow');
+    } else {
+      treatHudTextEl.textContent = compact ? `${spec.icon} ${pct}%` : t('toast.treat_hint_track');
+    }
+  }
+  treatHudPillEl.dataset.phase = st.phase;
+  const wasHidden = treatHudPillEl.classList.contains('hidden');
+  treatHudPillEl.classList.remove('hidden');
+  if (wasHidden) {
+    requestAnimationFrame(() => syncWin7OverlayFn?.(false));
+  }
+}
+
+function cleanupTreatModeDesktop(stopEngines: boolean): void {
+  const wasActive = treatModeActive;
+  treatModeActive = false;
+  treatPointerDown = false;
+  canvas.classList.remove('treat-mode');
+  canvas3d.classList.remove('treat-mode');
+  if (stopEngines) {
+    suppressTreatEndSync = true;
+    engine.stopTreatMode();
+    engine3d?.stopTreatMode();
+    suppressTreatEndSync = false;
+  }
+  if (treatHudPillEl && !treatHudPillEl.classList.contains('hidden')) {
+    treatHudPillEl.classList.add('hidden');
+  }
+  if (wasActive || stopEngines) {
+    void invoke('set_treat_active', { active: false }).catch(() => {});
+  }
+  syncWin7OverlayFn?.(false);
+}
+
+function handleTreatEngineUpdate(source: '2d' | '3d', st: TreatStatusSnapshot): void {
+  if (source === '2d' && st.fedCount > lastTreatFedCount2d) {
+    lastTreatFedCount2d = st.fedCount;
+    void invoke('record_treat_fed', { flavor: st.flavor }).catch(() => {});
+  } else if (source === '3d' && st.fedCount > lastTreatFedCount3d) {
+    lastTreatFedCount3d = st.fedCount;
+    void invoke('record_treat_fed', { flavor: st.flavor }).catch(() => {});
+  }
+
+  const activeSource: '2d' | '3d' = active3d && engine3d ? '3d' : '2d';
+  if (source !== activeSource) return;
+
+  treatActiveFlavor = st.flavor;
+  if (!st.active) {
+    if (suppressTreatEndSync) return;
+    if (treatModeActive) {
+      cleanupTreatModeDesktop(false);
+    } else {
+      renderTreatHud(st);
+    }
+    return;
+  }
+  renderTreatHud(st);
+}
+
+function startTreatModeDesktop(flavor?: string): void {
+  if (privacyActive || settings.catBreed === 'dafeiyu') {
+    void invoke('set_treat_active', { active: false }).catch(() => {});
+    return;
+  }
+  closeContextMenu();
+  if (tailPickerOpen) closeTailPicker();
+  if (engine.getPeekEdge() !== 'none' || (engine3d?.getPeekEdge() ?? 'none') !== 'none') {
+    engine.setPeekEdge('none');
+    engine3d?.setPeekEdge('none');
+    void invoke('set_peek_edge', { edge: 'none' }).catch(() => {});
+  }
+
+  const resolved = normalizeTreatFlavor(flavor ?? settings.treatFlavor);
+  treatActiveFlavor = resolved;
+  treatModeActive = true;
+  treatPointerDown = false;
+  lastTreatDomMoveAt = 0;
+  canvas.classList.add('treat-mode');
+  canvas3d.classList.add('treat-mode');
+  void invoke('set_treat_active', { active: true }).catch(() => {});
+
+  suppressTreatEndSync = true;
+  if (active3d && engine3d) {
+    engine.stopTreatMode();
+    engine3d.startTreatMode(resolved);
+  } else {
+    engine3d?.stopTreatMode();
+    engine.startTreatMode(resolved);
+  }
+  suppressTreatEndSync = false;
+  renderTreatHud(getActiveTreatEngine().getTreatStatus());
+}
+
+engine.onTreatUpdate = (st) => handleTreatEngineUpdate('2d', st);
 
 // Lazy-loaded Three.js 3D engine (NEVER imported when user stays in 2D mode -> +0 MB overhead!)
 let engine3d: KuroCatEngine3D | null = null;
@@ -212,22 +425,37 @@ let dispose3dTimer: number | null = null;
 const IDLE_3D_DISPOSE_MS = 8000;
 let webgl3dUnavailable = false;
 let isWin7Ulw = false;
+let lastPadPoints: readonly PadPoint[] = [];
+let padUnavailable = false;
 let active3d = false;
 let privacyActive = false;
 let gameActive = false;
+let gpuEcoActive = false;
+let tabletActive = false;
+let gamepadActive = false;
 
 const agentCompanion = new AgentCompanionController({
   bubbleEl: agentBubbleEl,
   getTarget: () => (active3d && engine3d ? engine3d : engine),
   is3DTarget: () => Boolean(active3d && engine3d),
-  allowSound: () => settings.soundEnabled !== false,
+  allowSound: () =>
+    settings.soundEnabled !== false &&
+    !settings.soundMuted &&
+    normalizeVolume(settings.soundVolume) > 0.001,
 });
 
 window.addEventListener('resize', () => engine3d?.resize());
+window.addEventListener('pagehide', () => engine3d?.cancelHandover());
 
 function bindCanvas3dListeners(el: HTMLCanvasElement): void {
   if (canvas3dMouseDownListener) {
     el.addEventListener('mousedown', canvas3dMouseDownListener);
+  }
+  if (canvas3dMouseMoveListener) {
+    el.addEventListener('mousemove', canvas3dMouseMoveListener);
+  }
+  if (canvas3dMouseLeaveListener) {
+    el.addEventListener('mouseleave', canvas3dMouseLeaveListener);
   }
   if (canvas3dContextMenuListener) {
     el.addEventListener('contextmenu', canvas3dContextMenuListener);
@@ -322,7 +550,29 @@ function shouldWearHeadphonesNow(): boolean {
       : 'off';
   if (hm === 'on') return true;
   if (hm === 'off') return false;
-  return gameActive;
+  return gameActive || gamepadActive;
+}
+
+function shouldUseTabletNow(): boolean {
+  if (settings.catBreed === 'dafeiyu') return false;
+  const tm =
+    settings.tabletMode === 'mouse' || settings.tabletMode === 'tablet'
+      ? settings.tabletMode
+      : 'auto';
+  if (tm === 'tablet') return true;
+  if (tm === 'mouse') return false;
+  return tabletActive;
+}
+
+function shouldUseGamepadNow(): boolean {
+  if (settings.catBreed === 'dafeiyu') return false;
+  const gm =
+    settings.gamepadMode === 'off' || settings.gamepadMode === 'on'
+      ? settings.gamepadMode
+      : 'auto';
+  if (gm === 'on') return true;
+  if (gm === 'off') return false;
+  return gamepadActive;
 }
 
 function wants3DNow(): boolean {
@@ -338,7 +588,7 @@ function wants3DNow(): boolean {
 function syncEngine3DState(): void {
   if (!engine3d) return;
   const activeCat = catList.find((c) => c.id === settings.catBreed) ?? catList[0];
-  const kbLayout: KeyboardLayoutId = settings.keyboardLayout === '108' ? '108' : '65';
+  const kbLayout: KeyboardLayoutId = normalizeKeyboardLayout(settings.keyboardLayout);
   const kbOrient: KeyboardOrientation = settings.keyboardOrientation === 'viewer' ? 'viewer' : 'cat';
   const tailMode: TailKeyMode =
     settings.tailKeyMode === 'custom' ||
@@ -357,15 +607,21 @@ function syncEngine3DState(): void {
 
   engine3d.showKeyBubbles = settings.showKeyBubbles;
   engine3d.setRenderStyle('3d');
-  if (activeCat) {
+  if (activeCat && !engine3d.isHandoverActive()) {
     engine3d.setCatSkin(activeCat);
   }
-  engine3d.setCollar(collar);
+  engine3d.setCollar(activeCat?.id === 'dafeiyu' ? 'none' : collar);
   engine3d.setHeadphones(shouldWearHeadphonesNow());
-  engine3d.setGameActive(gameActive);
-  engine3d.setKeyboardConfig(kbLayout, kbOrient);
+  engine3d.setTabletActive(shouldUseTabletNow());
+  engine3d.setGamepadActive(shouldUseGamepadNow());
+  engine3d.setGameActive(gameActive || gpuEcoActive);
+  if (!settings.trackpadEnabled) lastPadPoints = [];
+  engine3d.setTrackpad(settings.trackpadEnabled === true);
+  engine3d.onTrackpad(lastPadPoints);
+  engine3d.setKeyboardConfig(kbLayout, kbOrient, settings.whiteKeyboard === true);
   engine3d.setTailKeyConfig(tailMode, tailIds);
   engine3d.setPrivacyMode(privacyActive);
+  engine3d.setEyeGazeMode(settings.eyeGazeMode === 'window' ? 'window' : 'screen');
   engine3d.setFpsCap(settings.fpsCap === 30 ? 30 : 0);
   engine3d.setPeekEdge(engine.getPeekEdge());
   engine3d.resize();
@@ -375,12 +631,23 @@ function activateRenderEngine(): void {
   const want3d = wants3DNow();
   if (!want3d) {
     if (active3d) {
+      if (treatModeActive) {
+        suppressTreatEndSync = true;
+        engine3d?.stopTreatMode();
+        suppressTreatEndSync = false;
+      }
       engine3d?.stop();
       canvas3d.classList.add('hidden');
       canvas.classList.remove('hidden');
       engine.resize();
       engine.start();
       active3d = false;
+      if (treatModeActive) {
+        suppressTreatEndSync = true;
+        engine.startTreatMode(treatActiveFlavor);
+        suppressTreatEndSync = false;
+        renderTreatHud(engine.getTreatStatus());
+      }
     }
     schedule3dDisposeIf2D();
     return;
@@ -395,13 +662,26 @@ function activateRenderEngine(): void {
   if (engine3d) {
     syncEngine3DState();
     if (!active3d) {
+      if (treatModeActive) {
+        suppressTreatEndSync = true;
+        engine.stopTreatMode();
+        suppressTreatEndSync = false;
+      }
       engine.stop();
       engine.releaseCachedResources();
+      canvas.width = 1;
+      canvas.height = 1;
       canvas.classList.add('hidden');
       canvas3d.classList.remove('hidden');
       engine3d.resize();
       engine3d.start();
       active3d = true;
+      if (treatModeActive) {
+        suppressTreatEndSync = true;
+        engine3d.startTreatMode(treatActiveFlavor);
+        suppressTreatEndSync = false;
+        renderTreatHud(engine3d.getTreatStatus());
+      }
     }
     return;
   }
@@ -415,16 +695,19 @@ function activateRenderEngine(): void {
         if (canvas3dDirty) {
           replaceCanvas3d();
         }
-        const created = new KuroCatEngine3D(canvas3d, { embedded: false });
+        const created = new KuroCatEngine3D(canvas3d, { embedded: false, stageHost });
         if (created.isContextLost()) {
           created.dispose();
           replaceCanvas3d();
           throw new Error('WebGL context lost immediately after creation');
         }
         engine3d = created;
+        lastTreatFedCount3d = 0;
         engine3d.onDeepSleep = () => {
           void invoke('trim_idle_memory').catch(() => {});
         };
+        engine3d.onInteractionSync = syncPetInteractionToLive;
+        engine3d.onTreatUpdate = (st) => handleTreatEngineUpdate('3d', st);
         activateRenderEngine();
       })
       .catch((err) => {
@@ -508,6 +791,31 @@ function updateOpacitySliderVisual(opacityVal: number | undefined): void {
   }
 }
 
+function normalizeVolume(volumeVal: number | undefined): number {
+  if (typeof volumeVal !== 'number' || !Number.isFinite(volumeVal)) return 1;
+  const normalized = volumeVal >= 10 && volumeVal <= 100 ? volumeVal / 100 : volumeVal;
+  return Math.max(0, Math.min(1, normalized));
+}
+
+function updateVolumeSliderVisual(volumeVal: number | undefined, mutedFlag: boolean | undefined): void {
+  const norm = normalizeVolume(volumeVal);
+  const pctNum = Math.round(norm * 100);
+  const effectivelyMuted = Boolean(mutedFlag) || pctNum === 0;
+  if (volumeSliderEl) {
+    volumeSliderEl.value = String(pctNum);
+    volumeSliderEl.style.setProperty('--pct', `${pctNum}%`);
+    volumeSliderEl.classList.toggle('is-muted', effectivelyMuted);
+  }
+  if (volumeValueEl) {
+    volumeValueEl.textContent = effectivelyMuted ? t('menu.muted_short') : `${pctNum}%`;
+    volumeValueEl.classList.toggle('is-muted', effectivelyMuted);
+  }
+  if (btnVolumeMuteEl) {
+    btnVolumeMuteEl.classList.toggle('is-muted', effectivelyMuted);
+    btnVolumeMuteEl.setAttribute('aria-pressed', effectivelyMuted ? 'true' : 'false');
+  }
+}
+
 function applyPetOpacity(opacityVal: number | undefined): void {
   const clamped = normalizeOpacity(opacityVal);
   // On Win7/8 ULW mode, transparency is composited natively via UpdateLayeredWindow
@@ -542,9 +850,20 @@ function syncMenuUI(): void {
   setCheck('chk-bubbles', settings.showKeyBubbles);
   setCheck('chk-lock', settings.clickThroughLocked);
   setCheck('chk-sound', settings.soundEnabled);
+  setCheck('chk-idle-purr', Boolean(settings.idlePurrEnabled));
   setCheck('chk-typing-sound', Boolean(settings.typingSoundEnabled));
+  document
+    .getElementById('chk-switch-animation')
+    ?.setAttribute('aria-checked', String(settings.laoWuHandover !== false));
+  setCheck('chk-mute', Boolean(settings.soundMuted) || normalizeVolume(settings.soundVolume) <= 0.001);
   setCheck('chk-top', settings.alwaysOnTop);
+  setCheck('chk-yield-fullscreen', Boolean(settings.yieldOnFullscreen));
   setCheck('chk-autostart', settings.autostart);
+  setCheck('chk-autostart-admin', Boolean(settings.autostart && settings.autostartAdmin));
+  const btnAutostartAdmin = document.getElementById('btn-autostart-admin') as HTMLButtonElement | null;
+  if (btnAutostartAdmin) {
+    btnAutostartAdmin.classList.toggle('hidden', !adminStatus.supported);
+  }
   setCheck('chk-mcp', settings.mcpEnabled);
 
   if (!sliderDragging) {
@@ -554,8 +873,11 @@ function syncMenuUI(): void {
     updateOpacitySliderVisual(settings.opacity);
     applyPetOpacity(settings.opacity);
   }
+  if (!volumeSliderDragging) {
+    updateVolumeSliderVisual(settings.soundVolume, settings.soundMuted);
+  }
 
-  const kbLayout: KeyboardLayoutId = settings.keyboardLayout === '108' ? '108' : '65';
+  const kbLayout: KeyboardLayoutId = normalizeKeyboardLayout(settings.keyboardLayout);
   const kbOrient: KeyboardOrientation = settings.keyboardOrientation === 'viewer' ? 'viewer' : 'cat';
   const tailMode: TailKeyMode =
     settings.tailKeyMode === 'custom' ||
@@ -565,6 +887,7 @@ function syncMenuUI(): void {
       : 'smart';
   const tailIds = Array.isArray(settings.tailKeyIds) ? settings.tailKeyIds : [...DEFAULT_TAIL_KEY_IDS];
 
+  syncDeskOptions(settings, isMacPlatform(), padUnavailable);
   document.querySelectorAll<HTMLButtonElement>('[data-kblayout]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.kblayout === kbLayout);
   });
@@ -605,13 +928,21 @@ function syncMenuUI(): void {
   document.querySelectorAll<HTMLButtonElement>('[data-collar]').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.collar === collarColor);
   });
+  const isDafeiyu = settings.catBreed === 'dafeiyu';
+  if (isDafeiyu && treatModeActive) {
+    cleanupTreatModeDesktop(true);
+  }
+  const legacyTreatBtnEl = document.getElementById('btn-legacy-feed-treat');
+  if (legacyTreatBtnEl) {
+    legacyTreatBtnEl.classList.toggle('hidden', isDafeiyu);
+  }
   const renderModeRowEl = document.getElementById('render-mode-row');
   if (renderModeRowEl) {
-    renderModeRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+    renderModeRowEl.classList.toggle('hidden', isDafeiyu);
   }
   const collarRowEl = document.getElementById('collar-row');
   if (collarRowEl) {
-    collarRowEl.classList.toggle('hidden', renderMode === '2d' || settings.catBreed === 'dafeiyu');
+    collarRowEl.classList.toggle('hidden', renderMode === '2d' || isDafeiyu);
   }
 
   const headphoneMode: HeadphoneMode =
@@ -624,6 +955,39 @@ function syncMenuUI(): void {
   const headphoneRowEl = document.getElementById('headphone-row');
   if (headphoneRowEl) {
     headphoneRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+  }
+
+  const tabletMode =
+    settings.tabletMode === 'mouse' || settings.tabletMode === 'tablet'
+      ? settings.tabletMode
+      : 'auto';
+  document.querySelectorAll<HTMLButtonElement>('[data-tabletmode]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.tabletmode === tabletMode);
+  });
+  const tabletRowEl = document.getElementById('tablet-row');
+  if (tabletRowEl) {
+    tabletRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+  }
+
+  const gamepadMode =
+    settings.gamepadMode === 'off' || settings.gamepadMode === 'on'
+      ? settings.gamepadMode
+      : 'auto';
+  document.querySelectorAll<HTMLButtonElement>('[data-gamepadmode]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.gamepadmode === gamepadMode);
+  });
+
+  const eyeGazeMode: 'screen' | 'window' = settings.eyeGazeMode === 'window' ? 'window' : 'screen';
+  document.querySelectorAll<HTMLButtonElement>('[data-eyegazemode]').forEach((btn) => {
+    btn.classList.toggle('active', btn.dataset.eyegazemode === eyeGazeMode);
+  });
+  const eyeGazeRowEl = document.getElementById('eye-gaze-row');
+  if (eyeGazeRowEl) {
+    eyeGazeRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
+  }
+  const gamepadRowEl = document.getElementById('gamepad-row');
+  if (gamepadRowEl) {
+    gamepadRowEl.classList.toggle('hidden', settings.catBreed === 'dafeiyu');
   }
 
   const headerEl = document.getElementById('menu-header');
@@ -639,16 +1003,59 @@ function syncMenuUI(): void {
 
   const fpsCapNum = settings.fpsCap === 30 ? 30 : 0;
   engine.showKeyBubbles = settings.showKeyBubbles;
-  engine.setCatAppearance(activeCat?.id || 'black', activeCat);
+  const nextCatId = activeCat?.id || 'black';
+  const prevCatId = appliedCatId;
+  const prevCatSkin = appliedCatSkin;
+  const breedChanged = prevCatId !== null && prevCatId !== nextCatId;
+  const draggingNow =
+    canvas.classList.contains('pet-dragging') || canvas3d.classList.contains('pet-dragging');
+  const peekingNow =
+    engine.getPeekEdge() !== 'none' || (engine3d?.getPeekEdge() ?? 'none') !== 'none';
+  const allowHandover =
+    settings.laoWuHandover !== false &&
+    !privacyActive &&
+    !tailPickerOpen &&
+    !treatModeActive &&
+    !draggingNow &&
+    !peekingNow;
+
+  engine.setCatAppearance(nextCatId, activeCat);
+  if (!allowHandover || !wants3DNow()) {
+    engine3d?.cancelHandover();
+  } else if (
+    breedChanged &&
+    active3d &&
+    engine3d &&
+    !engine3d.isContextLost() &&
+    prevCatId !== 'dafeiyu' &&
+    activeCat
+  ) {
+    engine3d.transitionToSkin(activeCat, prevCatSkin ?? undefined);
+  }
+  appliedCatId = nextCatId;
+  appliedCatSkin = activeCat ? { ...activeCat } : null;
+
   engine.setHeadphones(shouldWearHeadphonesNow());
-  engine.setKeyboardConfig(kbLayout, kbOrient);
+  engine.setTabletActive(shouldUseTabletNow());
+  engine3d?.setTabletActive(shouldUseTabletNow());
+  engine.setGamepadActive(shouldUseGamepadNow());
+  engine3d?.setGamepadActive(shouldUseGamepadNow());
+  if (!settings.trackpadEnabled) lastPadPoints = [];
+  engine.setTrackpad(settings.trackpadEnabled === true);
+  engine.onTrackpad(lastPadPoints);
+  engine.setKeyboardConfig(kbLayout, kbOrient, settings.whiteKeyboard === true);
   engine.setTailKeyConfig(tailMode, tailIds);
+  engine.setEyeGazeMode(eyeGazeMode);
+  engine3d?.setEyeGazeMode(eyeGazeMode);
   engine.setFpsCap(fpsCapNum);
   engine3d?.setFpsCap(fpsCapNum);
   if (!sliderDragging) {
     engine.setRenderScale(settings.scale);
   }
+  catAudio.setMasterVolume(normalizeVolume(settings.soundVolume));
+  catAudio.setMuted(Boolean(settings.soundMuted));
   catAudio.setEnabled(settings.soundEnabled);
+  catAudio.setIdlePurrEnabled(Boolean(settings.idlePurrEnabled));
   catAudio.setTypingSoundEnabled(Boolean(settings.typingSoundEnabled));
   activateRenderEngine();
   if (tailPickerOpen) syncTailPickerSelection();
@@ -703,6 +1110,9 @@ function closeContextMenu(): void {
 }
 
 function openContextMenu(clientX: number, clientY: number): void {
+  if (treatModeActive) {
+    cleanupTreatModeDesktop(true);
+  }
   // Always pop the dedicated non-overlapping side menu window beside the cat so it NEVER blocks the pet!
   if (!menuEl.classList.contains('hidden')) {
     menuEl.classList.add('hidden');
@@ -725,6 +1135,9 @@ function openContextMenu(clientX: number, clientY: number): void {
 
 async function openTailPicker(): Promise<void> {
   if (tailPickerOpen || tailPickerLoading) return;
+  if (treatModeActive) {
+    cleanupTreatModeDesktop(true);
+  }
   tailPickerLoading = true;
   try {
     settings = await invoke<AppSettings>('get_settings');
@@ -1207,6 +1620,15 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  if (isMacPlatform()) {
+    await listen<boolean>('kuro-trackpad-unavailable', (ev) => {
+      padUnavailable = ev.payload;
+      syncMenuUI();
+    });
+    padUnavailable = await invoke<boolean>('trackpad_unavailable').catch(() => false);
+    syncMenuUI();
+  }
+
   if (scaleSliderEl) {
     scaleSliderEl.addEventListener('pointerdown', () => {
       sliderDragging = true;
@@ -1270,6 +1692,44 @@ async function bootstrap(): Promise<void> {
     });
   }
 
+  if (volumeSliderEl) {
+    volumeSliderEl.addEventListener('pointerdown', () => {
+      volumeSliderDragging = true;
+    });
+    volumeSliderEl.addEventListener('input', () => {
+      volumeSliderDragging = true;
+      const nextVol = Math.max(0, Math.min(1, Number(volumeSliderEl.value) / 100));
+      const nextMuted = nextVol <= 0.001;
+      updateVolumeSliderVisual(nextVol, nextMuted);
+      catAudio.setMasterVolume(nextVol);
+      catAudio.setMuted(nextMuted);
+    });
+    const commitSliderVolume = () => {
+      volumeSliderDragging = false;
+      const nextVol = Math.max(0, Math.min(1, Number(volumeSliderEl.value) / 100));
+      const nextMuted = nextVol <= 0.001;
+      void applySettingsPatch({ soundVolume: nextVol, soundMuted: nextMuted });
+    };
+    volumeSliderEl.addEventListener('change', commitSliderVolume);
+    volumeSliderEl.addEventListener('pointerup', () => {
+      volumeSliderDragging = false;
+    });
+  }
+
+  if (volumeValueEl) {
+    volumeValueEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      volumeSliderDragging = false;
+      const curVol = normalizeVolume(settings.soundVolume);
+      const currentlyMuted = Boolean(settings.soundMuted) || curVol <= 0.001;
+      const nextVol = currentlyMuted ? (curVol <= 0.001 ? 1.0 : curVol) : 1.0;
+      updateVolumeSliderVisual(nextVol, false);
+      catAudio.setMasterVolume(nextVol);
+      catAudio.setMuted(false);
+      void applySettingsPatch({ soundVolume: nextVol, soundMuted: false });
+    });
+  }
+
   await listen<AppSettings>('kuro-settings', (ev) => {
     const prevLock = lastKnownLockState;
     const prevRenderMode = settings.renderMode;
@@ -1306,6 +1766,28 @@ async function bootstrap(): Promise<void> {
     void openTailPicker();
   });
 
+  await listen<{ action?: string; flavor?: string }>('kuro-treat-feed', (ev) => {
+    if (ev.payload?.action === 'stop') {
+      cleanupTreatModeDesktop(true);
+    } else {
+      startTreatModeDesktop(ev.payload?.flavor);
+    }
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!treatModeActive) return;
+    lastTreatDomMoveAt = performance.now();
+    lastTreatClientX = e.clientX;
+    lastTreatClientY = e.clientY;
+    getActiveTreatEngine().setTreatPointer(e.clientX, e.clientY, treatPointerDown);
+  });
+
+  window.addEventListener('mouseup', (e) => {
+    if (!treatModeActive || e.button !== 0 || !treatPointerDown) return;
+    treatPointerDown = false;
+    getActiveTreatEngine().setTreatPointer(e.clientX, e.clientY, false);
+  });
+
   await listen<number>('kuro-scale-preview', (ev) => {
     if (typeof ev.payload === 'number' && Number.isFinite(ev.payload)) {
       engine.setRenderScale(Math.max(0.2, Math.min(1.5, ev.payload)));
@@ -1315,6 +1797,16 @@ async function bootstrap(): Promise<void> {
   await listen<number>('kuro-opacity-preview', (ev) => {
     if (typeof ev.payload === 'number' && Number.isFinite(ev.payload)) {
       applyPetOpacity(ev.payload);
+    }
+  });
+
+  await listen<{ volume?: number; muted?: boolean }>('kuro-volume-preview', (ev) => {
+    if (!ev.payload) return;
+    if (typeof ev.payload.volume === 'number' && Number.isFinite(ev.payload.volume)) {
+      catAudio.setMasterVolume(normalizeVolume(ev.payload.volume));
+    }
+    if (typeof ev.payload.muted === 'boolean') {
+      catAudio.setMuted(ev.payload.muted);
     }
   });
 
@@ -1346,12 +1838,56 @@ async function bootstrap(): Promise<void> {
   });
 
   let lastDragGlobalX: number | null = null;
+  let lastDragGlobalY: number | null = null;
   let dragInFlight = false;
   let nativeDragActive = false;
   let cancelPendingTapVsDrag: (() => void) | null = null;
+  let completePendingTapOnGlobalMouseUp: (() => void) | null = null;
+  let lastCatTapAt = 0;
+  let lastAgentMouseInputAt = 0;
+  let lastPointerClientX = -1;
+  let lastPointerClientY = -1;
+  let lastKbKeyHover = false;
+  let activeVirtualKeyVk: number | null = null;
+  let virtualKeyAutoReleaseTimer: number | null = null;
+  let lastVirtualKeyDownAt = 0;
+  let suppressGlobalLeftMouseUp = false;
+
+  const syncKeyboardHoverCursor = (overKey: boolean) => {
+    if (overKey === lastKbKeyHover) return;
+    lastKbKeyHover = overKey;
+    canvas.classList.toggle('kb-key-hover', overKey);
+    canvas3d.classList.toggle('kb-key-hover', overKey);
+  };
+
+  const hitTestClickableKey = (
+    clientX: number,
+    clientY: number,
+    altKey = false,
+  ): KeySpec | null => {
+    if (
+      privacyActive ||
+      treatModeActive ||
+      tailPickerOpen ||
+      nativeDragActive ||
+      dragInFlight ||
+      shouldUseGamepadNow()
+    ) {
+      return null;
+    }
+    if (settings.clickThroughLocked && !altOverride && !altKey) return null;
+    if (!Number.isFinite(clientX) || !Number.isFinite(clientY) || clientX < 0 || clientY < 0) {
+      return null;
+    }
+    const hit =
+      active3d && engine3d
+        ? engine3d.hitTestKeyAtClientPoint(clientX, clientY)
+        : engine.hitTestKeyAtClientPoint(clientX, clientY);
+    return hit && hit.vkCodes.length > 0 ? hit : null;
+  };
 
   const computeKeySoundPan = (vk: number): number => {
-    const kbLayout: KeyboardLayoutId = settings.keyboardLayout === '108' ? '108' : '65';
+    const kbLayout: KeyboardLayoutId = normalizeKeyboardLayout(settings.keyboardLayout);
     const spec = resolveKeyByVk(vk, kbLayout);
     if (!spec) return 0;
     const layout = getKeyboardLayout(kbLayout);
@@ -1360,11 +1896,63 @@ async function bootstrap(): Promise<void> {
     return (normX * 2 - 1) * 0.35;
   };
 
+  const releaseVirtualKey = (silent = false) => {
+    if (virtualKeyAutoReleaseTimer !== null) {
+      window.clearTimeout(virtualKeyAutoReleaseTimer);
+      virtualKeyAutoReleaseTimer = null;
+    }
+    const vk = activeVirtualKeyVk;
+    if (vk === null) return;
+    activeVirtualKeyVk = null;
+    if (!silent && settings.typingSoundEnabled) {
+      catAudio.playKeyUp(vk, computeKeySoundPan(vk));
+    }
+    if (active3d && engine3d) engine3d.onKeyUp(vk);
+    engine.onKeyUp(vk);
+  };
+
+  const pressVirtualKey = (spec: KeySpec, autoReleaseMs?: number) => {
+    const vk = spec.vkCodes[0];
+    if (typeof vk !== 'number') return;
+    releaseVirtualKey(true);
+    activeVirtualKeyVk = vk;
+    lastVirtualKeyDownAt = performance.now();
+    agentCompanion.notifyRealUserInput();
+    if (settings.typingSoundEnabled) {
+      catAudio.playKeyDown(vk, computeKeySoundPan(vk));
+    }
+    if (active3d && engine3d) engine3d.onKeyDown(vk, false, true);
+    else engine.onKeyDown(vk, false, true);
+    if (typeof autoReleaseMs === 'number' && autoReleaseMs > 0) {
+      virtualKeyAutoReleaseTimer = window.setTimeout(() => {
+        virtualKeyAutoReleaseTimer = null;
+        releaseVirtualKey(false);
+      }, autoReleaseMs);
+    }
+  };
+
+  const fireCatTap = (clientX: number, clientY: number) => {
+    const now = performance.now();
+    if (now - lastCatTapAt < 140) return;
+    lastCatTapAt = now;
+    const zone =
+      active3d && engine3d
+        ? engine3d.onCatTapAtClientPoint(clientX, clientY)
+        : engine.onCatTapAtClientPoint(clientX, clientY);
+    if (zone && !privacyActive) {
+      syncPetInteractionToLive({ kind: 'tap', zone });
+    }
+  };
+
   await listen<InputEvent>('kuro-input', (ev) => {
     const p = ev.payload;
     switch (p.kind) {
       case 'keyDown':
         agentCompanion.notifyRealUserInput();
+        if (treatModeActive && p.vk === 27) {
+          cleanupTreatModeDesktop(true);
+          break;
+        }
         if (tailPickerOpen) {
           if (!p.repeat) {
             const spec = resolveKeyByVk(p.vk, settings.keyboardLayout);
@@ -1389,14 +1977,33 @@ async function bootstrap(): Promise<void> {
           engine.onKeyUp(p.vk);
         }
         break;
+      case 'trackpad':
+        lastPadPoints = p.points;
+        if (active3d && engine3d) engine3d.onTrackpad(p.points);
+        else engine.onTrackpad(p.points);
+        break;
       case 'mouseMove': {
+        const moveNow = performance.now();
+        if (moveNow - lastAgentMouseInputAt >= 180) {
+          lastAgentMouseInputAt = moveNow;
+          agentCompanion.notifyRealUserInput();
+        }
         if (canvas.classList.contains('pet-dragging') || canvas3d.classList.contains('pet-dragging')) {
+          const hasPx = Number.isFinite(p.x) && Number.isFinite(p.y);
+          const curX = hasPx ? p.x : p.nx;
+          const curY = hasPx ? p.y : p.ny;
           const prevX = lastDragGlobalX;
-          lastDragGlobalX = p.nx;
-          if (prevX !== null) {
-            const vx = (p.nx - prevX) * 68;
-            if (active3d && engine3d) engine3d.updateDragVelocity(vx);
-            else engine.updateDragVelocity(vx);
+          const prevY = lastDragGlobalY;
+          lastDragGlobalX = curX;
+          lastDragGlobalY = curY;
+          if (prevX !== null && prevY !== null) {
+            const vx = hasPx ? (curX - prevX) / 28 : (curX - prevX) * 68;
+            const vy = hasPx ? (curY - prevY) / 28 : (curY - prevY) * 40;
+            if (active3d && engine3d) engine3d.updateDragVelocity(vx, vy);
+            else engine.updateDragVelocity(vx, vy);
+            if (!privacyActive) {
+              syncPetInteractionToLive({ kind: 'drag', active: true, vx, vy });
+            }
           }
         }
         if (active3d && engine3d) engine3d.onGlobalMouseMove(p.nx, p.ny);
@@ -1405,16 +2012,39 @@ async function bootstrap(): Promise<void> {
       }
       case 'mouseDown':
         agentCompanion.notifyRealUserInput();
+        if (
+          p.button === 'left' &&
+          hitTestClickableKey(lastPointerClientX, lastPointerClientY, altOverride) !== null
+        ) {
+          // Clicking KuroCat's own desktop keyboard triggers pure visual/audio key animation
+          // without hijacking the cat's left paw onto the desk mouse or double-playing mouse click SFX.
+          suppressGlobalLeftMouseUp = true;
+          break;
+        }
         if (settings.typingSoundEnabled) {
           catAudio.playMouseDown(p.button);
         }
-        if (active3d && engine3d) engine3d.onMouseDown(p.button);
-        else engine.onMouseDown(p.button);
+        if (active3d && engine3d) engine3d.onMouseDown(p.button, p.point);
+        else engine.onMouseDown(p.button, p.point);
         break;
       case 'mouseUp':
         if (p.button === 'left') {
+          if (treatModeActive && treatPointerDown) {
+            treatPointerDown = false;
+            getActiveTreatEngine().setTreatPointer(lastTreatClientX, lastTreatClientY, false);
+          }
           resolveLinuxMouseUp?.();
-          cancelPendingTapVsDrag?.();
+          // IMPORTANT: Do NOT cancel pending tap here! The global OS hook delivers `mouseUp`
+          // BEFORE WebView2/WKWebView dispatches DOM `mouseup`, so cancelling killed every tap.
+          // Instead, disarm the drag hold timer and complete the tap if DOM `mouseup` is dropped.
+          completePendingTapOnGlobalMouseUp?.();
+          if (activeVirtualKeyVk !== null && virtualKeyAutoReleaseTimer === null) {
+            releaseVirtualKey(false);
+          }
+          if (suppressGlobalLeftMouseUp) {
+            suppressGlobalLeftMouseUp = false;
+            break;
+          }
         }
         if (settings.typingSoundEnabled) {
           catAudio.playMouseUp(p.button);
@@ -1423,6 +2053,7 @@ async function bootstrap(): Promise<void> {
         else engine.onMouseUp(p.button);
         break;
       case 'mouseWheel':
+        agentCompanion.notifyRealUserInput();
         if (active3d && engine3d) engine3d.onMouseWheel();
         else engine.onMouseWheel();
         break;
@@ -1433,8 +2064,19 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  await listen<{ stageId: number }>('kuro-handover-stage-cancelled', (ev) => {
+    engine3d?.onDesktopStageCancelled(ev.payload.stageId);
+  });
+
   await listen<boolean>('kuro-privacy', (ev) => {
     privacyActive = Boolean(ev.payload);
+    if (privacyActive) {
+      releaseVirtualKey(true);
+      syncKeyboardHoverCursor(false);
+      if (treatModeActive) {
+        cleanupTreatModeDesktop(true);
+      }
+    }
     engine.setPrivacyMode(privacyActive);
     engine3d?.setPrivacyMode(privacyActive);
     agentCompanion.setPrivacyMode(privacyActive);
@@ -1442,6 +2084,11 @@ async function bootstrap(): Promise<void> {
 
   await listen<AgentCompanionEvent>('kuro-agent-event', (ev) => {
     agentCompanion.handleEvent(ev.payload);
+  });
+
+  await listen<PetInteractionEvent>('kuro-pet-interaction', (ev) => {
+    if (!ev.payload || privacyActive) return;
+    applyPetInteraction(active3d && engine3d ? engine3d : engine, Boolean(active3d && engine3d), ev.payload);
   });
 
   await listen<string>('kuro-peek-edge', (ev) => {
@@ -1458,6 +2105,26 @@ async function bootstrap(): Promise<void> {
     engine3d?.setPeekPreview(edge);
   });
 
+  await listen<{ clientX?: number; clientY?: number }>('kuro-native-tap', (ev) => {
+    if (treatModeActive || tailPickerOpen || nativeDragActive || dragInFlight) return;
+    if (settings.clickThroughLocked && !altOverride) return;
+    const cx = Number(ev.payload?.clientX);
+    const cy = Number(ev.payload?.clientY);
+    if (!Number.isFinite(cx) || !Number.isFinite(cy)) return;
+    // Wait briefly so any normal DOM mousedown/mouseup runs first; deduplicated cleanly.
+    window.setTimeout(() => {
+      if (treatModeActive || tailPickerOpen || nativeDragActive || dragInFlight) return;
+      if (settings.clickThroughLocked && !altOverride) return;
+      if (performance.now() - lastVirtualKeyDownAt < 380) return;
+      const keyHit = hitTestClickableKey(cx, cy, altOverride);
+      if (keyHit) {
+        pressVirtualKey(keyHit, 110);
+        return;
+      }
+      fireCatTap(cx, cy);
+    }, 32);
+  });
+
   await listen<boolean>('kuro-native-drag', (ev) => {
     const active = Boolean(ev.payload);
     nativeDragActive = active;
@@ -1466,6 +2133,7 @@ async function bootstrap(): Promise<void> {
       // cancel any armed JS tap detector and enter scruff-lift + velocity sway seamlessly!
       cancelPendingTapVsDrag?.();
       lastDragGlobalX = null;
+      lastDragGlobalY = null;
       canvas.classList.add('pet-dragging');
       canvas3d.classList.add('pet-dragging');
       engine.setPeekPreview('none');
@@ -1476,14 +2144,17 @@ async function bootstrap(): Promise<void> {
       }
       if (active3d && engine3d) engine3d.setDragging(true);
       else engine.setDragging(true);
+      if (!privacyActive) syncPetInteractionToLive({ kind: 'drag', active: true });
     } else if (!dragInFlight) {
       lastDragGlobalX = null;
+      lastDragGlobalY = null;
       canvas.classList.remove('pet-dragging');
       canvas3d.classList.remove('pet-dragging');
       engine.setDragging(false);
       engine3d?.setDragging(false);
       engine.onMouseUp('left');
       engine3d?.onMouseUp('left');
+      syncPetInteractionToLive({ kind: 'drag', active: false });
     }
   });
 
@@ -1498,11 +2169,69 @@ async function bootstrap(): Promise<void> {
     // non-Tauri or older backend
   }
 
-  await listen<{ active?: boolean; gameName?: string | null; needsAdmin?: boolean }>('kuro-game-active', (ev) => {
-    gameActive = Boolean(ev.payload?.active);
+  try {
+    tabletActive = await invoke<boolean>('get_tablet_active');
+    const useTablet = shouldUseTabletNow();
+    engine.setTabletActive(useTablet);
+    engine3d?.setTabletActive(useTablet);
+  } catch {
+    // non-Tauri or older backend
+  }
+
+  await listen<{ active?: boolean; source?: string | null }>('kuro-tablet-active', (ev) => {
+    tabletActive = Boolean(ev.payload?.active);
+    const useTablet = shouldUseTabletNow();
+    engine.setTabletActive(useTablet);
+    engine3d?.setTabletActive(useTablet);
+  });
+
+  try {
+    gamepadActive = await invoke<boolean>('get_gamepad_active');
+    const useGp = shouldUseGamepadNow();
+    engine.setGamepadActive(useGp);
+    engine3d?.setGamepadActive(useGp);
     const wearNow = shouldWearHeadphonesNow();
-    engine.setGameActive(gameActive);
-    engine3d?.setGameActive(gameActive);
+    engine.setHeadphones(wearNow);
+    engine3d?.setHeadphones(wearNow);
+  } catch {
+    // non-Tauri or older backend
+  }
+
+  await listen<{
+    active?: boolean;
+    lx: number;
+    ly: number;
+    rx: number;
+    ry: number;
+    lt: number;
+    rt: number;
+    buttons: number;
+  }>('kuro-gamepad', (ev) => {
+    const p = ev.payload;
+    if (!p) return;
+    const prevActive = gamepadActive;
+    gamepadActive = Boolean(p.active);
+    if (gamepadActive !== prevActive) {
+      const useGp = shouldUseGamepadNow();
+      engine.setGamepadActive(useGp);
+      engine3d?.setGamepadActive(useGp);
+      const wearNow = shouldWearHeadphonesNow();
+      engine.setHeadphones(wearNow);
+      engine3d?.setHeadphones(wearNow);
+    }
+    if (shouldUseGamepadNow()) {
+      agentCompanion.notifyRealUserInput();
+      if (active3d && engine3d) engine3d.onGamepadState(p);
+      else engine.onGamepadState(p);
+    }
+  });
+
+  await listen<{ active?: boolean; gameName?: string | null; needsAdmin?: boolean; gpuEco?: boolean }>('kuro-game-active', (ev) => {
+    gameActive = Boolean(ev.payload?.active);
+    gpuEcoActive = Boolean(ev.payload?.gpuEco) || gameActive;
+    const wearNow = shouldWearHeadphonesNow();
+    engine.setGameActive(gameActive || gpuEcoActive);
+    engine3d?.setGameActive(gameActive || gpuEcoActive);
     engine.setHeadphones(wearNow);
     engine3d?.setHeadphones(wearNow);
 
@@ -1524,9 +2253,30 @@ async function bootstrap(): Promise<void> {
   });
 
   let lastPetHover = false;
+  let lastBackendCursorAt = 0;
   await listen<WindowCursorInfo>('kuro-cursor', (ev) => {
+    lastBackendCursorAt = performance.now();
     const c = ev.payload;
     altOverride = Boolean(c.altOverride);
+    const target = active3d && engine3d ? canvas3d : canvas;
+    const rect = target.getBoundingClientRect();
+    const hasRect = rect.width >= 4 && rect.height >= 4;
+    if (c.insideWindow && hasRect) {
+      const cx = rect.left + c.relX * rect.width;
+      const cy = rect.top + c.relY * rect.height;
+      lastPointerClientX = cx;
+      lastPointerClientY = cy;
+      if (treatModeActive && performance.now() - lastTreatDomMoveAt > 60) {
+        lastTreatClientX = cx;
+        lastTreatClientY = cy;
+        getActiveTreatEngine().setTreatPointer(cx, cy, treatPointerDown);
+      }
+      syncKeyboardHoverCursor(hitTestClickableKey(cx, cy, altOverride) !== null);
+    } else {
+      lastPointerClientX = -1;
+      lastPointerClientY = -1;
+      syncKeyboardHoverCursor(false);
+    }
     if (active3d && engine3d) engine3d.onWindowCursor(c.relX, c.relY, c.overCat);
     else engine.onWindowCursor(c.relX, c.relY, c.overCat);
     const interactive = !settings.clickThroughLocked || altOverride;
@@ -1538,18 +2288,69 @@ async function bootstrap(): Promise<void> {
     }
   });
 
-  canvas.addEventListener('mousemove', (e) => {
-    if (!tailPickerOpen) return;
-    const hit = engine.hitTestKeyAtClientPoint(e.clientX, e.clientY);
-    engine.setTailPickerHover(hit ? hit.id : null);
-    canvas.classList.toggle('tail-key-hover', Boolean(hit));
-  });
+  // Pure-Wayland / XWayland local pointer fallback: when backend global cursor polling
+  // (`kuro-cursor`) is silent for >500ms, keep eye tracking and hover petting responsive via DOM events.
+  if (!isWindowsPlatform() && !isMacPlatform()) {
+    window.addEventListener('mousemove', (e) => {
+      if (tailPickerOpen || performance.now() - lastBackendCursorAt < 500) return;
+      const target = active3d && engine3d ? canvas3d : canvas;
+      const rect = target.getBoundingClientRect();
+      if (rect.width < 4 || rect.height < 4) return;
+      const relX = (e.clientX - rect.left) / rect.width;
+      const relY = (e.clientY - rect.top) / rect.height;
+      const zone =
+        active3d && engine3d
+          ? engine3d.hitTestCatZoneAtClientPoint(e.clientX, e.clientY)
+          : engine.hitTestCatZoneAtClientPoint(e.clientX, e.clientY);
+      const interactive = !settings.clickThroughLocked || altOverride || e.altKey;
+      const overCat = interactive && zone !== null;
+      if (active3d && engine3d) engine3d.onWindowCursor(relX, relY, overCat);
+      else engine.onWindowCursor(relX, relY, overCat);
+      if (overCat !== lastPetHover) {
+        lastPetHover = overCat;
+        canvas.classList.toggle('pet-hover', overCat);
+        canvas3d.classList.toggle('pet-hover', overCat);
+      }
+    });
+    window.addEventListener('mouseleave', () => {
+      if (performance.now() - lastBackendCursorAt < 500) return;
+      if (active3d && engine3d) engine3d.onWindowCursor(-1, -1, false);
+      else engine.onWindowCursor(-1, -1, false);
+      if (lastPetHover) {
+        lastPetHover = false;
+        canvas.classList.remove('pet-hover');
+        canvas3d.classList.remove('pet-hover');
+      }
+    });
+  }
 
-  canvas.addEventListener('mouseleave', () => {
-    if (!tailPickerOpen) return;
-    engine.setTailPickerHover(null);
-    canvas.classList.remove('tail-key-hover');
-  });
+  const handleCanvasMouseMove = (e: MouseEvent) => {
+    lastPointerClientX = e.clientX;
+    lastPointerClientY = e.clientY;
+    if (tailPickerOpen) {
+      const hit = engine.hitTestKeyAtClientPoint(e.clientX, e.clientY);
+      engine.setTailPickerHover(hit ? hit.id : null);
+      canvas.classList.toggle('tail-key-hover', Boolean(hit));
+      syncKeyboardHoverCursor(false);
+      return;
+    }
+    syncKeyboardHoverCursor(hitTestClickableKey(e.clientX, e.clientY, e.altKey) !== null);
+  };
+
+  const handleCanvasMouseLeave = () => {
+    lastPointerClientX = -1;
+    lastPointerClientY = -1;
+    syncKeyboardHoverCursor(false);
+    if (tailPickerOpen) {
+      engine.setTailPickerHover(null);
+      canvas.classList.remove('tail-key-hover');
+    }
+  };
+
+  canvas3dMouseMoveListener = handleCanvasMouseMove;
+  canvas3dMouseLeaveListener = handleCanvasMouseLeave;
+  canvas.addEventListener('mousemove', handleCanvasMouseMove);
+  canvas.addEventListener('mouseleave', handleCanvasMouseLeave);
 
   // Left-click: quick tap (< 4px / < 220ms) pokes nose/tail/chin/head; drag >= 4px enters scruffed drag mode!
   const usesNativeDrag = isWindowsPlatform() || isMacPlatform();
@@ -1574,8 +2375,12 @@ async function bootstrap(): Promise<void> {
 
   const runPetWindowDrag = async () => {
     if (dragInFlight) return;
+    releaseVirtualKey(true);
+    syncKeyboardHoverCursor(false);
+    engine3d?.cancelHandover();
     dragInFlight = true;
     lastDragGlobalX = null;
+    lastDragGlobalY = null;
     canvas.classList.add('pet-dragging');
     canvas3d.classList.add('pet-dragging');
     // Pulling from edge immediately pops out of peek mode into scruffed drag for BOTH cats and dafeiyu!
@@ -1591,6 +2396,7 @@ async function bootstrap(): Promise<void> {
     }
     if (active3d && engine3d) engine3d.setDragging(true);
     else engine.setDragging(true);
+    if (!privacyActive) syncPetInteractionToLive({ kind: 'drag', active: true });
     let usedFallbackDrag = false;
     try {
       if (usesNativeDrag) {
@@ -1624,12 +2430,14 @@ async function bootstrap(): Promise<void> {
     } finally {
       dragInFlight = false;
       lastDragGlobalX = null;
+      lastDragGlobalY = null;
       canvas.classList.remove('pet-dragging');
       canvas3d.classList.remove('pet-dragging');
       engine.setDragging(false);
       engine3d?.setDragging(false);
       engine.onMouseUp('left');
       engine3d?.onMouseUp('left');
+      syncPetInteractionToLive({ kind: 'drag', active: false });
       if (usedFallbackDrag) {
         void invoke('set_dragging', { dragging: false });
       }
@@ -1649,6 +2457,16 @@ async function bootstrap(): Promise<void> {
   const handleCanvasMouseDown = async (e: MouseEvent) => {
     if (e.button !== 0) return;
     closeContextMenu();
+    if (treatModeActive) {
+      e.preventDefault();
+      e.stopPropagation();
+      treatPointerDown = true;
+      lastTreatDomMoveAt = performance.now();
+      lastTreatClientX = e.clientX;
+      lastTreatClientY = e.clientY;
+      getActiveTreatEngine().setTreatPointer(e.clientX, e.clientY, true);
+      return;
+    }
     if (tailPickerOpen) {
       const hit = engine.hitTestKeyAtClientPoint(e.clientX, e.clientY);
       if (hit) {
@@ -1665,28 +2483,135 @@ async function bootstrap(): Promise<void> {
     const downY = e.clientY;
     const downAt = performance.now();
 
-    // On Linux, startDragging() must fire synchronously inside mousedown,
-    // so only intercept direct taps on the crisp nose/tail hotspots; everywhere else drags immediately.
+    // Direct desktop keyboard click: animates keycap depression, paw/tail strike, bubble & typing SFX
+    // without injecting any real OS keystroke! Moving >= 6px seamlessly transitions into pet drag.
+    const clickedKey = hitTestClickableKey(downX, downY, e.altKey);
+    if (clickedKey) {
+      e.preventDefault();
+      pressVirtualKey(clickedKey);
+      const DRAG_THRESHOLD_PX = 6;
+      let settled = false;
+      const cleanupKeyClick = () => {
+        window.removeEventListener('mousemove', onKeyMove);
+        window.removeEventListener('mouseup', onKeyUp);
+        if (cancelPendingTapVsDrag === onKeyCancel) cancelPendingTapVsDrag = null;
+        if (completePendingTapOnGlobalMouseUp === onKeyGlobalUp) {
+          completePendingTapOnGlobalMouseUp = null;
+        }
+      };
+      const onKeyMove = (ev: MouseEvent) => {
+        if (settled) return;
+        if (Math.hypot(ev.clientX - downX, ev.clientY - downY) >= DRAG_THRESHOLD_PX) {
+          settled = true;
+          cleanupKeyClick();
+          releaseVirtualKey(true);
+          if (!nativeDragActive) void runPetWindowDrag();
+        }
+      };
+      const onKeyUp = () => {
+        if (settled) return;
+        settled = true;
+        cleanupKeyClick();
+        releaseVirtualKey(false);
+      };
+      const onKeyGlobalUp = () => {
+        if (settled) return;
+        settled = true;
+        cleanupKeyClick();
+        releaseVirtualKey(false);
+      };
+      const onKeyCancel = () => {
+        if (settled) return;
+        settled = true;
+        cleanupKeyClick();
+        releaseVirtualKey(true);
+      };
+      cancelPendingTapVsDrag?.();
+      cancelPendingTapVsDrag = onKeyCancel;
+      completePendingTapOnGlobalMouseUp = onKeyGlobalUp;
+      window.addEventListener('mousemove', onKeyMove);
+      window.addEventListener('mouseup', onKeyUp);
+      return;
+    }
+
+    // On Linux, startDragging() fires immediately on mousedown outside the crisp nose/tail hotspots;
+    // on nose/tail we still detect >= 6px movement so dragging from the face works while a quick tap boops/pokes!
     if (!usesNativeDrag) {
       const zone =
         active3d && engine3d
           ? engine3d.hitTestCatZoneAtClientPoint(downX, downY)
           : engine.hitTestCatZoneAtClientPoint(downX, downY);
-      if (zone === 'nose' || zone === 'tail') {
-        if (active3d && engine3d) engine3d.onCatTapAtClientPoint(downX, downY);
-        else engine.onCatTapAtClientPoint(downX, downY);
+      if (zone !== 'nose' && zone !== 'tail') {
+        await runPetWindowDrag();
         return;
       }
-      await runPetWindowDrag();
+      const DRAG_THRESHOLD_PX = 6;
+      const TAP_MAX_MS = 320;
+      let settled = false;
+      let globalUpFallbackTimer: number | null = null;
+      const cleanupLinux = () => {
+        window.removeEventListener('mousemove', onLinuxMove);
+        window.removeEventListener('mouseup', onLinuxUp);
+        if (globalUpFallbackTimer !== null) {
+          window.clearTimeout(globalUpFallbackTimer);
+          globalUpFallbackTimer = null;
+        }
+        if (cancelPendingTapVsDrag === onLinuxCancel) cancelPendingTapVsDrag = null;
+        if (completePendingTapOnGlobalMouseUp === onLinuxGlobalUp) {
+          completePendingTapOnGlobalMouseUp = null;
+        }
+      };
+      const onLinuxMove = (ev: MouseEvent) => {
+        if (settled) return;
+        if (Math.hypot(ev.clientX - downX, ev.clientY - downY) >= DRAG_THRESHOLD_PX) {
+          settled = true;
+          cleanupLinux();
+          void runPetWindowDrag();
+        }
+      };
+      const onLinuxUp = (ev: MouseEvent) => {
+        if (settled) return;
+        settled = true;
+        cleanupLinux();
+        const dt = performance.now() - downAt;
+        const dist = Math.hypot(ev.clientX - downX, ev.clientY - downY);
+        if (dist < DRAG_THRESHOLD_PX && dt <= TAP_MAX_MS) {
+          fireCatTap(downX, downY);
+        }
+      };
+      const onLinuxGlobalUp = () => {
+        if (settled || globalUpFallbackTimer !== null) return;
+        const dt = performance.now() - downAt;
+        globalUpFallbackTimer = window.setTimeout(() => {
+          globalUpFallbackTimer = null;
+          if (settled) return;
+          settled = true;
+          cleanupLinux();
+          if (!nativeDragActive && !dragInFlight && dt <= TAP_MAX_MS) {
+            fireCatTap(downX, downY);
+          }
+        }, 28);
+      };
+      const onLinuxCancel = () => {
+        if (settled) return;
+        settled = true;
+        cleanupLinux();
+      };
+      cancelPendingTapVsDrag?.();
+      cancelPendingTapVsDrag = onLinuxCancel;
+      completePendingTapOnGlobalMouseUp = onLinuxGlobalUp;
+      window.addEventListener('mousemove', onLinuxMove);
+      window.addEventListener('mouseup', onLinuxUp);
       return;
     }
 
-    // On Windows & macOS (native 120Hz start_pet_drag), wait up to 4px movement or 220ms hold
-    // to cleanly separate Tap (boop nose/tail/chin/head) vs Scruff Drag!
-    const DRAG_THRESHOLD_PX = 4;
-    const TAP_MAX_MS = 220;
+    // On Windows & macOS (native 120Hz start_pet_drag), wait up to 6px movement or 320ms hold
+    // to cleanly separate Tap (boop nose/head or poke tail) vs Scruff Drag!
+    const DRAG_THRESHOLD_PX = 6;
+    const TAP_MAX_MS = 320;
     let settled = false;
     let holdTimer: number | null = null;
+    let globalUpFallbackTimer: number | null = null;
 
     const cleanup = () => {
       window.removeEventListener('mousemove', onMove);
@@ -1695,8 +2620,15 @@ async function bootstrap(): Promise<void> {
         window.clearTimeout(holdTimer);
         holdTimer = null;
       }
+      if (globalUpFallbackTimer !== null) {
+        window.clearTimeout(globalUpFallbackTimer);
+        globalUpFallbackTimer = null;
+      }
       if (cancelPendingTapVsDrag === onCancel) {
         cancelPendingTapVsDrag = null;
+      }
+      if (completePendingTapOnGlobalMouseUp === onGlobalUp) {
+        completePendingTapOnGlobalMouseUp = null;
       }
     };
 
@@ -1722,9 +2654,28 @@ async function bootstrap(): Promise<void> {
       const dt = performance.now() - downAt;
       const dist = Math.hypot(ev.clientX - downX, ev.clientY - downY);
       if (dist < DRAG_THRESHOLD_PX && dt <= TAP_MAX_MS) {
-        if (active3d && engine3d) engine3d.onCatTapAtClientPoint(downX, downY);
-        else engine.onCatTapAtClientPoint(downX, downY);
+        fireCatTap(downX, downY);
       }
+    };
+
+    const onGlobalUp = () => {
+      if (settled) return;
+      // Left button is already released at OS level: disarm drag hold immediately!
+      if (holdTimer !== null) {
+        window.clearTimeout(holdTimer);
+        holdTimer = null;
+      }
+      if (globalUpFallbackTimer !== null) return;
+      const dt = performance.now() - downAt;
+      globalUpFallbackTimer = window.setTimeout(() => {
+        globalUpFallbackTimer = null;
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (!nativeDragActive && !dragInFlight && dt <= TAP_MAX_MS) {
+          fireCatTap(downX, downY);
+        }
+      }, 28);
     };
 
     const onCancel = () => {
@@ -1735,6 +2686,7 @@ async function bootstrap(): Promise<void> {
 
     cancelPendingTapVsDrag?.();
     cancelPendingTapVsDrag = onCancel;
+    completePendingTapOnGlobalMouseUp = onGlobalUp;
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
     holdTimer = window.setTimeout(beginDrag, TAP_MAX_MS);
@@ -1745,6 +2697,10 @@ async function bootstrap(): Promise<void> {
   // Right-click opens sleek dark glass settings menu (both 2D & 3D canvases!)
   const handleCanvasContextMenu = (e: MouseEvent) => {
     e.preventDefault();
+    if (treatModeActive) {
+      cleanupTreatModeDesktop(true);
+      return;
+    }
     if (tailPickerSaving) return;
     if (tailPickerOpen) {
       closeTailPicker();
@@ -1771,13 +2727,17 @@ async function bootstrap(): Promise<void> {
       // Enter and Space can be selected without activating the focused toolbar button.
       e.preventDefault();
     } else if (e.key === 'Escape') {
-      closeContextMenu();
+      if (treatModeActive) {
+        cleanupTreatModeDesktop(true);
+      } else {
+        closeContextMenu();
+      }
     }
   });
 
   menuEl.addEventListener('click', (e) => {
     const target = (e.target as HTMLElement).closest<HTMLElement>(
-      '[data-action], [data-scale], [data-breed], [data-rendermode], [data-collar], [data-headphonemode], [data-kblayout], [data-kborient], [data-tailmode], [data-fpscap], [data-lang]',
+      '[data-action], [data-scale], [data-breed], [data-rendermode], [data-collar], [data-headphonemode], [data-tabletmode], [data-gamepadmode], [data-eyegazemode], [data-kblayout], [data-kborient], [data-pointer], [data-finish], [data-tailmode], [data-fpscap], [data-lang]',
     );
     if (!target) return;
 
@@ -1799,6 +2759,24 @@ async function bootstrap(): Promise<void> {
       return;
     }
 
+    const tabletAttr = target.dataset.tabletmode;
+    if (tabletAttr === 'auto' || tabletAttr === 'mouse' || tabletAttr === 'tablet') {
+      void applySettingsPatch({ tabletMode: tabletAttr });
+      return;
+    }
+
+    const gamepadAttr = target.dataset.gamepadmode;
+    if (gamepadAttr === 'auto' || gamepadAttr === 'off' || gamepadAttr === 'on') {
+      void applySettingsPatch({ gamepadMode: gamepadAttr });
+      return;
+    }
+
+    const eyeGazeAttr = target.dataset.eyegazemode;
+    if (eyeGazeAttr === 'screen' || eyeGazeAttr === 'window') {
+      void applySettingsPatch({ eyeGazeMode: eyeGazeAttr });
+      return;
+    }
+
     const renderModeAttr = target.dataset.rendermode;
     if (renderModeAttr === '2d' || renderModeAttr === '3d') {
       void applySettingsPatch({ renderMode: renderModeAttr });
@@ -1817,8 +2795,20 @@ async function bootstrap(): Promise<void> {
       return;
     }
 
+    const pointer = target.dataset.pointer;
+    if (pointer === 'mouse' || pointer === 'trackpad') {
+      void applySettingsPatch({ trackpadEnabled: pointer === 'trackpad' });
+      return;
+    }
+
+    const finish = target.dataset.finish;
+    if (finish === 'black' || finish === 'white') {
+      void applySettingsPatch({ whiteKeyboard: finish === 'white' });
+      return;
+    }
+
     const kbLayoutAttr = target.dataset.kblayout;
-    if (kbLayoutAttr === '65' || kbLayoutAttr === '108') {
+    if (isKeyboardLayoutId(kbLayoutAttr)) {
       void applySettingsPatch({ keyboardLayout: kbLayoutAttr });
       closeContextMenu();
       return;
@@ -1857,6 +2847,10 @@ async function bootstrap(): Promise<void> {
     }
 
     switch (target.dataset.action) {
+      case 'feed-treat':
+        closeContextMenu();
+        startTreatModeDesktop(settings.treatFlavor);
+        break;
       case 'toggle-privacy':
         void applySettingsPatch({ privacyPasswordGuard: !(settings.privacyPasswordGuard !== false) });
         break;
@@ -1870,14 +2864,59 @@ async function bootstrap(): Promise<void> {
       case 'toggle-sound':
         void applySettingsPatch({ soundEnabled: !settings.soundEnabled });
         break;
+      case 'toggle-idle-purr':
+        void applySettingsPatch({ idlePurrEnabled: !settings.idlePurrEnabled });
+        break;
       case 'toggle-typing-sound':
         void applySettingsPatch({ typingSoundEnabled: !settings.typingSoundEnabled });
         break;
+      case 'toggle-switch-animation':
+        void applySettingsPatch({ laoWuHandover: settings.laoWuHandover === false });
+        break;
+      case 'toggle-mute': {
+        const curVol = normalizeVolume(settings.soundVolume);
+        const currentlyMuted = Boolean(settings.soundMuted) || curVol <= 0.001;
+        if (currentlyMuted) {
+          const nextVol = curVol <= 0.001 ? 0.5 : curVol;
+          void applySettingsPatch({ soundMuted: false, soundVolume: nextVol });
+        } else {
+          void applySettingsPatch({ soundMuted: true });
+        }
+        break;
+      }
       case 'toggle-top':
         void applySettingsPatch({ alwaysOnTop: !settings.alwaysOnTop });
         break;
+      case 'toggle-yield-fullscreen':
+        void applySettingsPatch({ yieldOnFullscreen: !settings.yieldOnFullscreen });
+        break;
       case 'toggle-autostart':
-        void applySettingsPatch({ autostart: !settings.autostart });
+        void invoke<AppSettings>('set_autostart_mode', {
+          autostart: !settings.autostart,
+          autostartAdmin: false,
+        })
+          .then((saved) => {
+            settings = { ...settings, ...saved };
+            syncMenuUI();
+          })
+          .catch(() => {
+            syncMenuUI();
+          });
+        break;
+      case 'toggle-autostart-admin':
+        if (adminStatus.supported) {
+          void invoke<AppSettings>('set_autostart_mode', {
+            autostart: true,
+            autostartAdmin: !(settings.autostart && settings.autostartAdmin),
+          })
+            .then((saved) => {
+              settings = { ...settings, ...saved };
+              syncMenuUI();
+            })
+            .catch(() => {
+              syncMenuUI();
+            });
+        }
         break;
       case 'toggle-mcp':
         void applySettingsPatch({ mcpEnabled: !settings.mcpEnabled });
@@ -1969,6 +3008,20 @@ async function bootstrap(): Promise<void> {
         }
         if (updateToastEl && !updateToastEl.classList.contains('hidden')) {
           const r = updateToastEl.getBoundingClientRect();
+          if (r.width > 2 && r.height > 2) {
+            const top = Math.max(0, Math.floor(r.top * dpr));
+            const bot = Math.min(physH, Math.ceil(r.bottom * dpr));
+            rects.push(
+              Math.max(0, Math.floor(r.left * dpr)),
+              top,
+              Math.min(physW, Math.ceil(r.right * dpr)),
+              bot,
+              Math.max(8, Math.round((bot - top) / 2)),
+            );
+          }
+        }
+        if (treatHudPillEl && !treatHudPillEl.classList.contains('hidden')) {
+          const r = treatHudPillEl.getBoundingClientRect();
           if (r.width > 2 && r.height > 2) {
             const top = Math.max(0, Math.floor(r.top * dpr));
             const bot = Math.min(physH, Math.ceil(r.bottom * dpr));

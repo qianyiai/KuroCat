@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">KuroCat</string>
+    <string name="accessibility_service_label">KuroCat Typing Sync &amp; Password Guard</string>
+    <string name="accessibility_service_desc">Syncs typing rhythm with the floating pet and automatically shields password inputs. KuroCat never reads, stores, or uploads any text or passwords.</string>
+</resources>
