@@ -81,16 +81,16 @@
 
 <a id="download"></a>
 
-## 📥 快速下载（`v5.1.5`）
+## 📥 快速下载（`v5.1.6`）
 
-> ✨ **v5.1.5 新亮点**：**WASD + 回车橙色键帽与点击键盘纯动画互动（不注入输入）**、**老吴换班 3D 默认开启**、**内存与包体深度瘦身（WebView2 低内存模式）**、**全平台 9 语言本地化**、**macOS 原生 IOKit 手柄 / Linux X11 游戏与 AT-SPI2 隐私保护 / WebKitGTK 零残影（#56 #111） / 输入区修复（#116）**、**Android 全特性齐平（3D/项圈/喂猫条/手柄/数位板/9 语言）**，以及 98 键、MacBook 配列与触控板（#86）、全局暂停快捷键、Snipaste 截图让位、AutoCAD/Word UIA 零干扰（#118）与高刷帧率修复（#141 #93）。完整更新日志见 [Releases](https://github.com/qianyiai/KuroCat/releases)。
+> ✨ **v5.1.6 重点更新**：**macOS 丝滑优化**（消除老吴换班播放期同步回读卡顿、后台主线程窗口缓存减负、AX 密码探测超时/退避/熔断）、**触控板全域跟手**（支持双指/三指重心、外接妙控板、休眠热插拔恢复与光标/滚轮平滑兜底）、**三花猫生气换班改展暖橘面**、更新器直连官方 `kurocat.org` 定时巡检与戳尾巴口型微调。基于 `v5.1.5` 全平台齐平与 WASD+回车可点击键盘特性，完整更新日志见 [Releases](https://github.com/qianyiai/KuroCat/releases)。
 
 | 平台 | 推荐版本 | 体积 | 下载链接 |
 | --- | --- | :---: | --- |
-| **🪟 Windows 10 / 11** | x64 经典安装版（内置 65% / 98 / 108 / Mac 键切换） | 2.94 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/#download) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-5.1.5-x64-setup.exe) |
-| **🍎 macOS 10.15+** | Apple Silicon (M1–M4) & Intel 通用 DMG | 7.89 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/releases/v5.1.5/KuroCat-v5.1.5-macos-universal.dmg) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-macos-universal.dmg) |
-| **🐧 Linux (x86_64)** | Ubuntu 22.04+ / Debian 12+ / 麒麟 V11+ | 3.45 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-linux-amd64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-linux-amd64.AppImage) · [**国内高速**](https://kurocat.org/#linux-download) |
-| **🐧 Linux (ARM64)** | 飞腾 / 鲲鹏 / 麒麟 V11+ / 树莓派 | 3.47 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-linux-arm64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-linux-arm64.AppImage) · [**国内高速**](https://kurocat.org/#linux-download) |
+| **🪟 Windows 10 / 11** | x64 经典安装版（内置 65% / 98 / 108 / Mac 键切换） | 2.95 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/#download) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.6/KuroCat-5.1.6-x64-setup.exe) |
+| **🍎 macOS 10.15+** | Apple Silicon (M1–M4) & Intel 通用 DMG | 7.91 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/releases/v5.1.6/KuroCat-v5.1.6-macos-universal.dmg) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.6/KuroCat-v5.1.6-macos-universal.dmg) |
+| **🐧 Linux (x86_64)** | Ubuntu 22.04+ / Debian 12+ / 麒麟 V11+ | 3.46 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.6/KuroCat-v5.1.6-linux-amd64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.6/KuroCat-v5.1.6-linux-amd64.AppImage) · [**国内高速**](https://kurocat.org/#linux-download) |
+| **🐧 Linux (ARM64)** | 飞腾 / 鲲鹏 / 麒麟 V11+ / 树莓派 | 3.48 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**`.deb`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.6/KuroCat-v5.1.6-linux-arm64.deb) · [**`.AppImage`**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.6/KuroCat-v5.1.6-linux-arm64.AppImage) · [**国内高速**](https://kurocat.org/#linux-download) |
 | **🖥️ Windows 7 SP1 (64 位)** | 64 位离线兼容绿包（内置 WebView2 109） | 179.9 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/releases/v5.1.5/KuroCat-v5.1.5-win7-x64-portable.zip) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-win7-x64-portable.zip) |
 | **🖥️ Windows 7 SP1 (32 位)** | 32 位离线兼容绿包（内置 WebView2 109） | 160.0 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/releases/v5.1.5/KuroCat-v5.1.5-win7-x86-portable.zip) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-win7-x86-portable.zip) |
 | **🤖 Android** | Android 客户端 APK | 6.18 MB | [**☁️ 夸克网盘**](https://pan.quark.cn/s/673684ea4103) · [**国内高速**](https://kurocat.org/releases/v5.1.5/KuroCat-v5.1.5-android.apk) · [**GitHub 官方源**](https://github.com/qianyiai/KuroCat/releases/download/v5.1.5/KuroCat-v5.1.5-android.apk) |
