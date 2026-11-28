@@ -40,13 +40,7 @@
 > 公式フォルダ [**「KuroCat 谦一_官方」を Quark クラウドで開く →**](https://pan.quark.cn/s/673684ea4103)（アプリ共有コード：`/~f3813cZv6O~:/`）。開くだけで無料オープンソース開発の応援になります！
 
 > [!CAUTION]
-> **公式サイトのご案内および偽サイト `kurocat.net` に関するセキュリティ警告**
->
-> **KuroCat の唯一の公式サイトは [`https://kurocat.org/ja/`](https://kurocat.org/ja/)**、公式リポジトリは [`https://github.com/qianyiai/KuroCat`](https://github.com/qianyiai/KuroCat) です。
->
-> 作者と無関係ななりすましサイト **`kurocat.net`** が、非公式の **`64.25 MB` `KuroCat.v5.1.0.zip`**（SHA-256: `19ad10c48a7448584f1d00aa086f52b38231bacd659f04e83d3cefc60209796d`、不明な `35.92 MB KuroCat.exe`＋`50 MiB` の異常パディングファイル入り）を配布しています。公式 Windows 10/11 版は **`約 2.4 MB`** のインストーラーのみです。**`kurocat.net` から絶対にダウンロード・実行しないでください。** 詳細は [**公式セキュリティ警告**](https://kurocat.org/ja/security/) をご確認ください。
-
-<br />
+> **偽サイト `kurocat.net`（マルウェア危険）**：実行厳禁！公式は [**kurocat.org**](https://kurocat.org/ja/) のみ · [**詳細・対処**](https://kurocat.org/ja/security/) · [`SECURITY.md`](./SECURITY.md)
 
 ## 🎬 実機デモ
 

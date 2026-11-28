@@ -40,13 +40,7 @@
 > Grab the official folder [**「KuroCat 谦一_官方」on Quark Drive →**](https://pan.quark.cn/s/673684ea4103) (Quark App share code: `/~f3813cZv6O~:/`). Fast direct access in China — opening this official mirror also supports free open-source maintenance!
 
 > [!CAUTION]
-> **Official Website Notice & Active Malware Impersonation Warning (`kurocat.net`)**
->
-> **The ONLY official website for KuroCat is [`https://kurocat.org/`](https://kurocat.org/en/)** and the only official repository is [`https://github.com/qianyiai/KuroCat`](https://github.com/qianyiai/KuroCat).
->
-> An unaffiliated impersonation domain (**`kurocat.net`**) is distributing an unauthorized **`64.25 MB` `KuroCat.v5.1.0.zip`** (SHA-256: `19ad10c48a7448584f1d00aa086f52b38231bacd659f04e83d3cefc60209796d`) containing an unknown `35.92 MB KuroCat.exe` plus `50 MiB` of uncompressed padding (`bin/resources.pak` / `bin/versions.dat`) — a textbook scanner-evasion trojan/infostealer pattern. Official Windows 10/11 installers are only **`~2.4 MB`**. **Do NOT download or run anything from `kurocat.net`!** See our [**Official Security Advisory**](https://kurocat.org/en/security/) and [`SECURITY.md`](./SECURITY.md).
-
-<br />
+> **Fake malware site `kurocat.net`** — do NOT download or run! Official: [**kurocat.org**](https://kurocat.org/en/) · [**Security Advisory**](https://kurocat.org/en/security/) · [`SECURITY.md`](./SECURITY.md)
 
 ## 🎬 Live Demos
 

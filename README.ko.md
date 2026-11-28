@@ -40,13 +40,7 @@
 > 공식 폴더 [**「KuroCat 谦一_官方」Quark 클라우드 바로가기 →**](https://pan.quark.cn/s/673684ea4103) (앱 공유 코드: `/~f3813cZv6O~:/`). 링크를 열어 받아주시면 무료 오픈소스 유지보수에 큰 도움이 됩니다!
 
 > [!CAUTION]
-> **공식 사이트 안내 및 사칭 사이트 `kurocat.net` 보안 경고**
->
-> **KuroCat의 유일한 공식 웹사이트는 [`https://kurocat.org/ko/`](https://kurocat.org/ko/)** 이며 공식 저장소는 [`https://github.com/qianyiai/KuroCat`](https://github.com/qianyiai/KuroCat) 입니다.
->
-> 제작자와 무관한 사칭 도메인 **`kurocat.net`** 에서 비공식 **`64.25 MB` `KuroCat.v5.1.0.zip`** (SHA-256: `19ad10c48a7448584f1d00aa086f52b38231bacd659f04e83d3cefc60209796d`, 출처 불명 `35.92 MB KuroCat.exe` + `50 MiB` 비정상 패딩 포함)을 유포하고 있습니다. 공식 Windows 10/11 설치 파일은 **`약 2.4 MB`** 입니다. **`kurocat.net`에서 절대 다운로드하거나 실행하지 마세요!** 자세한 내용은 [**공식 보안 공지**](https://kurocat.org/ko/security/)를 확인하세요.
-
-<br />
+> **사칭 악성 사이트 `kurocat.net` 주의**: 다운로드·실행 금지! 공식 사이트: [**kurocat.org**](https://kurocat.org/ko/) · [**보안 공지**](https://kurocat.org/ko/security/) · [`SECURITY.md`](./SECURITY.md)
 
 ## 🎬 실시간 데모
 

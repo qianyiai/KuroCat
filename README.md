@@ -40,13 +40,7 @@
 > 国内用户推荐优先从官方分享文件夹 [**「KuroCat 谦一_官方」→ 点此打开夸克网盘获取**](https://pan.quark.cn/s/673684ea4103)（打开「夸克网盘 APP」也可复制口令 `/~f3813cZv6O~:/` 直达）。不限速一站打包，点开获取即可免费支持作者持续开源维护！
 
 > [!CAUTION]
-> **官方渠道声明与安全警示（谨防假冒木马站点 `kurocat.net`）**
->
-> **KuroCat 的唯一官方网站为 [`https://kurocat.org/`](https://kurocat.org/)**，唯一官方开源仓库为 [`https://github.com/qianyiai/KuroCat`](https://github.com/qianyiai/KuroCat)。
->
-> 近期发现仿冒站点 **`kurocat.net`**（与作者完全无关）冒充 KuroCat 官网，并向 Windows 用户分发非官方的 **`64.25 MB` `KuroCat.v5.1.0.zip`**（SHA-256: `19ad10c48a7448584f1d00aa086f52b38231bacd659f04e83d3cefc60209796d`），内含非官方 `35.92 MB KuroCat.exe` 及 `50 MiB` 未压缩填充文件（`bin/resources.pak` / `bin/versions.dat`），而正版官方 Windows 10/11 安装包仅为 **`~2.4 MB` 的 `.exe`** 且从不附带此类文件。**切勿从 `kurocat.net` 下载或运行任何可执行文件！** 详情与自查步骤见 [**官方安全公告**](https://kurocat.org/security/) 与 [`SECURITY.md`](./SECURITY.md)。
-
-<br />
+> **谨防假冒木马站 `kurocat.net`**：切勿下载或运行！唯一官网 [**kurocat.org**](https://kurocat.org/) · [**安全公告与自查**](https://kurocat.org/security/) · [`SECURITY.md`](./SECURITY.md)
 
 ## 🎬 实机演示
 
