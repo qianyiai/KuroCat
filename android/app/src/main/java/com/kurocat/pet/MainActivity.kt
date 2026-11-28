@@ -118,10 +118,12 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
     override fun onResume() {
         super.onResume()
         previewWebView?.onResume()
+        KuroEventBus.postMainActivityResumedChanged(true)
         refreshAllUi()
     }
 
     override fun onPause() {
+        KuroEventBus.postMainActivityResumedChanged(false)
         if (previewTreatActive) {
             stopPreviewTreat()
         }
@@ -293,6 +295,8 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
         }
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            val imeVisible = insets.isVisible(WindowInsetsCompat.Type.ime())
+            KuroEventBus.postInAppImeVisibilityChanged(imeVisible)
             v.setPadding(
                 dp(18) + bars.left,
                 dp(16) + bars.top,
@@ -421,6 +425,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                     if (previewTreatActive) {
                         when (ev.actionMasked) {
                             MotionEvent.ACTION_DOWN -> {
+                                KuroEventBus.markPetTouchDown()
                                 v.parent?.requestDisallowInterceptTouchEvent(true)
                                 evalPreviewJs("window.KuroAndroid && window.KuroAndroid.setTreatPointer($nx, $ny, true);")
                                 true
@@ -443,6 +448,7 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                     } else {
                         when (ev.actionMasked) {
                             MotionEvent.ACTION_DOWN -> {
+                                KuroEventBus.markPetTouchDown()
                                 v.parent?.requestDisallowInterceptTouchEvent(true)
                                 downX = ev.x
                                 downY = ev.y
@@ -1086,7 +1092,10 @@ class MainActivity : AppCompatActivity(), KuroPetListener {
                     if (count == 0 && before > 0) {
                         KuroEventBus.postTypingBurst(1, "delete")
                     } else if (count > 0) {
-                        KuroEventBus.postTypingBurst(count.coerceAtMost(3), "char")
+                        val sinceSensor = System.currentTimeMillis() - KuroEventBus.lastImeSensorEmitMs
+                        if (count > 3 || sinceSensor >= 135L) {
+                            KuroEventBus.postTypingBurst(count.coerceAtMost(3), "char")
+                        }
                     }
                 }
                 override fun afterTextChanged(s: Editable?) {}

@@ -2,6 +2,7 @@ package com.kurocat.pet
 
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -15,6 +16,7 @@ interface KuroPetListener {
     fun onImeVisibilityChanged(visible: Boolean) {}
     fun onSettingsChanged() {}
     fun onOverlayStateChanged(running: Boolean) {}
+    fun onPetVisibilityChanged(visible: Boolean) {}
 }
 
 object KuroEventBus {
@@ -22,11 +24,43 @@ object KuroEventBus {
     private val listeners = CopyOnWriteArraySet<KuroPetListener>()
 
     val overlayRunning = AtomicBoolean(false)
+    val overlayHidden = AtomicBoolean(false)
+    val mainActivityResumed = AtomicBoolean(false)
     val accessibilityConnected = AtomicBoolean(false)
     val privacyActive = AtomicBoolean(false)
+    val systemImeVisible = AtomicBoolean(false)
+    val inAppImeVisible = AtomicBoolean(false)
     val imeVisible = AtomicBoolean(false)
     @Volatile
     var lastTypingSignalMs: Long = 0L
+    @Volatile
+    var lastImeSensorEmitMs: Long = 0L
+    @Volatile
+    var lastPetTouchDownMs: Long = 0L
+
+    fun isAnyPetVisible(): Boolean =
+        (overlayRunning.get() && !overlayHidden.get()) || mainActivityResumed.get()
+
+    private fun recomputeImeVisibility() {
+        val next = systemImeVisible.get() || inAppImeVisible.get()
+        val prev = imeVisible.getAndSet(next)
+        if (prev != next) {
+            mainHandler.post {
+                listeners.forEach { it.onImeVisibilityChanged(next) }
+            }
+        }
+    }
+
+    private fun notifyPetVisibility() {
+        val visible = isAnyPetVisible()
+        mainHandler.post {
+            listeners.forEach { it.onPetVisibilityChanged(visible) }
+        }
+    }
+
+    fun markPetTouchDown() {
+        lastPetTouchDownMs = System.currentTimeMillis()
+    }
 
     fun register(listener: KuroPetListener) {
         listeners.add(listener)
@@ -38,6 +72,9 @@ object KuroEventBus {
 
     fun postTypingBurst(count: Int, kind: String = "char") {
         lastTypingSignalMs = System.currentTimeMillis()
+        if (Log.isLoggable("KuroCat", Log.DEBUG)) {
+            Log.d("KuroCat", "typingBurst kind=$kind count=$count")
+        }
         mainHandler.post {
             listeners.forEach { it.onTypingBurst(count, kind) }
         }
@@ -77,12 +114,27 @@ object KuroEventBus {
     }
 
     fun postImeVisibilityChanged(visible: Boolean) {
-        val prev = imeVisible.getAndSet(visible)
-        if (prev != visible) {
-            mainHandler.post {
-                listeners.forEach { it.onImeVisibilityChanged(visible) }
-            }
+        systemImeVisible.set(visible)
+        recomputeImeVisibility()
+    }
+
+    fun postInAppImeVisibilityChanged(visible: Boolean) {
+        inAppImeVisible.set(visible)
+        recomputeImeVisibility()
+    }
+
+    fun postOverlayHiddenChanged(hidden: Boolean) {
+        overlayHidden.set(hidden)
+        notifyPetVisibility()
+    }
+
+    fun postMainActivityResumedChanged(resumed: Boolean) {
+        mainActivityResumed.set(resumed)
+        if (!resumed) {
+            inAppImeVisible.set(false)
+            recomputeImeVisibility()
         }
+        notifyPetVisibility()
     }
 
     fun postSettingsChanged() {
@@ -93,8 +145,12 @@ object KuroEventBus {
 
     fun postOverlayStateChanged(running: Boolean) {
         overlayRunning.set(running)
+        if (!running) {
+            overlayHidden.set(false)
+        }
         mainHandler.post {
             listeners.forEach { it.onOverlayStateChanged(running) }
         }
+        notifyPetVisibility()
     }
 }

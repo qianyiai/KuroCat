@@ -64,8 +64,6 @@ class KuroOverlayService : Service(), KuroPetListener {
     private var rootView: FrameLayout? = null
     private var webView: WebView? = null
     private var layoutParams: WindowManager.LayoutParams? = null
-    private var imeTouchSensorView: View? = null
-    private var lastImeTouchSensorMs = 0L
     private var pageReady = false
     private var petHidden = false
     private var lastNotifKey: String? = null
@@ -106,11 +104,10 @@ class KuroOverlayService : Service(), KuroPetListener {
                 rootView?.visibility = if (petHidden) View.GONE else View.VISIBLE
                 if (petHidden) {
                     webView?.onPause()
-                    detachImeTouchSensor()
                 } else {
                     webView?.onResume()
-                    syncImeTouchSensor(KuroEventBus.imeVisible.get())
                 }
+                KuroEventBus.postOverlayHiddenChanged(petHidden)
                 updateNotification()
                 return START_STICKY
             }
@@ -141,6 +138,7 @@ class KuroOverlayService : Service(), KuroPetListener {
             attachOverlayWindow()
         } else {
             petHidden = false
+            KuroEventBus.postOverlayHiddenChanged(false)
             rootView?.visibility = View.VISIBLE
             webView?.onResume()
             applyOverlayWindowFlags()
@@ -148,7 +146,6 @@ class KuroOverlayService : Service(), KuroPetListener {
             syncSettingsToJs()
             updateNotification()
         }
-        syncImeTouchSensor(KuroEventBus.imeVisible.get())
         KuroEventBus.postOverlayStateChanged(true)
         return START_STICKY
     }
@@ -380,6 +377,7 @@ class KuroOverlayService : Service(), KuroPetListener {
             val curLp = layoutParams ?: return@setOnTouchListener false
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    KuroEventBus.markPetTouchDown()
                     downRawX = ev.rawX
                     downRawY = ev.rawY
                     prevRawX = ev.rawX
@@ -462,7 +460,6 @@ class KuroOverlayService : Service(), KuroPetListener {
     }
 
     private fun detachOverlayWindow() {
-        detachImeTouchSensor()
         pageReady = false
         val root = rootView
         val wv = webView
@@ -563,79 +560,6 @@ class KuroOverlayService : Service(), KuroPetListener {
         if (KuroPrefs.isPrivacyGuardEnabled(this)) {
             evalJs("window.KuroAndroid && window.KuroAndroid.onPrivacyTyping();")
         }
-    }
-
-    /**
-     * Privacy-safe 1x1 transparent sensor attached ONLY while the system soft keyboard (IME) is open.
-     * Receives coordinate-free `MotionEvent.ACTION_OUTSIDE` on every finger down so 9-key, 16-key,
-     * and 26-key Chinese/English IMEs (including custom-Canvas keyboards like Sogou / Baidu / WeType)
-     * animate cat paws immediately on every tap instead of waiting for candidate word commit.
-     */
-    @SuppressLint("ClickableViewAccessibility")
-    private fun syncImeTouchSensor(imeVisible: Boolean) {
-        if (!imeVisible || petHidden || rootView == null || !Settings.canDrawOverlays(this)) {
-            detachImeTouchSensor()
-            return
-        }
-        if (imeTouchSensorView != null) return
-
-        val sensor = View(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            setOnTouchListener { _, ev ->
-                if (ev.actionMasked == MotionEvent.ACTION_OUTSIDE &&
-                    KuroEventBus.imeVisible.get() &&
-                    !petHidden
-                ) {
-                    val now = System.currentTimeMillis()
-                    if (KuroEventBus.privacyActive.get() && KuroPrefs.isPrivacyGuardEnabled(this@KuroOverlayService)) {
-                        if (now - lastImeTouchSensorMs >= 95L) {
-                            lastImeTouchSensorMs = now
-                            onPrivacyTyping()
-                        }
-                    } else if (now - lastImeTouchSensorMs >= 58L &&
-                        now - KuroEventBus.lastTypingSignalMs >= 52L
-                    ) {
-                        lastImeTouchSensorMs = now
-                        KuroEventBus.lastTypingSignalMs = now
-                        onTypingBurst(1, "char")
-                    }
-                }
-                false
-            }
-        }
-        val lp = WindowManager.LayoutParams(
-            1,
-            1,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = 0
-            y = 0
-        }
-        try {
-            windowManager.addView(sensor, lp)
-            imeTouchSensorView = sensor
-        } catch (_: Throwable) {
-            imeTouchSensorView = null
-        }
-    }
-
-    private fun detachImeTouchSensor() {
-        val sensor = imeTouchSensorView ?: return
-        imeTouchSensorView = null
-        try {
-            windowManager.removeView(sensor)
-        } catch (_: Throwable) {
-        }
-    }
-
-    override fun onImeVisibilityChanged(visible: Boolean) {
-        syncImeTouchSensor(visible)
     }
 
     override fun onSettingsChanged() {

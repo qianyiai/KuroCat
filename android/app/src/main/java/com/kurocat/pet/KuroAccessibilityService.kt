@@ -1,13 +1,21 @@
 package com.kurocat.pet
 
 import android.accessibilityservice.AccessibilityService
+import android.accessibilityservice.AccessibilityServiceInfo
+import android.graphics.Color
+import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
+import android.util.Log
+import android.view.Gravity
 import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.View
+import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.accessibility.AccessibilityWindowInfo
@@ -16,14 +24,15 @@ import java.util.Locale
 
 /**
  * Privacy-first AccessibilityService for KuroCat Android:
- * - Drives cat / BigFish typing rhythm purely from event character-count deltas (NEVER stores,
- *   reads, or transmits typed text content!).
+ * - Drives cat / BigFish typing rhythm purely from event character-count deltas and a
+ *   coordinate-free `TYPE_ACCESSIBILITY_OVERLAY` outside-touch pulse attached ONLY while the
+ *   soft keyboard is open (NEVER stores, reads, or transmits typed text or tap coordinates!).
  * - Detects password fields via `isPassword` / `InputType`, semantic field metadata (viewId, hint,
  *   contentDescription, labeledBy — never `src.text`), custom financial password classes, and
  *   payment PIN keyboard/dialog titles to automatically close eyes / cover eyes.
  * - Captures physical Bluetooth/USB keyboard KeyEvents (returning `false` so keys are never consumed).
  */
-class KuroAccessibilityService : AccessibilityService() {
+class KuroAccessibilityService : AccessibilityService(), KuroPetListener {
 
     companion object {
         // Explicit denylist mirrored from `src-tauri/src/privacy.rs` to prevent false positives on
@@ -142,6 +151,10 @@ class KuroAccessibilityService : AccessibilityService() {
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private val delayedImeRefreshRunnable = Runnable { refreshImeWindowState(force = true) }
+    private val secondDelayedImeRefreshRunnable = Runnable { refreshImeWindowState(force = true) }
+    private var imeTouchSensorView: View? = null
+    private var lastImeTouchSensorMs = 0L
+    private var pendingImeTouchRunnable: Runnable? = null
     private var lastTextEventMs = 0L
     private var lastClickEventMs = 0L
     private var lastImeContentPulseMs = 0L
@@ -216,9 +229,34 @@ class KuroAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        // Explicitly refresh serviceInfo at runtime so in-place APK upgrades over older releases
+        // immediately pick up new event types and FLAG_RETRIEVE_INTERACTIVE_WINDOWS even on OEM
+        // ROMs that cache accessibility XML metadata across updates.
+        try {
+            serviceInfo?.let { info ->
+                info.eventTypes = info.eventTypes or
+                    AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED or
+                    AccessibilityEvent.TYPE_VIEW_TEXT_SELECTION_CHANGED or
+                    AccessibilityEvent.TYPE_VIEW_FOCUSED or
+                    AccessibilityEvent.TYPE_VIEW_CLICKED or
+                    AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED or
+                    AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
+                    AccessibilityEvent.TYPE_WINDOWS_CHANGED
+                info.flags = info.flags or
+                    AccessibilityServiceInfo.DEFAULT or
+                    AccessibilityServiceInfo.FLAG_REQUEST_FILTER_KEY_EVENTS or
+                    AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS or
+                    AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+                serviceInfo = info
+            }
+        } catch (_: Throwable) {
+            // Safe fallback on restricted builds
+        }
         KuroEventBus.accessibilityConnected.set(true)
+        KuroEventBus.register(this)
         refreshDefaultImePackage(force = true)
         refreshImeWindowState(force = true)
+        syncImeTouchSensor()
         KuroEventBus.postSettingsChanged()
     }
 
@@ -227,13 +265,167 @@ class KuroAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        KuroEventBus.unregister(this)
         mainHandler.removeCallbacks(delayedImeRefreshRunnable)
+        mainHandler.removeCallbacks(secondDelayedImeRefreshRunnable)
         mainHandler.removeCallbacks(gamepadIdleRunnable)
+        cancelPendingImeTouch()
+        detachImeTouchSensor()
         KuroEventBus.accessibilityConnected.set(false)
         KuroEventBus.postImeVisibilityChanged(false)
         KuroEventBus.postPrivacyChanged(false)
         KuroEventBus.postSettingsChanged()
         super.onDestroy()
+    }
+
+    private fun cancelPendingImeTouch() {
+        pendingImeTouchRunnable?.let { mainHandler.removeCallbacks(it) }
+        pendingImeTouchRunnable = null
+    }
+
+    private fun scheduleDelayedImeRefresh() {
+        mainHandler.removeCallbacks(delayedImeRefreshRunnable)
+        mainHandler.removeCallbacks(secondDelayedImeRefreshRunnable)
+        mainHandler.postDelayed(delayedImeRefreshRunnable, 180L)
+        mainHandler.postDelayed(secondDelayedImeRefreshRunnable, 440L)
+    }
+
+    /**
+     * Privacy-safe 1x1 transparent sensor hosted in AccessibilityService with
+     * `TYPE_ACCESSIBILITY_OVERLAY` (Z-order layer 30+, strictly ABOVE `TYPE_INPUT_METHOD` at 14/15
+     * and treated as a trusted overlay on Android 12+ so untrusted-touch occlusion never drops it).
+     *
+     * Attached ONLY while the soft keyboard is visible and a KuroCat pet view is visible.
+     * Receives coordinate-free `MotionEvent.ACTION_OUTSIDE` on every finger-down tap on 9-key,
+     * 16-key, and 26-key Chinese/English IMEs (including custom-Canvas keyboards like Sogou /
+     * Baidu / WeType / iFlytek / OEM IMEs) without ever reading tap coordinates or typed text.
+     */
+    private fun syncImeTouchSensor() {
+        val shouldAttach = KuroEventBus.accessibilityConnected.get() &&
+            KuroEventBus.imeVisible.get() &&
+            KuroEventBus.isAnyPetVisible()
+        if (!shouldAttach) {
+            detachImeTouchSensor()
+            return
+        }
+        if (imeTouchSensorView != null) return
+
+        val wm = getSystemService(WINDOW_SERVICE) as? WindowManager ?: return
+        val sensor = object : View(this) {
+            override fun onTouchEvent(event: MotionEvent): Boolean {
+                if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) {
+                    onImeOutsideTouch()
+                }
+                return false
+            }
+        }.apply {
+            setBackgroundColor(Color.TRANSPARENT)
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+        val lp = WindowManager.LayoutParams(
+            1,
+            1,
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.START
+            x = 0
+            y = 0
+        }
+        try {
+            wm.addView(sensor, lp)
+            imeTouchSensorView = sensor
+            if (Log.isLoggable("KuroCat", Log.DEBUG)) {
+                Log.d("KuroCat", "imeSensorAttached type=TYPE_ACCESSIBILITY_OVERLAY")
+            }
+        } catch (t: Throwable) {
+            imeTouchSensorView = null
+            Log.w("KuroCat", "imeSensorAttachFailed: ${t.javaClass.simpleName}")
+        }
+    }
+
+    private fun detachImeTouchSensor() {
+        cancelPendingImeTouch()
+        val sensor = imeTouchSensorView ?: return
+        imeTouchSensorView = null
+        try {
+            val wm = getSystemService(WINDOW_SERVICE) as? WindowManager
+            wm?.removeView(sensor)
+            if (Log.isLoggable("KuroCat", Log.DEBUG)) {
+                Log.d("KuroCat", "imeSensorDetached")
+            }
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun onImeOutsideTouch() {
+        if (!KuroEventBus.imeVisible.get() || !KuroEventBus.isAnyPetVisible()) return
+        val tapMs = System.currentTimeMillis()
+        val privacyGuardOn = KuroPrefs.isPrivacyGuardEnabled(this)
+
+        if (KuroEventBus.privacyActive.get() && privacyGuardOn) {
+            if (tapMs - lastImeTouchSensorMs >= 95L) {
+                lastImeTouchSensorMs = tapMs
+                if (Log.isLoggable("KuroCat", Log.DEBUG)) {
+                    Log.d("KuroCat", "imeSensorPrivacyPulse")
+                }
+                KuroEventBus.postPrivacyTyping()
+            }
+            return
+        }
+
+        if (tapMs - lastImeTouchSensorMs < 48L) return
+        lastImeTouchSensorMs = tapMs
+
+        // Defer by 24ms (~1.5 frames): if a real TYPE_VIEW_TEXT_CHANGED (e.g. Backspace delete,
+        // English direct char, or candidate word commit) or a touch on KuroCat's own floating pet
+        // arrives for this tap, cancel cleanly to avoid double-striking or false typing. Otherwise
+        // (Chinese 9-key / 26-key composing taps where EditText text hasn't changed yet), fire
+        // immediately so every single pinyin tap moves the cat's paws!
+        cancelPendingImeTouch()
+        val runnable = Runnable {
+            pendingImeTouchRunnable = null
+            if (!KuroEventBus.imeVisible.get() || !KuroEventBus.isAnyPetVisible()) return@Runnable
+            if (KuroEventBus.privacyActive.get() && KuroPrefs.isPrivacyGuardEnabled(this)) return@Runnable
+            if (KuroEventBus.lastPetTouchDownMs >= tapMs - 55L) {
+                if (Log.isLoggable("KuroCat", Log.DEBUG)) {
+                    Log.d("KuroCat", "imeSensorSuppressed reason=pet_touch")
+                }
+                return@Runnable
+            }
+            if (KuroEventBus.lastTypingSignalMs >= tapMs - 4L) {
+                if (Log.isLoggable("KuroCat", Log.DEBUG)) {
+                    Log.d("KuroCat", "imeSensorSuppressed reason=text_or_ime_event")
+                }
+                return@Runnable
+            }
+            if (Log.isLoggable("KuroCat", Log.DEBUG)) {
+                Log.d("KuroCat", "imeSensorEmit kind=char")
+            }
+            KuroEventBus.lastImeSensorEmitMs = System.currentTimeMillis()
+            KuroEventBus.postTypingBurst(1, "char")
+        }
+        pendingImeTouchRunnable = runnable
+        mainHandler.postDelayed(runnable, 24L)
+    }
+
+    override fun onImeVisibilityChanged(visible: Boolean) {
+        syncImeTouchSensor()
+    }
+
+    override fun onPetVisibilityChanged(visible: Boolean) {
+        syncImeTouchSensor()
+    }
+
+    override fun onOverlayStateChanged(running: Boolean) {
+        syncImeTouchSensor()
     }
 
     private fun refreshDefaultImePackage(force: Boolean = false): String? {
@@ -261,10 +453,39 @@ class KuroAccessibilityService : AccessibilityService() {
         try {
             val winList = windows
             if (winList != null) {
+                val bounds = Rect()
                 for (w in winList) {
                     if (w.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD) {
-                        foundImeId = w.id
-                        break
+                        w.getBoundsInScreen(bounds)
+                        if (bounds.width() > 0 && bounds.height() > 0) {
+                            foundImeId = w.id
+                            break
+                        }
+                    }
+                }
+                // OEM fallback using parcelled local metadata ONLY (NEVER call `w.root` here:
+                // KuroOverlayService's own TYPE_APPLICATION_OVERLAY window appears as TYPE_SYSTEM
+                // in `windows`, and calling `w.root` on our own process deadlocks the main thread!).
+                if (foundImeId == -1) {
+                    for (w in winList) {
+                        if (w.type == AccessibilityWindowInfo.TYPE_APPLICATION ||
+                            w.type == AccessibilityWindowInfo.TYPE_ACCESSIBILITY_OVERLAY
+                        ) {
+                            continue
+                        }
+                        w.getBoundsInScreen(bounds)
+                        if (bounds.width() <= 0 || bounds.height() <= 0) continue
+                        val title = w.title?.toString()?.lowercase(Locale.ROOT)
+                        if (!title.isNullOrEmpty() && (
+                                title.contains("input method") ||
+                                    title.contains("keyboard") ||
+                                    title.contains("输入法") ||
+                                    title.contains("键盘")
+                                )
+                        ) {
+                            foundImeId = w.id
+                            break
+                        }
                     }
                 }
             }
@@ -558,6 +779,9 @@ class KuroAccessibilityService : AccessibilityService() {
             }
 
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                if (!KuroEventBus.systemImeVisible.get()) {
+                    refreshImeWindowState(force = true)
+                }
                 if (isPasswordEvent(event)) {
                     if (privacyGuardOn) {
                         KuroEventBus.postPrivacyChanged(true)
@@ -594,7 +818,9 @@ class KuroAccessibilityService : AccessibilityService() {
                 if (now - lastTextEventMs < 35L) return
                 lastTextEventMs = now
 
-                // Avoid double-striking if the IME tap sensor / candidate bar already fired right before commit
+                // Avoid double-striking if the IME tap sensor already fired on ACTION_DOWN for this tap
+                // (typical finger-down to finger-up duration on touchscreen keyboards is 55-120ms).
+                if (added <= 3 && now - KuroEventBus.lastImeSensorEmitMs < 135L) return
                 if (added == 1 && now - KuroEventBus.lastTypingSignalMs < 48L) return
 
                 when {
@@ -624,8 +850,10 @@ class KuroAccessibilityService : AccessibilityService() {
                 if (prevIdx < 0 || prevIdx == from) return
 
                 val now = System.currentTimeMillis()
-                // Ignore cursor jumps immediately caused by tapping to focus/move the caret
+                // Ignore cursor jumps immediately caused by tapping to focus/move the caret, or
+                // selection callbacks trailing a real TYPE_VIEW_TEXT_CHANGED / IME touch sensor pulse.
                 if (now - lastClickEventMs < 160L) return
+                if (now - lastTextEventMs < 140L || now - KuroEventBus.lastImeSensorEmitMs < 140L) return
                 if (now - lastSelectionEventMs < 65L || now - KuroEventBus.lastTypingSignalMs < 55L) return
                 lastSelectionEventMs = now
                 val delta = from - prevIdx
@@ -655,6 +883,11 @@ class KuroAccessibilityService : AccessibilityService() {
                     KuroEventBus.postImeVisibilityChanged(true)
                 }
 
+                // When the trusted TYPE_ACCESSIBILITY_OVERLAY touch sensor is attached, it already
+                // receives 1:1 finger-down pulses on every keyboard tap — skip IME subtree/popup
+                // animations here to avoid double-strikes and ghost taps during keyboard dismiss.
+                if (imeTouchSensorView != null) return
+
                 val changeTypes = event.contentChangeTypes
                 val relevant = changeTypes == 0 ||
                     (changeTypes and (
@@ -681,8 +914,7 @@ class KuroAccessibilityService : AccessibilityService() {
 
             AccessibilityEvent.TYPE_VIEW_FOCUSED -> {
                 refreshImeWindowState()
-                mainHandler.removeCallbacks(delayedImeRefreshRunnable)
-                mainHandler.postDelayed(delayedImeRefreshRunnable, 260L)
+                scheduleDelayedImeRefresh()
                 lastSelectionIndex = -1
                 val isPwd = isPasswordEvent(event)
                 if (isPwd) {
@@ -694,8 +926,7 @@ class KuroAccessibilityService : AccessibilityService() {
 
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED -> {
                 refreshImeWindowState(force = true)
-                mainHandler.removeCallbacks(delayedImeRefreshRunnable)
-                mainHandler.postDelayed(delayedImeRefreshRunnable, 260L)
+                scheduleDelayedImeRefresh()
                 // Detect payment PIN keyboards / safe keyboard dialogs immediately
                 if (isPasswordWindowEvent(event)) {
                     if (privacyGuardOn) {
@@ -719,6 +950,12 @@ class KuroAccessibilityService : AccessibilityService() {
 
                 val src = safeEventSource(event)
                 try {
+                    if (src != null && (src.isEditable || src.inputType != InputType.TYPE_NULL)) {
+                        // Re-tapping an already-focused EditText (e.g. WeChat / Douyin input bar)
+                        // raises the soft keyboard without re-emitting TYPE_VIEW_FOCUSED.
+                        refreshImeWindowState()
+                        scheduleDelayedImeRefresh()
+                    }
                     if (privacyGuardOn &&
                         (event.isPassword || (src != null && isPasswordNode(src, event.eventType)))
                     ) {
