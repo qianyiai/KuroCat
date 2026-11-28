@@ -22,6 +22,10 @@
   </p>
 
   <p>
+    <a href="https://trendshift.io/repositories/372353?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-372353" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/372353/daily?language=TypeScript" alt="qianyiai%2FKuroCat | Trendshift" width="250" height="55"/></a>
+  </p>
+
+  <p>
     <a href="https://pan.quark.cn/s/673684ea4103"><strong>☁️ Quark クラウド（Win/Mac/Linux/Android）</strong></a> &nbsp;·&nbsp;
     <a href="https://kurocat.org/ja/"><strong>🌐 公式サイト＆3D体験</strong></a> &nbsp;·&nbsp;
     <a href="https://kurocat.org/ja/download/"><strong>📥 公式ダウンロード</strong></a> &nbsp;·&nbsp;

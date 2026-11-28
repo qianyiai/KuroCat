@@ -22,6 +22,10 @@
   </p>
 
   <p>
+    <a href="https://trendshift.io/repositories/372353?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-372353" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/372353/daily?language=TypeScript" alt="qianyiai%2FKuroCat | Trendshift" width="250" height="55"/></a>
+  </p>
+
+  <p>
     <a href="https://pan.quark.cn/s/673684ea4103"><strong>☁️ 夸克网盘高速下载（Win/Mac/Linux/安卓）</strong></a> &nbsp;·&nbsp;
     <a href="https://kurocat.org/"><strong>🌐 官网在线试玩</strong></a> &nbsp;·&nbsp;
     <a href="https://kurocat.org/download/"><strong>📥 官方下载与校验</strong></a> &nbsp;·&nbsp;
