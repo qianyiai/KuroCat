@@ -293,7 +293,7 @@ gh secret set MACOS_SIGNING_CERT_PASSWORD < /path/outside/repo/kurocat-signing/k
 本项目基于 [MIT License](LICENSE) 开源，完全免费。如果这只桌面小猫陪你写代码、办公或直播时带来过好心情，欢迎点一颗 ⭐ 支持持续维护！
 
 - **🐳 大肥鱼（鲸鱼娘）** 运行时素材基于 MIT 开源项目 [PC2005-cloud/dsh-pet](https://github.com/PC2005-cloud/dsh-pet)（衍生自 [QCYTSN/dsh-dafeiyu](https://github.com/QCYTSN/dsh-dafeiyu)），详见 `src/assets/dafeiyu/LICENSE-MIT.txt`。
-- **社区贡献者**：特别感谢 [@XYZliang](https://github.com/XYZliang)、[@CandySunPlus](https://github.com/CandySunPlus)（#51）、[@Jack-GPT](https://github.com/Jack-GPT)（#47, #64）、[@Mangome](https://github.com/Mangome)（#67, #68）、[@Zyred9](https://github.com/Zyred9)（#42, #48）、[@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao)（#65, #93）、[@hacksmo](https://github.com/hacksmo)（#45）、[@LiMuhua](https://github.com/LiMuhua)（#75）、[@wte-81](https://github.com/wte-81)（#56, #83, #111）、[@Perfect9s](https://github.com/Perfect9s)（#86）、[@hsm-lv](https://github.com/hsm-lv)（#141）。
+- **社区贡献者**：特别感谢 [@XYZliang](https://github.com/XYZliang)、[@CandySunPlus](https://github.com/CandySunPlus)（#51）、[@Jack-GPT](https://github.com/Jack-GPT)（#47, #64）、[@Mangome](https://github.com/Mangome)（#67, #68）、[@Zyred9](https://github.com/Zyred9)（#42, #48）、[@bj-wangxiaoxiao](https://github.com/bj-wangxiaoxiao)（#65, #93）、[@hacksmo](https://github.com/hacksmo)（#45）、[@LiMuhua](https://github.com/LiMuhua)（#75）、[@wte-81](https://github.com/wte-81)（#56, #83, #111）、[@Perfect9s](https://github.com/Perfect9s)（#86）、[@oitsukiii](https://github.com/oitsukiii)（#123）、[@hsm-lv](https://github.com/hsm-lv)（#141）。
 
 ---
 
