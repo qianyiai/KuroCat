@@ -2971,7 +2971,7 @@ export class KuroCatEngine {
         this.yawnAmount * 0.30 -
         this.stretchAmount * 0.38 -
         scruffClamped * 0.28) *
-        peekCalm,
+      peekCalm,
       dt,
     );
 
@@ -3069,14 +3069,14 @@ export class KuroCatEngine {
     // Dynamic ear spring (5.2Hz, damping 0.36): perks up when curious/excited, flattens into airplane ears when cross, droops gently when scruffed or yawning!
     const earTarget = isCatMode
       ? 0.12 * this.typingEnergy * (1 - this.crossAmount) +
-        0.16 * curiousClamped +
-        0.14 * peekClamped * (0.4 + 0.6 * this.peekHover) -
-        0.18 * this.squintAmount -
-        0.58 * this.crossAmount -
-        0.22 * scruffClamped -
-        0.26 * this.yawnAmount -
-        0.22 * this.stretchAmount -
-        0.12 * this.sleepAmount
+      0.16 * curiousClamped +
+      0.14 * peekClamped * (0.4 + 0.6 * this.peekHover) -
+      0.18 * this.squintAmount -
+      0.58 * this.crossAmount -
+      0.22 * scruffClamped -
+      0.26 * this.yawnAmount -
+      0.22 * this.stretchAmount -
+      0.12 * this.sleepAmount
       : 0;
     this.earPerkSpring.step(earTarget, dt);
 
@@ -3976,7 +3976,7 @@ export class KuroCatEngine {
         ctx.moveTo(startX, startY);
         ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endX, endY);
         ctx.stroke();
-        ctx.shadowBlur =0; /* perf: no per-frame blur */
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
         ctx.shadowOffsetY = 0;
       } else if (!this.chromaKeyBg) {
         ctx.shadowColor = 'rgba(18, 17, 18, 0.42)';
@@ -4026,7 +4026,7 @@ export class KuroCatEngine {
         const ringColor = s.stripeColor || s.tailTipColor;
         ctx.strokeStyle = ringColor;
         ctx.lineWidth = 3.2;
-        ctx.shadowBlur =0; /* perf: no per-frame blur */
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
         for (const t of [0.24, 0.44, 0.64, 0.82]) {
           const mt = 1 - t;
           const bx =
@@ -4075,7 +4075,7 @@ export class KuroCatEngine {
       ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, endX, endY);
       ctx.stroke();
 
-      ctx.shadowBlur =0; /* perf: no per-frame blur */
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.shadowOffsetY = 0;
       const tailGrad = ctx.createLinearGradient(startX, startY, endX, endY);
       tailGrad.addColorStop(0.0, '#8d7e6f');
@@ -4213,7 +4213,7 @@ export class KuroCatEngine {
       ctx.fill();
       if (isRagdoll) {
         ctx.save();
-        ctx.shadowBlur =0; /* perf: no per-frame blur */
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
         ctx.shadowOffsetY = 0;
         ctx.stroke();
         ctx.restore();
@@ -4265,7 +4265,7 @@ export class KuroCatEngine {
 
       // Paint custom warm milk-tea taupe Ragdoll markings clipped cleanly inside the body silhouette!
       ctx.save();
-      ctx.shadowBlur =0; /* perf: no per-frame blur */
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.shadowOffsetY = 0;
       ctx.clip();
 
@@ -4354,7 +4354,7 @@ export class KuroCatEngine {
 
       // Clean refined soft warm-brown body outline so creamy fur pops crisply on BOTH light & dark wallpapers!
       ctx.save();
-      ctx.shadowBlur =0; /* perf: no per-frame blur */
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.shadowOffsetY = 0;
       traceBodyPath();
       ctx.strokeStyle = inkOutline;
@@ -4409,7 +4409,7 @@ export class KuroCatEngine {
 
         // Stroke outer ear rim cleanly (open at bottom skull merge so there is zero seam line!)
         ctx.save();
-        ctx.shadowBlur =0; /* perf: no per-frame blur */
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
         ctx.shadowOffsetY = 0;
         ctx.strokeStyle = '#473c34';
         ctx.lineWidth = 1.9;
@@ -4451,7 +4451,7 @@ export class KuroCatEngine {
     drawOneEar(-1, lTwitch);
     drawOneEar(1, rTwitch);
 
-    ctx.shadowBlur =0; /* perf: no per-frame blur */
+    ctx.shadowBlur = 0; /* perf: no per-frame blur */
     ctx.shadowOffsetY = 0;
 
     const wShift = this.faceTurnX * 0.72;
@@ -4558,7 +4558,7 @@ export class KuroCatEngine {
     ctx.globalAlpha = Math.min(1, settled * 1.45);
     ctx.translate(0, dropY);
     ctx.scale(sc, sc);
-    ctx.shadowBlur =0; /* perf: no per-frame blur */
+    ctx.shadowBlur = 0; /* perf: no per-frame blur */
     ctx.shadowOffsetY = 0;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
@@ -4626,7 +4626,7 @@ export class KuroCatEngine {
     ctx.globalAlpha = Math.min(1, settled * 1.45);
     ctx.translate(0, dropY);
     ctx.scale(sc, sc);
-    ctx.shadowBlur =0; /* perf: no per-frame blur */
+    ctx.shadowBlur = 0; /* perf: no per-frame blur */
     ctx.shadowOffsetY = 0;
 
     for (const s of [-1, 1] as const) {
@@ -5588,7 +5588,7 @@ export class KuroCatEngine {
     ctx.ellipse(px, py, pawRx, pawRy, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.shadowBlur =0; /* perf: no per-frame blur */
+    ctx.shadowBlur = 0; /* perf: no per-frame blur */
 
     // Clean crisp subtle light-grey side separation lines ONLY where the arm crosses the black body (exact 2.2s / 8.3s / 13.2s!)
     if (!isSmear && withCrease && len > 28) {
@@ -5824,9 +5824,9 @@ export class KuroCatEngine {
         (fill.startsWith('#') &&
           fill.length === 7 &&
           parseInt(fill.slice(1, 3), 16) * 0.299 +
-            parseInt(fill.slice(3, 5), 16) * 0.587 +
-            parseInt(fill.slice(5, 7), 16) * 0.114 <
-            115));
+          parseInt(fill.slice(3, 5), 16) * 0.587 +
+          parseInt(fill.slice(5, 7), 16) * 0.114 <
+          115));
     const stroke = isDarkPaw
       ? this.customSkin?.armCreaseColor || 'rgba(215, 218, 226, 0.36)'
       : this.customSkin
@@ -5917,7 +5917,7 @@ export class KuroCatEngine {
       this.roundRect(ctx, bx, by + 2.2, boxW, boxH, 5.5);
       ctx.fill();
 
-      ctx.shadowBlur =0; /* perf: no per-frame blur */
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = 'rgba(38, 40, 46, 0.42)';
       ctx.lineWidth = 1.05;
@@ -5981,7 +5981,7 @@ export class KuroCatEngine {
       this.roundRect(ctx, bx, by + 1.6, boxW, boxH, 5);
       ctx.fill();
 
-      ctx.shadowBlur =0; /* perf: no per-frame blur */
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.fillStyle = b.color;
       ctx.strokeStyle = 'rgba(20, 22, 28, 0.45)';
       ctx.lineWidth = 1.0;
@@ -6089,7 +6089,7 @@ export class KuroCatEngine {
       ctx.fill();
       if (s.pawOutlineColor || s.outlineColor) {
         ctx.save();
-        ctx.shadowBlur =0; /* perf: no per-frame blur */
+        ctx.shadowBlur = 0; /* perf: no per-frame blur */
         ctx.shadowOffsetY = 0;
         ctx.stroke();
         ctx.restore();
@@ -6151,7 +6151,7 @@ export class KuroCatEngine {
 
     // 3) Clipped coat pattern markings & custom spots
     ctx.save();
-    ctx.shadowBlur =0; /* perf: no per-frame blur */
+    ctx.shadowBlur = 0; /* perf: no per-frame blur */
     ctx.shadowOffsetY = 0;
     ctx.clip();
 
@@ -6350,13 +6350,71 @@ export class KuroCatEngine {
 
     if (s.outlineColor) {
       ctx.save();
-      ctx.shadowBlur =0; /* perf: no per-frame blur */
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.shadowOffsetY = 0;
       traceBodyPath();
       ctx.strokeStyle = s.outlineColor;
       ctx.lineWidth = 1.8;
       ctx.lineJoin = 'round';
       ctx.stroke();
+      ctx.restore();
+    }
+
+    if (contour.coatFluff > 0.02) {
+      const f = contour.coatFluff;
+      ctx.save();
+      ctx.fillStyle = s.furColor;
+      ctx.strokeStyle = s.outlineColor || s.furSecondaryColor || s.furColor;
+      ctx.lineWidth = 1.4;
+      ctx.lineJoin = 'round';
+      const drawTuft2d = (x: number, y: number, ang: number, len: number, wid: number) => {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(ang);
+        ctx.beginPath();
+        ctx.moveTo(0, -wid * 0.5);
+        ctx.quadraticCurveTo(len * 0.55, -wid * 0.55, len, 0);
+        ctx.quadraticCurveTo(len * 0.55, wid * 0.55, 0, wid * 0.5);
+        ctx.closePath();
+        ctx.fill();
+        if (s.outlineColor) ctx.stroke();
+        ctx.restore();
+      };
+      // Cheek ruffs (left & right)
+      for (const side of [-1, 1] as const) {
+        const pts = side === -1 ? leftPts : rightPts;
+        for (const [idx, aOff, len, wid] of [
+          [1, -0.22, 13, 10],
+          [2, 0.04, 17, 12],
+          [3, 0.24, 16, 12],
+          [4, 0.42, 12, 10],
+          [6, 0.30, 11, 10],
+        ] as const) {
+          const p = pts[idx];
+          if (p) drawTuft2d(p.x - side * 3, p.y, (side === -1 ? Math.PI : 0) + side * aOff, len * f, wid * f);
+        }
+      }
+      // Crown fluff
+      for (const [dx, ang, len] of [
+        [-22, -Math.PI * 0.60, 10],
+        [-8, -Math.PI * 0.52, 12],
+        [8, -Math.PI * 0.48, 12],
+        [22, -Math.PI * 0.40, 10],
+      ] as const) {
+        drawTuft2d(crownPt.x + dx, crownPt.y + 2, ang, len * f, 9 * f);
+      }
+      // Fluffy chest ruff scallops
+      for (const [dx, dy, r] of [
+        [-22, -4, 11],
+        [-10, 3, 13],
+        [0, 5, 14],
+        [10, 3, 13],
+        [22, -4, 11],
+      ] as const) {
+        ctx.beginPath();
+        ctx.arc(chestSp.x + purrShift + dx * f, chestSp.y + dy, r * f, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
     }
 
@@ -6460,7 +6518,7 @@ export class KuroCatEngine {
       earPath(false);
       ctx.fill();
 
-      ctx.shadowBlur =0; /* perf: no per-frame blur */
+      ctx.shadowBlur = 0; /* perf: no per-frame blur */
       ctx.shadowOffsetY = 0;
 
       if (s.outlineColor) {
@@ -6522,7 +6580,7 @@ export class KuroCatEngine {
     drawCustomEar(-1, lTwitch);
     drawCustomEar(1, rTwitch);
 
-    ctx.shadowBlur =0; /* perf: no per-frame blur */
+    ctx.shadowBlur = 0; /* perf: no per-frame blur */
     ctx.shadowOffsetY = 0;
     const wShift = this.faceTurnX * 0.72;
 

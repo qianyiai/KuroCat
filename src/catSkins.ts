@@ -44,6 +44,7 @@ export interface CatContourResolved {
   blushAlways: boolean;
   blushScale: number;
   bodyChubbiness: number;
+  coatFluff: number;
 }
 
 export interface CatSkinConfig {
@@ -125,6 +126,7 @@ export interface CatSkinConfig {
   blushAlways?: boolean;
   blushScale?: number;
   bodyChubbiness?: number;
+  coatFluff?: number;
 
   spots?: CatSpot[];
 }
@@ -190,11 +192,11 @@ export function resolveCatContour(raw?: Partial<CatSkinConfig> | null): CatConto
   const esRaw = (raw?.earShape || 'cat').toLowerCase();
   const earShape: CatEarShape =
     esRaw === 'round' ||
-    esRaw === 'tall' ||
-    esRaw === 'small' ||
-    esRaw === 'wide' ||
-    esRaw === 'folded' ||
-    esRaw === 'floppy'
+      esRaw === 'tall' ||
+      esRaw === 'small' ||
+      esRaw === 'wide' ||
+      esRaw === 'folded' ||
+      esRaw === 'floppy'
       ? esRaw
       : 'cat';
 
@@ -266,6 +268,7 @@ export function resolveCatContour(raw?: Partial<CatSkinConfig> | null): CatConto
     blushAlways: Boolean(raw?.blushAlways),
     blushScale: numOr(raw?.blushScale, 0.50, 1.60, 1.0),
     bodyChubbiness: numOr(raw?.bodyChubbiness, 0.80, 1.25, 1.0),
+    coatFluff: numOr(raw?.coatFluff, 0.0, 1.0, 0.0),
   };
 }
 

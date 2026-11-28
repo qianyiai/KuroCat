@@ -609,6 +609,7 @@ export class KuroCatEngine3D {
   private earGeo: THREE.BufferGeometry;
   private disposed = false;
   private readonly bodyMesh: THREE.Mesh;
+  private furFluffMesh!: THREE.Mesh;
   private outlineSamplePts: THREE.Vector3[];
   private currentContour: CatContourResolved = resolveCatContour(null);
   private lastContourKey = '';
@@ -1058,6 +1059,11 @@ export class KuroCatEngine3D {
     this.bodyMesh.frustumCulled = false;
     this.catRoot.add(this.bodyMesh);
     this.petMeshes.push(this.bodyMesh);
+
+    this.furFluffMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.furSystem.createMaterial('CAT_BODY'));
+    this.furFluffMesh.frustumCulled = false;
+    this.furFluffMesh.visible = false;
+    this.catRoot.add(this.furFluffMesh);
 
     // 2) Subtle Grounded Side Hind Paws tucked cleanly beside lower thighs (dangle softly when scruffed!)
     const pawGeo = this.makePlushPawGeo();
@@ -1882,6 +1888,110 @@ export class KuroCatEngine3D {
     return merged;
   }
 
+  private buildFurFluffGeometry(contour: CatContourResolved): THREE.BufferGeometry {
+    const fluff = contour.coatFluff;
+    const hw = contour.headWidth;
+    const chubby = contour.bodyChubbiness;
+    const parts: Array<{ geo: THREE.BufferGeometry }> = [];
+    const dummyMat = new THREE.MeshBasicMaterial();
+
+    const addTuft = (
+      ax: number, ay: number, az: number,
+      cx: number, cy: number, cz: number,
+      bx: number, by: number, bz: number,
+      rBase: number,
+    ) => {
+      const tube = new TaperTube3D(7, 7, dummyMat, 12);
+      tube.update(
+        (t, out) => {
+          const u = 1 - t;
+          out.set(
+            u * u * ax + 2 * u * t * cx + t * t * bx,
+            u * u * ay + 2 * u * t * cy + t * t * by,
+            u * u * az + 2 * u * t * cz + t * t * bz,
+          );
+        },
+        (t) => rBase * Math.sin(Math.min(1, t * 0.85 + 0.12) * Math.PI) * (1 - 0.88 * t * t),
+      );
+      parts.push({ geo: tube.mesh.geometry });
+    };
+
+    // 1) Wide wispy Persian cheek ruffs (fanning outward & slightly downward on both sides)
+    for (const s of [-1, 1] as const) {
+      const cheekTufts = [
+        { y0: 1.56, dx: 0.24, dy: 0.04, dz: -0.02, r: 0.085 },
+        { y0: 1.49, dx: 0.30, dy: -0.01, dz: 0.01, r: 0.095 },
+        { y0: 1.42, dx: 0.32, dy: -0.06, dz: 0.03, r: 0.100 },
+        { y0: 1.35, dx: 0.27, dy: -0.10, dz: 0.05, r: 0.092 },
+        { y0: 1.29, dx: 0.20, dy: -0.12, dz: 0.06, r: 0.082 },
+        { y0: 1.45, dx: 0.25, dy: -0.04, dz: -0.08, r: 0.082 },
+      ];
+      for (const ct of cheekTufts) {
+        const x0 = s * (0.48 * hw);
+        const z0 = (0.04 + ct.dz) * Z_SCALE;
+        addTuft(
+          x0, ct.y0, z0,
+          x0 + s * ct.dx * 0.55 * fluff, ct.y0 + ct.dy * 0.45 * fluff, z0 + 0.02,
+          x0 + s * ct.dx * fluff, ct.y0 + ct.dy * fluff, z0 - 0.03,
+          ct.r * (0.65 + 0.35 * fluff),
+        );
+      }
+
+      // 2) Fluffy ear tufts
+      const ex = s * this.earMountX;
+      const ey = HEAD_CY + this.earMountY;
+      addTuft(ex, ey, 0.02, ex + s * 0.06 * fluff, ey + 0.09 * fluff, 0.01, ex + s * 0.11 * fluff, ey + 0.16 * fluff, -0.02, 0.036 * fluff);
+      addTuft(ex - s * 0.03, ey + 0.02, 0.03, ex - s * 0.01, ey + 0.09 * fluff, 0.03, ex + s * 0.03 * fluff, ey + 0.15 * fluff, 0.01, 0.030 * fluff);
+
+      // 3) Soft flank / shoulder fur plumes
+      for (const fy of [0.98, 0.80, 0.62, 0.44]) {
+        const rx = 0.66 * chubby;
+        addTuft(
+          s * rx * 0.88, fy, 0.04,
+          s * (rx + 0.09 * fluff), fy - 0.05 * fluff, 0.03,
+          s * (rx + 0.16 * fluff), fy - 0.14 * fluff, -0.02,
+          0.078 * fluff,
+        );
+      }
+    }
+
+    // 4) Fluffy crown / forehead halo tufts
+    for (const cx of [-0.20, -0.10, 0.0, 0.10, 0.20]) {
+      const yTop = 1.91 - Math.abs(cx) * 0.14;
+      addTuft(
+        cx * hw, yTop - 0.03, 0.04,
+        cx * hw * 1.12, yTop + 0.06 * fluff, 0.02,
+        cx * hw * 1.24, yTop + 0.11 * fluff, -0.03,
+        0.058 * fluff,
+      );
+    }
+
+    // 5) Cloud-like fluffy chest ruff / mane across upper torso
+    const ruffRows = [
+      { y: 1.22, z: 0.36, xs: [-0.24, -0.12, 0.0, 0.12, 0.24], r: 0.088, drop: 0.14 },
+      { y: 1.09, z: 0.41, xs: [-0.28, -0.15, -0.04, 0.07, 0.18, 0.29], r: 0.098, drop: 0.17 },
+      { y: 0.96, z: 0.42, xs: [-0.22, -0.09, 0.04, 0.17, 0.26], r: 0.090, drop: 0.16 },
+    ];
+    for (const row of ruffRows) {
+      for (const rx of row.xs) {
+        const z0 = row.z * Z_SCALE;
+        addTuft(
+          rx * chubby, row.y, z0,
+          rx * chubby * 1.08, row.y - row.drop * 0.45 * fluff, z0 + 0.10 * fluff,
+          rx * chubby * 1.15, row.y - row.drop * fluff, z0 + 0.04 * fluff,
+          row.r * (0.65 + 0.35 * fluff),
+        );
+      }
+    }
+
+    const merged = mergeStaticGeometries(parts);
+    for (const p of parts) p.geo.dispose();
+    dummyMat.dispose();
+    merged.computeVertexNormals();
+    merged.setAttribute('rest', merged.attributes.position.clone());
+    return merged;
+  }
+
   private applyContourGeometry(skin: CatSkinConfig): void {
     const contour = resolveCatContour(skin);
     this.currentContour = contour;
@@ -1909,6 +2019,7 @@ export class KuroCatEngine3D {
       contour.eyebrowStyle,
       contour.blushScale.toFixed(3),
       contour.bodyChubbiness.toFixed(3),
+      contour.coatFluff.toFixed(3),
     ].join('|');
     if (key === this.lastContourKey) return;
     this.lastContourKey = key;
@@ -2108,6 +2219,16 @@ export class KuroCatEngine3D {
     this.eyebrowMesh.geometry = this.buildEyebrowsGeometry(contour);
     oldBrows.dispose();
     this.eyebrowMesh.visible = contour.eyebrowStyle !== 'none';
+
+    const oldFluff = this.furFluffMesh.geometry;
+    if (contour.coatFluff > 0.02) {
+      this.furFluffMesh.geometry = this.buildFurFluffGeometry(contour);
+      this.furFluffMesh.visible = true;
+    } else {
+      this.furFluffMesh.geometry = new THREE.BufferGeometry();
+      this.furFluffMesh.visible = false;
+    }
+    oldFluff.dispose();
   }
 
   /** Mathematically exact Z depth on the front face of our Lathe/squircle body at headMount-local (x, y). */
@@ -2938,9 +3059,9 @@ export class KuroCatEngine3D {
       this.tailKeyMode === 'custom'
         ? this.tailKeyIdSet.has(k.spec.id)
         : !this.isCross &&
-          this.tailKeyMode !== 'off' &&
-          (this.desk.isRightEdgeTailKey(k.spec.id) ||
-            (this.tailKeyMode === 'smart' && (k.spec.id === 'space' || k.spec.id === 'enter')));
+        this.tailKeyMode !== 'off' &&
+        (this.desk.isRightEdgeTailKey(k.spec.id) ||
+          (this.tailKeyMode === 'smart' && (k.spec.id === 'space' || k.spec.id === 'enter')));
     if (useTail) {
       this.triggerTailKey(k.spec.id, k.spec.bubble || k.spec.label || k.spec.id);
       return;
@@ -3161,34 +3282,34 @@ export class KuroCatEngine3D {
         : scruffActive
           ? '被拎起后颈皮 🫳'
           : this.peekAmt > 0.45
-          ? this.peekVisualEdge === 'left'
-            ? '左侧贴边偷看 👀'
-            : '右侧贴边偷看 👀'
-          : this.boopAmt > 0.15
-            ? '戳鼻头斗鸡眼 🤧'
-            : this.isCross
-              ? '生气飞机耳 💢'
-              : this.tailGlanceAmt > 0.25
-                ? '被戳尾巴警惕 ⚡'
-                : this.chinAmt > 0.25
-                  ? '挠下巴超享受 💛'
-                  : this.sleepAmt > 0.5
-                    ? '打瞌睡 Zzz'
-                    : this.idleAct?.kind === 'doze'
-                      ? '点头钓鱼犯困 😵‍💫'
-                      : this.idleAct?.kind === 'yawn'
-                        ? '打哈欠 🥱'
-                        : this.idleAct?.kind === 'stretch'
-                          ? '伸大懒腰 🐱'
-                          : this.idleAct?.kind === 'groom'
-                            ? '舔爪洗脸 🐾'
-                            : this.idleAct?.kind === 'knead'
-                              ? '键盘踩奶 🍞'
-                              : this.elapsed < this.curiousUntil
-                                ? '好奇大圆瞳 ✨'
-                                : this.petting
-                                  ? '被摸头呼噜中 💛'
-                                  : '平静待机 3D 🐾';
+            ? this.peekVisualEdge === 'left'
+              ? '左侧贴边偷看 👀'
+              : '右侧贴边偷看 👀'
+            : this.boopAmt > 0.15
+              ? '戳鼻头斗鸡眼 🤧'
+              : this.isCross
+                ? '生气飞机耳 💢'
+                : this.tailGlanceAmt > 0.25
+                  ? '被戳尾巴警惕 ⚡'
+                  : this.chinAmt > 0.25
+                    ? '挠下巴超享受 💛'
+                    : this.sleepAmt > 0.5
+                      ? '打瞌睡 Zzz'
+                      : this.idleAct?.kind === 'doze'
+                        ? '点头钓鱼犯困 😵‍💫'
+                        : this.idleAct?.kind === 'yawn'
+                          ? '打哈欠 🥱'
+                          : this.idleAct?.kind === 'stretch'
+                            ? '伸大懒腰 🐱'
+                            : this.idleAct?.kind === 'groom'
+                              ? '舔爪洗脸 🐾'
+                              : this.idleAct?.kind === 'knead'
+                                ? '键盘踩奶 🍞'
+                                : this.elapsed < this.curiousUntil
+                                  ? '好奇大圆瞳 ✨'
+                                  : this.petting
+                                    ? '被摸头呼噜中 💛'
+                                    : '平静待机 3D 🐾';
     return {
       mood,
       activeIdle: this.idleAct?.kind ?? null,
@@ -3714,7 +3835,7 @@ export class KuroCatEngine3D {
         this.yawnAmt * 0.06 -
         this.stretchAmt * 0.12 -
         scruff * 0.07) *
-        peekCalm +
+      peekCalm +
       (petActive ? 0.025 * peek : 0) +
       Math.sin(t * 2.0) * 0.014;
 
@@ -4175,12 +4296,12 @@ export class KuroCatEngine3D {
 
       const wantTuck =
         !activeForMouse &&
-        !activeForKey &&
-        !activeForScruff &&
-        !activeForPeek &&
-        !activeForGroom &&
-        !activeForStretch &&
-        !activeForKnead
+          !activeForKey &&
+          !activeForScruff &&
+          !activeForPeek &&
+          !activeForGroom &&
+          !activeForStretch &&
+          !activeForKnead
           ? 1
           : 0;
       paw.tuckWeight += (wantTuck - paw.tuckWeight) * approach(wantTuck ? 6.5 : 20, dt);

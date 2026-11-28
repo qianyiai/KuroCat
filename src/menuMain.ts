@@ -851,6 +851,7 @@ async function bootstrap(): Promise<void> {
       { ...DEFAULT_BUILTIN_CATS[0], id: 'calico', name: '三花猫', emoji: '🌸', accentColor: '#ff7eb3' },
       { ...DEFAULT_BUILTIN_CATS[0], id: 'tuxedo', name: '奶牛猫', emoji: '🐄', accentColor: '#d0d7de' },
       { ...DEFAULT_BUILTIN_CATS[0], id: 'siamese', name: '暹罗猫', emoji: '☕', accentColor: '#c9a679' },
+      { ...DEFAULT_BUILTIN_CATS[0], id: 'persian', name: '波斯猫', emoji: '🤍', accentColor: '#b8c4d4' },
       DEFAULT_BUILTIN_CATS[2],
     ];
   }
