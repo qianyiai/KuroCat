@@ -858,9 +858,10 @@ export class KuroCatEngine3D {
   private idleTimer: number | null = null;
   private isIdlePacing = false;
   private lastFrameMs = 0;
-  private directRafPrevMs = 0;
-  private vsyncMs = 16.67;
-  private vsyncSamples = 0;
+  private nextActiveFrameMs = 0;
+  private directRafMs: number | null = null;
+  private refreshMs = 1000 / 60;
+  private lastRefreshSampleMs = 0;
   private gameActive = false;
   private lastCamKey = '';
   private elapsed = 0;
@@ -2230,7 +2231,8 @@ export class KuroCatEngine3D {
   public start(): void {
     if (this.disposed || this.rafId !== null || this.idleTimer !== null) return;
     this.lastFrameMs = performance.now();
-    this.directRafPrevMs = 0;
+    this.nextActiveFrameMs = 0;
+    this.directRafMs = null;
     this.isIdlePacing = false;
     this.rafId = requestAnimationFrame(this.renderFrame);
   }
@@ -2300,17 +2302,17 @@ export class KuroCatEngine3D {
   private readonly renderFrame = (nowMs: number): void => {
     if (this.disposed) return;
     const frameId = this.rafId;
-    const workStart = performance.now();
-
-    // Auto-detect native display VSync period during the first few direct rAF frames
-    if (this.directRafPrevMs > 0 && this.vsyncSamples < 8) {
-      const gap = nowMs - this.directRafPrevMs;
-      if (gap >= 3.2 && gap <= 25) {
-        this.vsyncMs = this.vsyncSamples === 0 ? gap : Math.min(this.vsyncMs, gap);
-        this.vsyncSamples += 1;
-      }
+    if (this.directRafMs !== null && nowMs > this.directRafMs) {
+      this.refreshMs = Math.min(1000 / 60, nowMs - this.directRafMs);
+      this.lastRefreshSampleMs = nowMs;
     }
-
+    this.directRafMs = nowMs;
+    // rAF timestamps follow the current display even after the window changes monitors.
+    if (nowMs + 0.5 < this.nextActiveFrameMs) {
+      this.rafId = requestAnimationFrame(this.renderFrame);
+      return;
+    }
+    const workStart = performance.now();
     const dt = Math.min(0.05, Math.max(0.001, (nowMs - this.lastFrameMs) / 1000));
     this.lastFrameMs = nowMs;
     this.update(dt);
@@ -2355,32 +2357,27 @@ export class KuroCatEngine3D {
       this.sleepTrimSent = false;
     }
 
-    // Smart adaptive frame pacing:
-    // - Calibrate VSync over first 8 active frames
-    // - User Eco 30 FPS or Game Eco Mode: cap cleanly at 30 FPS (cuts GPU/CPU by 2x-8x!)
-    // - On 60Hz monitors in normal mode: native direct rAF (0 timer jitter)
-    // - On 120-240Hz monitors in normal mode: cap cleanly at 60 FPS (cuts 240Hz GPU/CPU by 4x!)
-    // - Idle awake: ~18 FPS (55ms); Deep sleep: ~12 FPS (85ms)
-    const eco30 = this.gameActive || this.fpsCap === 30;
-    if (busy && (this.vsyncSamples < 8 || (!eco30 && this.vsyncMs >= 13.5))) {
-      this.isIdlePacing = false;
-      this.directRafPrevMs = nowMs;
-      this.rafId = requestAnimationFrame(this.renderFrame);
-      return;
+    let sleepMs: number;
+    if (busy) {
+      const interval = 1000 / (this.gameActive || this.fpsCap === 30 ? 30 : 60);
+      // Keep the phase on e.g. a 144 Hz display, but never catch up missed frames after a stall.
+      const previous = this.nextActiveFrameMs;
+      this.nextActiveFrameMs = (previous > 0 && nowMs - previous < interval ? previous : nowMs) + interval;
+      // Sleep through surplus refreshes. Sample a direct pair periodically to follow display changes.
+      const remaining = this.nextActiveFrameMs - performance.now();
+      sleepMs = remaining - 0.65 * this.refreshMs;
+      if (remaining <= this.refreshMs + 1 || sleepMs < 4 || nowMs - this.lastRefreshSampleMs >= 1000) {
+        this.rafId = requestAnimationFrame(this.renderFrame);
+        return;
+      }
+    } else {
+      this.nextActiveFrameMs = 0;
+      const idleInterval = this.sleepAmt > 0.95 ? 85 : 55;
+      sleepMs = Math.max(4, idleInterval - (performance.now() - workStart) - 5);
     }
 
-    this.directRafPrevMs = 0;
-    const workMs = performance.now() - workStart;
-    const targetMs = busy
-      ? eco30
-        ? 33.33
-        : 16.67
-      : this.sleepAmt > 0.95
-        ? 85
-        : 55;
-    const sleepMs = Math.max(4, Math.round(targetMs - workMs - this.vsyncMs * 0.35));
-
     this.rafId = null;
+    this.directRafMs = null;
     this.isIdlePacing = !busy;
     this.idleTimer = window.setTimeout(() => {
       this.idleTimer = null;

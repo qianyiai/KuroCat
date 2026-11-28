@@ -882,7 +882,7 @@ export class KeyboardAndMouse3D {
     const topMat = createInstancedKeyTopMaterial(atlas.tex);
     const topInst = new THREE.InstancedMesh(topGeo, topMat, keyCount);
     topInst.frustumCulled = false;
-    this.boardDisposables.push(topGeo, topMat);
+    this.boardDisposables.push(sideInst, topInst, topGeo, topMat);
 
     const baseY = this.boardH + 0.008;
     for (let i = 0; i < keyCount; i++) {
